@@ -1,5 +1,7 @@
 # Hangbo Survey Stats
 
+`uv run python survey_stats.py --config job.toml`
+
 基于会展问卷 Excel 的统计脚本。
 
 目前支持按模板原公式计算以下群体：
@@ -7,6 +9,18 @@
 - `参展商`
 - `专业观众`
 - `会展服务商`
+- `会议主承办`
+- `酒店会议主承办`
+- `酒店参会客户`
+- `参会人员`
+- `特色美食廊`
+- `商务简餐`
+- `旅游团餐`
+- `宴会`
+- `婚宴`
+- `自助餐`
+- `酒店宴会`
+- `酒店自助餐`
 
 脚本入口文件：
 - [survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_stats.py)
@@ -78,6 +92,18 @@ uv run python survey_stats.py \
 - `exhibitor`
 - `visitor`
 - `service_provider`
+- `meeting_organizer`
+- `hotel_meeting_organizer`
+- `hotel_meeting_attendee`
+- `meeting_attendee`
+- `catering_food_hall`
+- `catering_business_meal`
+- `catering_tour_meal`
+- `catering_banquet`
+- `catering_wedding_banquet`
+- `catering_buffet`
+- `catering_hotel_banquet`
+- `catering_hotel_buffet`
 
 ### 3. 兼容旧版三输入模式
 
@@ -172,6 +198,9 @@ role_name = "会展服务商"
 注意：
 - `参展商` 和 `专业观众` 当前是按模板原公式原样实现
 - `会展服务商` 也按模板原公式原样实现
+- `会议` 4 个客户分组按你确认后的修正版公式映射实现
+- `餐饮` 8 个客户分组按最新版 `餐饮过程分析.xlsx` 的公式映射实现
+- 如果配置里指定了某个客户分组，但来源 `问卷数据` 中完全没有该分组记录，脚本会照常输出空白结果，并在全部任务结束后统一提示
 - 其中包含模板本身已有的一些特殊列引用，没有做纠正
 
 ## 测试

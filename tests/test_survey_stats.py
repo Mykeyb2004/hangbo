@@ -8,17 +8,35 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from survey_stats import (
+    CATERING_BUFFET_ROLE_NAME,
+    CATERING_BUFFET_TEMPLATE,
+    CATERING_FOOD_HALL_TEMPLATE,
+    CATERING_HOTEL_BUFFET_ROLE_NAME,
+    CATERING_HOTEL_BUFFET_TEMPLATE,
+    CATERING_WEDDING_BANQUET_ROLE_NAME,
+    CATERING_WEDDING_BANQUET_TEMPLATE,
     DEFAULT_SHEET_NAME,
     EXHIBITOR_ROLE_NAME,
     EXHIBITOR_TEMPLATE,
+    HOTEL_MEETING_ATTENDEE_ROLE_NAME,
+    HOTEL_MEETING_ATTENDEE_TEMPLATE,
+    HOTEL_MEETING_ORGANIZER_ROLE_NAME,
+    HOTEL_MEETING_ORGANIZER_TEMPLATE,
+    MEETING_ATTENDEE_ROLE_NAME,
+    MEETING_ATTENDEE_TEMPLATE,
+    MEETING_ORGANIZER_ROLE_NAME,
+    MEETING_ORGANIZER_TEMPLATE,
+    MissingGroupNotice,
     ORGANIZER_ROLE_NAME,
     ORGANIZER_TEMPLATE,
     OVERALL_FILL,
     SECTION_FILL,
     SERVICE_PROVIDER_ROLE_NAME,
     SERVICE_PROVIDER_TEMPLATE,
+    TEMPLATE_DEFINITIONS,
     VISITOR_ROLE_NAME,
     VISITOR_TEMPLATE,
+    build_missing_group_summary,
     build_output_path,
     build_result_dataframe,
     compute_role_stats,
@@ -30,7 +48,7 @@ from survey_stats import (
 
 
 def build_mock_dataframe(role_name: str, role_column: str = "E") -> pd.DataFrame:
-    column_count = excel_column_to_index("CB") + 1
+    column_count = excel_column_to_index("CF") + 1
     columns = [f"col_{index + 1}" for index in range(column_count)]
     rows = [[None for _ in range(column_count)] for _ in range(2)]
 
@@ -81,12 +99,18 @@ def build_mock_dataframe(role_name: str, role_column: str = "E") -> pd.DataFrame
         "BP",
         "BR",
         "BS",
+        "BT",
         "BU",
         "BV",
+        "BW",
         "BX",
         "BY",
+        "BZ",
         "CA",
         "CB",
+        "CC",
+        "CE",
+        "CF",
         "K",
         "M",
         "N",
@@ -161,6 +185,144 @@ class SurveyStatsTest(unittest.TestCase):
         self.assertEqual(service_attitude_row["重要性"], 9.0)
         self.assertEqual(revisit_row["满意度"], 7.0)
         self.assertEqual(revisit_row["重要性"], 10.0)
+
+    def test_catering_wedding_banquet_importance_uses_importance_columns(self) -> None:
+        df = build_mock_dataframe(CATERING_WEDDING_BANQUET_ROLE_NAME, role_column="D")
+        df.iloc[0, excel_column_to_index("AQ")] = 9
+        df.iloc[0, excel_column_to_index("AR")] = 3
+        df.iloc[0, excel_column_to_index("AO")] = 8
+        df.iloc[0, excel_column_to_index("AP")] = 4
+        df.iloc[0, excel_column_to_index("AS")] = 7
+        df.iloc[0, excel_column_to_index("AT")] = 5
+        df.iloc[0, excel_column_to_index("W")] = 6
+        df.iloc[0, excel_column_to_index("X")] = 2
+        df.iloc[0, excel_column_to_index("AK")] = 10
+        df.iloc[0, excel_column_to_index("AL")] = 1
+
+        stats = compute_role_stats(df, CATERING_WEDDING_BANQUET_TEMPLATE)
+        result_df = build_result_dataframe(stats)
+
+        appearance_row = result_df[result_df["指标"] == "工作人员仪容仪表"].iloc[0]
+        attitude_row = result_df[result_df["指标"] == "工作人员服务态度"].iloc[0]
+        skill_row = result_df[result_df["指标"] == "工作人员业务技能"].iloc[0]
+        tea_break_row = result_df[result_df["指标"] == "婚宴茶歇"].iloc[0]
+        temperature_row = result_df[result_df["指标"] == "菜品温度"].iloc[0]
+
+        self.assertEqual(appearance_row["满意度"], 9.0)
+        self.assertEqual(appearance_row["重要性"], 3.0)
+        self.assertEqual(attitude_row["满意度"], 8.0)
+        self.assertEqual(attitude_row["重要性"], 4.0)
+        self.assertEqual(skill_row["满意度"], 7.0)
+        self.assertEqual(skill_row["重要性"], 5.0)
+        self.assertEqual(tea_break_row["满意度"], 6.0)
+        self.assertEqual(tea_break_row["重要性"], 2.0)
+        self.assertEqual(temperature_row["满意度"], 10.0)
+        self.assertEqual(temperature_row["重要性"], 1.0)
+
+    def test_catering_buffet_templates_keep_navigation_and_car_finder_mapping(self) -> None:
+        for role_name, template in (
+            (CATERING_BUFFET_ROLE_NAME, CATERING_BUFFET_TEMPLATE),
+            (CATERING_HOTEL_BUFFET_ROLE_NAME, CATERING_HOTEL_BUFFET_TEMPLATE),
+        ):
+            df = build_mock_dataframe(role_name, role_column="D")
+            df.iloc[0, excel_column_to_index("AY")] = 4
+            df.iloc[0, excel_column_to_index("AZ")] = 5
+            df.iloc[0, excel_column_to_index("BB")] = 8
+            df.iloc[0, excel_column_to_index("BC")] = 6
+
+            stats = compute_role_stats(df, template)
+            result_df = build_result_dataframe(stats)
+
+            navigation_row = result_df[result_df["指标"] == "室内导航系统"].iloc[0]
+            car_finder_row = result_df[result_df["指标"] == "寻车系统"].iloc[0]
+
+            self.assertEqual(navigation_row["满意度"], 4.0)
+            self.assertEqual(navigation_row["重要性"], 5.0)
+            self.assertEqual(car_finder_row["满意度"], 8.0)
+            self.assertEqual(car_finder_row["重要性"], 6.0)
+
+    def test_meeting_organizer_template_uses_fixed_skill_and_car_finder_columns(self) -> None:
+        for role_name, template in (
+            (MEETING_ORGANIZER_ROLE_NAME, MEETING_ORGANIZER_TEMPLATE),
+            (HOTEL_MEETING_ORGANIZER_ROLE_NAME, HOTEL_MEETING_ORGANIZER_TEMPLATE),
+        ):
+            df = build_mock_dataframe(role_name)
+            df.iloc[0, excel_column_to_index("AG")] = 4
+            df.iloc[0, excel_column_to_index("AH")] = 3
+            df.iloc[0, excel_column_to_index("AI")] = 8
+            df.iloc[0, excel_column_to_index("AJ")] = 7
+            df.iloc[0, excel_column_to_index("CB")] = 6
+            df.iloc[0, excel_column_to_index("CC")] = 5
+            df.iloc[0, excel_column_to_index("BY")] = 2
+            df.iloc[0, excel_column_to_index("BZ")] = 1
+
+            stats = compute_role_stats(df, template)
+            result_df = build_result_dataframe(stats)
+
+            skill_row = result_df[result_df["指标"] == "工作人员业务技能"].iloc[0]
+            car_finder_row = result_df[result_df["指标"] == "寻车系统"].iloc[0]
+
+            self.assertEqual(skill_row["满意度"], 4.0)
+            self.assertEqual(skill_row["重要性"], 3.0)
+            self.assertEqual(car_finder_row["满意度"], 6.0)
+            self.assertEqual(car_finder_row["重要性"], 5.0)
+
+    def test_meeting_attendee_templates_use_fixed_skill_and_parking_columns(self) -> None:
+        for role_name, template in (
+            (HOTEL_MEETING_ATTENDEE_ROLE_NAME, HOTEL_MEETING_ATTENDEE_TEMPLATE),
+            (MEETING_ATTENDEE_ROLE_NAME, MEETING_ATTENDEE_TEMPLATE),
+        ):
+            df = build_mock_dataframe(role_name)
+            df.iloc[0, excel_column_to_index("AG")] = 5
+            df.iloc[0, excel_column_to_index("AH")] = 4
+            df.iloc[0, excel_column_to_index("AI")] = 9
+            df.iloc[0, excel_column_to_index("AJ")] = 8
+            df.iloc[0, excel_column_to_index("Q")] = 3
+            df.iloc[0, excel_column_to_index("R")] = 2
+            df.iloc[0, excel_column_to_index("AA")] = 7
+            df.iloc[0, excel_column_to_index("AB")] = 6
+
+            stats = compute_role_stats(df, template)
+            result_df = build_result_dataframe(stats)
+
+            skill_row = result_df[result_df["指标"] == "工作人员业务技能"].iloc[0]
+            parking_row = result_df[result_df["指标"] == "园区停车方便"].iloc[0]
+
+            self.assertEqual(skill_row["满意度"], 5.0)
+            self.assertEqual(skill_row["重要性"], 4.0)
+            self.assertEqual(parking_row["满意度"], 3.0)
+            self.assertEqual(parking_row["重要性"], 2.0)
+
+    def test_missing_group_outputs_blank_statistics_without_error(self) -> None:
+        df = build_mock_dataframe("不存在的餐饮群体", role_column="D")
+        stats = compute_role_stats(df, CATERING_FOOD_HALL_TEMPLATE)
+        result_df = build_result_dataframe(stats)
+
+        self.assertEqual(stats.matched_row_count, 0)
+        self.assertEqual(result_df.iloc[0]["指标"], CATERING_FOOD_HALL_TEMPLATE.role_name)
+        self.assertTrue(pd.isna(result_df.iloc[0]["满意度"]))
+        self.assertTrue(pd.isna(result_df.iloc[0]["重要性"]))
+
+        metric_row = result_df[result_df["指标"] == "菜肴品质"].iloc[0]
+        self.assertTrue(pd.isna(metric_row["满意度"]))
+        self.assertTrue(pd.isna(metric_row["重要性"]))
+
+    def test_build_missing_group_summary_lists_missing_jobs(self) -> None:
+        summary = build_missing_group_summary(
+            [
+                MissingGroupNotice("特色美食廊", Path("/tmp/catering.xlsx"), DEFAULT_SHEET_NAME),
+                MissingGroupNotice("婚宴", Path("/tmp/catering.xlsx"), DEFAULT_SHEET_NAME),
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        self.assertIn("以下指定的客户分组在来源数据中未找到任何匹配记录", summary)
+        self.assertIn("特色美食廊 [catering.xlsx / 问卷数据]", summary)
+        self.assertIn("婚宴 [catering.xlsx / 问卷数据]", summary)
+
+    def test_template_role_names_are_unique(self) -> None:
+        role_names = [role_definition.role_name for role_definition in TEMPLATE_DEFINITIONS.values()]
+        self.assertEqual(len(role_names), len(set(role_names)))
 
     def test_generate_role_report_saves_named_file_with_colors(self) -> None:
         df = build_mock_dataframe(EXHIBITOR_ROLE_NAME)

@@ -10,15 +10,6 @@
 output_dir = "输出结果"
 output_format = "xlsx"
 
-# 如果后面还有其他来源文件，继续往下加：
-#
-#[[jobs]]
-#name = "会议主承办"
-#path = "1-2月原始数据/会议-2.xlsx"
-#sheet = "问卷数据"
-#template = "..."
-#role_name = "会议主承办"
-
 [[jobs]]
 name = "展览主承办"
 path = "1-2月原始数据/展览-2.xlsx"
@@ -46,6 +37,90 @@ path = "1-2月原始数据/7月会展服务商.xlsx"
 sheet = "问卷数据"
 template = "service_provider"
 role_name = "会展服务商"
+
+[[jobs]]
+name = "会议主承办"
+path = "1-2月原始数据/会议-2.xlsx"
+sheet = "问卷数据"
+template = "meeting_organizer"
+role_name = "会议主承办"
+
+[[jobs]]
+name = "酒店会议主承办"
+path = "1-2月原始数据/会议-2.xlsx"
+sheet = "问卷数据"
+template = "hotel_meeting_organizer"
+role_name = "酒店会议主承办"
+
+[[jobs]]
+name = "酒店参会客户"
+path = "1-2月原始数据/会议-2.xlsx"
+sheet = "问卷数据"
+template = "hotel_meeting_attendee"
+role_name = "酒店参会客户"
+
+[[jobs]]
+name = "参会人员"
+path = "1-2月原始数据/会议-2.xlsx"
+sheet = "问卷数据"
+template = "meeting_attendee"
+role_name = "参会人员"
+
+[[jobs]]
+name = "特色美食廊"
+path = "1-2月原始数据/餐饮-4.xlsx"
+sheet = "问卷数据"
+template = "catering_food_hall"
+role_name = "特色美食廊"
+
+[[jobs]]
+name = "商务简餐"
+path = "1-2月原始数据/餐饮-4.xlsx"
+sheet = "问卷数据"
+template = "catering_business_meal"
+role_name = "商务简餐"
+
+[[jobs]]
+name = "旅游团餐"
+path = "1-2月原始数据/餐饮-4.xlsx"
+sheet = "问卷数据"
+template = "catering_tour_meal"
+role_name = "旅游团餐"
+
+[[jobs]]
+name = "宴会"
+path = "1-2月原始数据/餐饮-4.xlsx"
+sheet = "问卷数据"
+template = "catering_banquet"
+role_name = "宴会"
+
+[[jobs]]
+name = "婚宴"
+path = "1-2月原始数据/餐饮-4.xlsx"
+sheet = "问卷数据"
+template = "catering_wedding_banquet"
+role_name = "婚宴"
+
+[[jobs]]
+name = "自助餐"
+path = "1-2月原始数据/餐饮-4.xlsx"
+sheet = "问卷数据"
+template = "catering_buffet"
+role_name = "自助餐"
+
+[[jobs]]
+name = "酒店宴会"
+path = "1-2月原始数据/餐饮-4.xlsx"
+sheet = "问卷数据"
+template = "catering_hotel_banquet"
+role_name = "酒店宴会"
+
+[[jobs]]
+name = "酒店自助餐"
+path = "1-2月原始数据/餐饮-4.xlsx"
+sheet = "问卷数据"
+template = "catering_hotel_buffet"
+role_name = "酒店自助餐"
 
 # 你也可以把“输出文件名”和“问卷中的身份值”拆开：
 #

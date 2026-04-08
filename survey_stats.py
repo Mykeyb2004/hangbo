@@ -18,6 +18,19 @@ ORGANIZER_ROLE_NAME = "展览主承办"
 EXHIBITOR_ROLE_NAME = "参展商"
 VISITOR_ROLE_NAME = "专业观众"
 SERVICE_PROVIDER_ROLE_NAME = "会展服务商"
+MEETING_ORGANIZER_ROLE_NAME = "会议主承办"
+HOTEL_MEETING_ORGANIZER_ROLE_NAME = "酒店会议主承办"
+HOTEL_MEETING_ATTENDEE_ROLE_NAME = "酒店参会客户"
+MEETING_ATTENDEE_ROLE_NAME = "参会人员"
+CATERING_FOOD_HALL_ROLE_NAME = "特色美食廊"
+CATERING_BUSINESS_MEAL_ROLE_NAME = "商务简餐"
+CATERING_TOUR_MEAL_ROLE_NAME = "旅游团餐"
+CATERING_BANQUET_ROLE_NAME = "宴会"
+CATERING_WEDDING_BANQUET_ROLE_NAME = "婚宴"
+CATERING_BUFFET_ROLE_NAME = "自助餐"
+CATERING_HOTEL_BANQUET_ROLE_NAME = "酒店宴会"
+CATERING_HOTEL_BUFFET_ROLE_NAME = "酒店自助餐"
+CATERING_ROLE_COLUMN = "D"
 
 OVERALL_FILL = PatternFill(fill_type="solid", start_color="F4B183", end_color="F4B183")
 SECTION_FILL = PatternFill(fill_type="solid", start_color="C6EFD1", end_color="C6EFD1")
@@ -89,6 +102,21 @@ class SurveyStatistics:
     satisfaction: float | None
     importance: float | None
     sections: tuple[SectionResult, ...]
+    matched_row_count: int
+
+
+@dataclass(frozen=True)
+class GeneratedReport:
+    result_df: pd.DataFrame
+    output_path: Path
+    stats: SurveyStatistics
+
+
+@dataclass(frozen=True)
+class MissingGroupNotice:
+    job_name: str
+    input_path: Path
+    sheet_name: str
 
 
 ORGANIZER_TEMPLATE = RoleDefinition(
@@ -302,11 +330,375 @@ SERVICE_PROVIDER_TEMPLATE = RoleDefinition(
     ),
 )
 
+MEETING_ORGANIZER_SERVICE_SECTION = SectionDefinition(
+    "会展服务",
+    (
+        MetricDefinition("销售经理服务态度", "AS", "AT"),
+        MetricDefinition("销售经理业务能力", "AU", "AV"),
+        MetricDefinition("现场对接协调沟通", "AW", "AX"),
+        MetricDefinition("现场对接服务效率", "AY", "AZ"),
+        MetricDefinition("工作人员仪容仪表", "AE", "AF"),
+        MetricDefinition("工作人员服务态度", "AI", "AJ"),
+        MetricDefinition("工作人员业务技能", "AG", "AH"),
+        MetricDefinition("现场布置与搭建", "BC", "BD"),
+        MetricDefinition("茶歇服务与品质", "BG", "BH"),
+        MetricDefinition("在线服务渠道便捷", "BI", "BJ"),
+        MetricDefinition("报馆流程及服务", "BA", "BB"),
+        MetricDefinition("工程设施设备", "BE", "BF"),
+        MetricDefinition("撤会服务", "BO", "BP"),
+        MetricDefinition("会后回访", "BQ", "BR"),
+        MetricDefinition("整体协调和配合", "BM", "BN"),
+        MetricDefinition("服务响应及时性", "BK", "BL"),
+    ),
+)
+
+MEETING_HARDWARE_SECTION = SectionDefinition(
+    "硬件设施",
+    (
+        MetricDefinition("交通便利，容易到达", "O", "P"),
+        MetricDefinition("标识标牌清晰", "S", "T"),
+        MetricDefinition("会议厅室匹配性，方便性", "W", "X"),
+        MetricDefinition("设施设备齐全", "U", "V"),
+        MetricDefinition("休息空间", "AA", "AB"),
+        MetricDefinition("园区停车方便", "Q", "R"),
+        MetricDefinition("AV效果", "Y", "Z"),
+        MetricDefinition("交通流线", "M", "N"),
+    ),
+)
+
+MEETING_SUPPORT_SECTION = SectionDefinition(
+    "配套服务",
+    (
+        MetricDefinition("餐饮服务", "AK", "AL"),
+        MetricDefinition("客房服务", "AM", "AN"),
+        MetricDefinition("安保服务", "AQ", "AR"),
+        MetricDefinition("保洁服务", "AO", "AP"),
+    ),
+)
+
+MEETING_SMART_SECTION = SectionDefinition(
+    "智慧场馆",
+    (
+        MetricDefinition("杭州国博APP", "BV", "BW"),
+        MetricDefinition("室内导航系统", "BY", "BZ"),
+        MetricDefinition("寻车系统", "CB", "CC"),
+        MetricDefinition("云上看馆", "CE", "CF"),
+    ),
+)
+
+MEETING_ATTENDEE_SERVICE_SECTION = SectionDefinition(
+    "会展服务",
+    (
+        MetricDefinition("工作人员仪容仪表", "AE", "AF"),
+        MetricDefinition("工作人员业务技能", "AG", "AH"),
+        MetricDefinition("工作人员服务态度", "AI", "AJ"),
+        MetricDefinition("接待引导服务", "BS", "BT"),
+        MetricDefinition("茶歇服务品质", "BG", "BH"),
+    ),
+)
+
+MEETING_ATTENDEE_HARDWARE_SECTION = SectionDefinition(
+    "硬件设施",
+    (
+        MetricDefinition("交通便利，容易到达", "O", "P"),
+        MetricDefinition("标识标牌清晰", "S", "T"),
+        MetricDefinition("会议厅室匹配性，方便性", "W", "X"),
+        MetricDefinition("设施设备齐全", "U", "V"),
+        MetricDefinition("休息空间", "AA", "AB"),
+        MetricDefinition("园区停车方便", "Q", "R"),
+        MetricDefinition("AV效果", "Y", "Z"),
+        MetricDefinition("参会环境", "AC", "AD"),
+    ),
+)
+
+MEETING_ORGANIZER_TEMPLATE = RoleDefinition(
+    role_name=MEETING_ORGANIZER_ROLE_NAME,
+    role_column=DEFAULT_ROLE_COLUMN,
+    sections=(
+        MEETING_ORGANIZER_SERVICE_SECTION,
+        MEETING_HARDWARE_SECTION,
+        MEETING_SUPPORT_SECTION,
+        MEETING_SMART_SECTION,
+    ),
+)
+
+HOTEL_MEETING_ORGANIZER_TEMPLATE = RoleDefinition(
+    role_name=HOTEL_MEETING_ORGANIZER_ROLE_NAME,
+    role_column=DEFAULT_ROLE_COLUMN,
+    sections=(
+        MEETING_ORGANIZER_SERVICE_SECTION,
+        MEETING_HARDWARE_SECTION,
+        MEETING_SUPPORT_SECTION,
+        MEETING_SMART_SECTION,
+    ),
+)
+
+HOTEL_MEETING_ATTENDEE_TEMPLATE = RoleDefinition(
+    role_name=HOTEL_MEETING_ATTENDEE_ROLE_NAME,
+    role_column=DEFAULT_ROLE_COLUMN,
+    sections=(
+        MEETING_ATTENDEE_SERVICE_SECTION,
+        MEETING_ATTENDEE_HARDWARE_SECTION,
+        MEETING_SUPPORT_SECTION,
+        MEETING_SMART_SECTION,
+    ),
+)
+
+MEETING_ATTENDEE_TEMPLATE = RoleDefinition(
+    role_name=MEETING_ATTENDEE_ROLE_NAME,
+    role_column=DEFAULT_ROLE_COLUMN,
+    sections=(
+        MEETING_ATTENDEE_SERVICE_SECTION,
+        MEETING_ATTENDEE_HARDWARE_SECTION,
+        MEETING_SUPPORT_SECTION,
+        MEETING_SMART_SECTION,
+    ),
+)
+
+CATERING_BASIC_HARDWARE_SECTION = SectionDefinition(
+    "硬件设施",
+    (
+        MetricDefinition("园区停车方便", "I", "J"),
+        MetricDefinition("交通便利，容易到达", "G", "H"),
+        MetricDefinition("标识标牌清晰", "K", "L"),
+    ),
+)
+
+CATERING_STANDARD_SMART_SECTION = SectionDefinition(
+    "智慧场馆",
+    (
+        MetricDefinition("杭州国博APP", "AV", "AW"),
+        MetricDefinition("寻车系统", "BB", "BC"),
+        MetricDefinition("室内导航系统", "AY", "AZ"),
+        MetricDefinition("云上看馆", "BE", "BF"),
+    ),
+)
+
+CATERING_BUFFET_SMART_SECTION = SectionDefinition(
+    "智慧场馆",
+    (
+        MetricDefinition("杭州国博APP", "AV", "AW"),
+        MetricDefinition("室内导航系统", "AY", "AZ"),
+        MetricDefinition("寻车系统", "BB", "BC"),
+        MetricDefinition("云上看馆", "BE", "BF"),
+    ),
+)
+
+CATERING_BANQUET_HARDWARE_SECTION = SectionDefinition(
+    "硬件设施",
+    (
+        MetricDefinition("标识标牌清晰", "K", "L"),
+        MetricDefinition("宴会视听设备", "Q", "R"),
+        MetricDefinition("园区停车方便", "I", "J"),
+        MetricDefinition("交通便利，容易到达", "G", "H"),
+    ),
+)
+
+CATERING_WEDDING_HARDWARE_SECTION = SectionDefinition(
+    "硬件设施",
+    (
+        MetricDefinition("园区停车方便", "I", "J"),
+        MetricDefinition("交通便利，容易到达", "G", "H"),
+        MetricDefinition("标识标牌清晰", "K", "L"),
+        MetricDefinition("宴会视听设备", "Q", "R"),
+    ),
+)
+
+CATERING_FOOD_HALL_TEMPLATE = RoleDefinition(
+    role_name=CATERING_FOOD_HALL_ROLE_NAME,
+    role_column=CATERING_ROLE_COLUMN,
+    sections=(
+        SectionDefinition(
+            "餐饮服务",
+            (
+                MetricDefinition("菜肴品质", "Y", "Z"),
+                MetricDefinition("菜品口味口相", "AA", "AB"),
+                MetricDefinition("菜品地方特色", "U", "V"),
+                MetricDefinition("菜肴份量", "AI", "AJ"),
+                MetricDefinition("工作人员服务品质", "AM", "AN"),
+                MetricDefinition("就餐区域温度", "M", "N"),
+                MetricDefinition("就餐区域卫生", "O", "P"),
+            ),
+        ),
+        CATERING_BASIC_HARDWARE_SECTION,
+        CATERING_STANDARD_SMART_SECTION,
+    ),
+)
+
+CATERING_BUSINESS_MEAL_TEMPLATE = RoleDefinition(
+    role_name=CATERING_BUSINESS_MEAL_ROLE_NAME,
+    role_column=CATERING_ROLE_COLUMN,
+    sections=(
+        SectionDefinition(
+            "餐饮服务",
+            (
+                MetricDefinition("菜品温度", "AK", "AL"),
+                MetricDefinition("菜品分量", "AI", "AJ"),
+                MetricDefinition("供应速度", "AC", "AD"),
+                MetricDefinition("菜品卫生", "AE", "AF"),
+                MetricDefinition("工作人员服务品质", "AM", "AN"),
+                MetricDefinition("就餐区域温度", "M", "N"),
+                MetricDefinition("就餐区域卫生", "O", "P"),
+            ),
+        ),
+        CATERING_BASIC_HARDWARE_SECTION,
+        CATERING_STANDARD_SMART_SECTION,
+    ),
+)
+
+CATERING_TOUR_MEAL_TEMPLATE = RoleDefinition(
+    role_name=CATERING_TOUR_MEAL_ROLE_NAME,
+    role_column=CATERING_ROLE_COLUMN,
+    sections=(
+        SectionDefinition(
+            "餐饮服务",
+            (
+                MetricDefinition("菜品温度", "AK", "AL"),
+                MetricDefinition("菜品分量", "AI", "AJ"),
+                MetricDefinition("供应速度", "AC", "AD"),
+                MetricDefinition("菜品卫生", "AE", "AF"),
+                MetricDefinition("工作人员服务品质", "AM", "AN"),
+                MetricDefinition("就餐区域温度", "M", "N"),
+                MetricDefinition("就餐区域卫生", "O", "P"),
+            ),
+        ),
+        CATERING_BASIC_HARDWARE_SECTION,
+        CATERING_STANDARD_SMART_SECTION,
+    ),
+)
+
+CATERING_BANQUET_TEMPLATE = RoleDefinition(
+    role_name=CATERING_BANQUET_ROLE_NAME,
+    role_column=CATERING_ROLE_COLUMN,
+    sections=(
+        SectionDefinition(
+            "餐饮服务",
+            (
+                MetricDefinition("菜品温度", "AK", "AL"),
+                MetricDefinition("菜肴品种", "AG", "AH"),
+                MetricDefinition("菜品供应速度", "AC", "AD"),
+                MetricDefinition("菜品口味品相", "AA", "AB"),
+                MetricDefinition("菜品地方特色", "U", "V"),
+                MetricDefinition("接待指引", "S", "T"),
+                MetricDefinition("就餐区域温度", "M", "N"),
+                MetricDefinition("就餐区域卫生", "O", "P"),
+                MetricDefinition("工作人员服务品质", "AM", "AN"),
+            ),
+        ),
+        CATERING_BANQUET_HARDWARE_SECTION,
+        CATERING_STANDARD_SMART_SECTION,
+    ),
+)
+
+CATERING_WEDDING_BANQUET_TEMPLATE = RoleDefinition(
+    role_name=CATERING_WEDDING_BANQUET_ROLE_NAME,
+    role_column=CATERING_ROLE_COLUMN,
+    sections=(
+        SectionDefinition(
+            "餐饮服务",
+            (
+                MetricDefinition("接待指引", "S", "T"),
+                MetricDefinition("菜品口味品相", "AA", "AB"),
+                MetricDefinition("菜品地方特色", "U", "V"),
+                MetricDefinition("菜品供应速度", "AC", "AD"),
+                MetricDefinition("就餐区域温度", "M", "N"),
+                MetricDefinition("就餐区域卫生", "O", "P"),
+                MetricDefinition("工作人员仪容仪表", "AQ", "AR"),
+                MetricDefinition("工作人员服务态度", "AO", "AP"),
+                MetricDefinition("工作人员业务技能", "AS", "AT"),
+                MetricDefinition("婚宴茶歇", "W", "X"),
+                MetricDefinition("菜品温度", "AK", "AL"),
+            ),
+        ),
+        CATERING_WEDDING_HARDWARE_SECTION,
+        CATERING_STANDARD_SMART_SECTION,
+    ),
+)
+
+CATERING_BUFFET_TEMPLATE = RoleDefinition(
+    role_name=CATERING_BUFFET_ROLE_NAME,
+    role_column=CATERING_ROLE_COLUMN,
+    sections=(
+        SectionDefinition(
+            "餐饮服务",
+            (
+                MetricDefinition("菜肴品种", "AG", "AH"),
+                MetricDefinition("菜品供应速度", "AC", "AD"),
+                MetricDefinition("菜品口味口相", "AA", "AB"),
+                MetricDefinition("菜品地方特色", "U", "V"),
+                MetricDefinition("接待指引", "S", "T"),
+                MetricDefinition("工作人员服务品质", "AM", "AN"),
+                MetricDefinition("就餐区域温度", "M", "N"),
+                MetricDefinition("就餐区域卫生", "O", "P"),
+            ),
+        ),
+        CATERING_BASIC_HARDWARE_SECTION,
+        CATERING_BUFFET_SMART_SECTION,
+    ),
+)
+
+CATERING_HOTEL_BANQUET_TEMPLATE = RoleDefinition(
+    role_name=CATERING_HOTEL_BANQUET_ROLE_NAME,
+    role_column=CATERING_ROLE_COLUMN,
+    sections=(
+        SectionDefinition(
+            "餐饮服务",
+            (
+                MetricDefinition("菜品温度", "AK", "AL"),
+                MetricDefinition("菜肴品种", "AG", "AH"),
+                MetricDefinition("菜品供应速度", "AC", "AD"),
+                MetricDefinition("菜品口味品相", "AA", "AB"),
+                MetricDefinition("菜品地方特色", "U", "V"),
+                MetricDefinition("接待指引", "S", "T"),
+                MetricDefinition("就餐区域温度", "M", "N"),
+                MetricDefinition("就餐区域卫生", "O", "P"),
+                MetricDefinition("工作人员服务品质", "AM", "AN"),
+            ),
+        ),
+        CATERING_BANQUET_HARDWARE_SECTION,
+        CATERING_STANDARD_SMART_SECTION,
+    ),
+)
+
+CATERING_HOTEL_BUFFET_TEMPLATE = RoleDefinition(
+    role_name=CATERING_HOTEL_BUFFET_ROLE_NAME,
+    role_column=CATERING_ROLE_COLUMN,
+    sections=(
+        SectionDefinition(
+            "餐饮服务",
+            (
+                MetricDefinition("菜肴品种", "AG", "AH"),
+                MetricDefinition("菜品供应速度", "AC", "AD"),
+                MetricDefinition("菜品口味口相", "AA", "AB"),
+                MetricDefinition("菜品地方特色", "U", "V"),
+                MetricDefinition("接待指引", "S", "T"),
+                MetricDefinition("工作人员服务品质", "AM", "AN"),
+                MetricDefinition("就餐区域温度", "M", "N"),
+                MetricDefinition("就餐区域卫生", "O", "P"),
+            ),
+        ),
+        CATERING_BASIC_HARDWARE_SECTION,
+        CATERING_BUFFET_SMART_SECTION,
+    ),
+)
+
 TEMPLATE_DEFINITIONS: dict[str, RoleDefinition] = {
     "organizer": ORGANIZER_TEMPLATE,
     "exhibitor": EXHIBITOR_TEMPLATE,
     "visitor": VISITOR_TEMPLATE,
     "service_provider": SERVICE_PROVIDER_TEMPLATE,
+    "meeting_organizer": MEETING_ORGANIZER_TEMPLATE,
+    "hotel_meeting_organizer": HOTEL_MEETING_ORGANIZER_TEMPLATE,
+    "hotel_meeting_attendee": HOTEL_MEETING_ATTENDEE_TEMPLATE,
+    "meeting_attendee": MEETING_ATTENDEE_TEMPLATE,
+    "catering_food_hall": CATERING_FOOD_HALL_TEMPLATE,
+    "catering_business_meal": CATERING_BUSINESS_MEAL_TEMPLATE,
+    "catering_tour_meal": CATERING_TOUR_MEAL_TEMPLATE,
+    "catering_banquet": CATERING_BANQUET_TEMPLATE,
+    "catering_wedding_banquet": CATERING_WEDDING_BANQUET_TEMPLATE,
+    "catering_buffet": CATERING_BUFFET_TEMPLATE,
+    "catering_hotel_banquet": CATERING_HOTEL_BANQUET_TEMPLATE,
+    "catering_hotel_buffet": CATERING_HOTEL_BUFFET_TEMPLATE,
 }
 
 
@@ -422,6 +814,7 @@ def compute_role_stats(
         .str.strip()
     )
     role_mask = role_series.eq(role_definition.role_name)
+    matched_row_count = int(role_mask.sum())
 
     section_results: list[SectionResult] = []
     for section in role_definition.sections:
@@ -465,6 +858,7 @@ def compute_role_stats(
         satisfaction=overall_satisfaction,
         importance=overall_importance,
         sections=tuple(section_results),
+        matched_row_count=matched_row_count,
     )
 
 
@@ -666,6 +1060,23 @@ def select_jobs(
     return selected_jobs
 
 
+def generate_role_report_bundle(
+    input_path: Path,
+    role_definition: RoleDefinition,
+    output_path: Path,
+    sheet_name: str = DEFAULT_SHEET_NAME,
+    sheet_title: str | None = None,
+    dry_run: bool = False,
+) -> GeneratedReport:
+    survey_df = load_survey_dataframe(input_path, role_definition, sheet_name=sheet_name)
+    stats = compute_role_stats(survey_df, role_definition)
+    result_df = build_result_dataframe(stats)
+    final_sheet_title = sheet_title or role_definition.role_name
+    if not dry_run:
+        save_results(result_df, output_path, role_definition, final_sheet_title)
+    return GeneratedReport(result_df=result_df, output_path=output_path, stats=stats)
+
+
 def generate_role_report(
     input_path: Path,
     role_definition: RoleDefinition,
@@ -674,13 +1085,31 @@ def generate_role_report(
     sheet_title: str | None = None,
     dry_run: bool = False,
 ) -> tuple[pd.DataFrame, Path]:
-    survey_df = load_survey_dataframe(input_path, role_definition, sheet_name=sheet_name)
-    stats = compute_role_stats(survey_df, role_definition)
-    result_df = build_result_dataframe(stats)
-    final_sheet_title = sheet_title or role_definition.role_name
-    if not dry_run:
-        save_results(result_df, output_path, role_definition, final_sheet_title)
-    return result_df, output_path
+    report = generate_role_report_bundle(
+        input_path=input_path,
+        role_definition=role_definition,
+        output_path=output_path,
+        sheet_name=sheet_name,
+        sheet_title=sheet_title,
+        dry_run=dry_run,
+    )
+    return report.result_df, report.output_path
+
+
+def build_missing_group_summary(notices: list[MissingGroupNotice]) -> str | None:
+    if not notices:
+        return None
+
+    lines = ["以下指定的客户分组在来源数据中未找到任何匹配记录，已输出空白统计结果："]
+    for notice in notices:
+        lines.append(f"- {notice.job_name} [{notice.input_path.name} / {notice.sheet_name}]")
+    return "\n".join(lines)
+
+
+def print_missing_group_summary(notices: list[MissingGroupNotice]) -> None:
+    summary = build_missing_group_summary(notices)
+    if summary is not None:
+        print(f"\n{summary}")
 
 
 def print_report(title: str, result_df: pd.DataFrame, output_path: Path, dry_run: bool = False) -> None:
@@ -697,7 +1126,7 @@ def run_single_mode(args: argparse.Namespace) -> None:
         raise ValueError("--input、--template、--role-name、--output 必须同时提供。")
 
     role_definition = resolve_role_definition(args.template, args.role_name)
-    result_df, output_path = generate_role_report(
+    report = generate_role_report_bundle(
         input_path=args.input,
         role_definition=role_definition,
         output_path=args.output,
@@ -705,7 +1134,11 @@ def run_single_mode(args: argparse.Namespace) -> None:
         sheet_title=args.output.stem,
         dry_run=args.dry_run,
     )
-    print_report(args.role_name, result_df, output_path, dry_run=args.dry_run)
+    print_report(args.role_name, report.result_df, report.output_path, dry_run=args.dry_run)
+    if report.stats.matched_row_count == 0:
+        print_missing_group_summary(
+            [MissingGroupNotice(args.role_name, args.input, args.sheet_name)]
+        )
 
 
 def run_legacy_batch_mode(args: argparse.Namespace) -> None:
@@ -721,10 +1154,11 @@ def run_legacy_batch_mode(args: argparse.Namespace) -> None:
     )
     output_dir = normalize_output_dir(args.output_dir)
     output_format = args.output_format or DEFAULT_OUTPUT_FORMAT
+    missing_group_notices: list[MissingGroupNotice] = []
 
     for role_definition, input_path in jobs:
         output_path = build_output_path(output_dir, role_definition.role_name, output_format)
-        result_df, saved_path = generate_role_report(
+        report = generate_role_report_bundle(
             input_path=input_path,
             role_definition=role_definition,
             output_path=output_path,
@@ -732,7 +1166,18 @@ def run_legacy_batch_mode(args: argparse.Namespace) -> None:
             sheet_title=role_definition.role_name,
             dry_run=args.dry_run,
         )
-        print_report(role_definition.role_name, result_df, saved_path, dry_run=args.dry_run)
+        print_report(
+            role_definition.role_name,
+            report.result_df,
+            report.output_path,
+            dry_run=args.dry_run,
+        )
+        if report.stats.matched_row_count == 0:
+            missing_group_notices.append(
+                MissingGroupNotice(role_definition.role_name, input_path, args.sheet_name)
+            )
+
+    print_missing_group_summary(missing_group_notices)
 
 
 def run_config_mode(args: argparse.Namespace) -> None:
@@ -743,12 +1188,13 @@ def run_config_mode(args: argparse.Namespace) -> None:
 
     output_dir = normalize_output_dir(args.output_dir or config.output_dir)
     global_output_format = args.output_format or config.output_format
+    missing_group_notices: list[MissingGroupNotice] = []
 
     for job in selected_jobs:
         role_definition = resolve_role_definition(job.template_name, job.role_name)
         output_format = job.output_format or global_output_format
         output_path = build_output_path(output_dir, job.output_name, output_format)
-        result_df, saved_path = generate_role_report(
+        report = generate_role_report_bundle(
             input_path=job.path,
             role_definition=role_definition,
             output_path=output_path,
@@ -757,7 +1203,11 @@ def run_config_mode(args: argparse.Namespace) -> None:
             dry_run=args.dry_run,
         )
         title = f"{job.name} ({job.template_name})"
-        print_report(title, result_df, saved_path, dry_run=args.dry_run)
+        print_report(title, report.result_df, report.output_path, dry_run=args.dry_run)
+        if report.stats.matched_row_count == 0:
+            missing_group_notices.append(MissingGroupNotice(job.name, job.path, job.sheet_name))
+
+    print_missing_group_summary(missing_group_notices)
 
 
 def parse_args() -> argparse.Namespace:
