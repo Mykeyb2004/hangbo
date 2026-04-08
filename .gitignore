@@ -1,8 +1,10 @@
 # Project data and local templates
+/datas/
 /1-2月原始数据/
 /月报模版V1.0（数据+雷达图）/
 
 # Generated report outputs
+/output/
 /输出文件.xlsx
 /输出结果/
 /汇总结果/

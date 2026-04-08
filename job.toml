@@ -10,6 +10,11 @@
 output_dir = "输出结果"
 output_format = "xlsx"
 
+# 计算口径：
+# - template: 按 survey_stats.py 模板原样计算（默认）
+# - summary: 按汇总表灰格/非灰格重组二级指标后再计算
+calculation_mode = "template"
+
 [[jobs]]
 name = "展览主承办"
 path = "1-2月原始数据/展览-2.xlsx"

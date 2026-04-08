@@ -13,6 +13,8 @@ DEFAULT_SHEET_NAME = "问卷数据"
 DEFAULT_OUTPUT_FORMAT = "xlsx"
 DEFAULT_ROLE_COLUMN = "E"
 VALID_OUTPUT_FORMATS = ("xlsx", "csv", "md")
+DEFAULT_CALCULATION_MODE = "template"
+VALID_CALCULATION_MODES = ("template", "summary")
 
 ORGANIZER_ROLE_NAME = "展览主承办"
 EXHIBITOR_ROLE_NAME = "参展商"
@@ -81,6 +83,7 @@ class BatchConfig:
     config_path: Path
     output_dir: Path
     output_format: str
+    calculation_mode: str
     jobs: tuple[JobConfig, ...]
 
 
@@ -775,6 +778,37 @@ TEMPLATE_DEFINITIONS: dict[str, RoleDefinition] = {
     "catering_hotel_buffet": CATERING_HOTEL_BUFFET_TEMPLATE,
 }
 
+SUMMARY_EVENT_ROLE_NAMES = frozenset(
+    {
+        ORGANIZER_ROLE_NAME,
+        EXHIBITOR_ROLE_NAME,
+        VISITOR_ROLE_NAME,
+        SERVICE_PROVIDER_ROLE_NAME,
+        MEETING_ORGANIZER_ROLE_NAME,
+        HOTEL_MEETING_ORGANIZER_ROLE_NAME,
+        HOTEL_MEETING_ATTENDEE_ROLE_NAME,
+        MEETING_ATTENDEE_ROLE_NAME,
+    }
+)
+SUMMARY_HOTEL_ROLE_NAMES = frozenset(
+    {
+        HOTEL_INDIVIDUAL_GUEST_ROLE_NAME,
+        HOTEL_GROUP_GUEST_ROLE_NAME,
+    }
+)
+SUMMARY_CATERING_ROLE_NAMES = frozenset(
+    {
+        CATERING_FOOD_HALL_ROLE_NAME,
+        CATERING_BUSINESS_MEAL_ROLE_NAME,
+        CATERING_TOUR_MEAL_ROLE_NAME,
+        CATERING_BANQUET_ROLE_NAME,
+        CATERING_WEDDING_BANQUET_ROLE_NAME,
+        CATERING_BUFFET_ROLE_NAME,
+        CATERING_HOTEL_BANQUET_ROLE_NAME,
+        CATERING_HOTEL_BUFFET_ROLE_NAME,
+    }
+)
+
 
 def excel_column_to_index(column_name: str) -> int:
     index = 0
@@ -785,7 +819,7 @@ def excel_column_to_index(column_name: str) -> int:
     return index - 1
 
 
-def excel_round(value: float | int | None, digits: int = 2) -> float | None:
+def excel_round(value: float | int | Decimal | None, digits: int = 2) -> float | None:
     if value is None or pd.isna(value):
         return None
 
@@ -794,11 +828,19 @@ def excel_round(value: float | int | None, digits: int = 2) -> float | None:
     return float(rounded)
 
 
-def mean_ignore_empty(values: list[float | None]) -> float | None:
-    defined_values = [value for value in values if value is not None and not pd.isna(value)]
+def decimal_mean_ignore_empty(values: list[object]) -> Decimal | None:
+    defined_values = [
+        Decimal(str(value))
+        for value in values
+        if value is not None and not pd.isna(value)
+    ]
     if not defined_values:
         return None
-    return excel_round(sum(defined_values) / len(defined_values))
+    return sum(defined_values) / Decimal(len(defined_values))
+
+
+def mean_ignore_empty(values: list[float | None]) -> float | None:
+    return excel_round(decimal_mean_ignore_empty(list(values)))
 
 
 def format_value(value: float | None) -> str:
@@ -818,6 +860,117 @@ def resolve_role_definition(template_name: str, role_name: str | None = None) ->
         role_column=template.role_column,
         sections=template.sections,
     )
+
+
+def normalize_calculation_mode(calculation_mode: str | None) -> str:
+    normalized = str(calculation_mode or DEFAULT_CALCULATION_MODE).strip().lower()
+    if normalized not in VALID_CALCULATION_MODES:
+        raise ValueError(
+            f"calculation_mode 仅支持: {', '.join(VALID_CALCULATION_MODES)}"
+        )
+    return normalized
+
+
+def clone_section(
+    section: SectionDefinition,
+    *,
+    name: str | None = None,
+    metrics: tuple[MetricDefinition, ...] | None = None,
+) -> SectionDefinition:
+    return SectionDefinition(
+        name=section.name if name is None else name,
+        metrics=section.metrics if metrics is None else metrics,
+    )
+
+
+def find_section(role_definition: RoleDefinition, *section_names: str) -> SectionDefinition:
+    for section_name in section_names:
+        for section in role_definition.sections:
+            if section.name == section_name:
+                return section
+    expected = " / ".join(section_names)
+    raise ValueError(f"{role_definition.role_name} 缺少汇总口径所需的二级指标: {expected}")
+
+
+def find_metric(role_definition: RoleDefinition, metric_name: str) -> MetricDefinition:
+    for section in role_definition.sections:
+        for metric in section.metrics:
+            if metric.name == metric_name:
+                return metric
+    raise ValueError(f"{role_definition.role_name} 缺少汇总口径所需的三级指标: {metric_name}")
+
+
+def exclude_metrics(section: SectionDefinition, *metric_names: str) -> tuple[MetricDefinition, ...]:
+    excluded = set(metric_names)
+    return tuple(metric for metric in section.metrics if metric.name not in excluded)
+
+
+def build_summary_role_definition(role_definition: RoleDefinition) -> RoleDefinition:
+    role_name = role_definition.role_name
+
+    if role_name in SUMMARY_EVENT_ROLE_NAMES:
+        product_section = clone_section(
+            find_section(role_definition, "会展服务", "会场服务"),
+            name="产品服务",
+        )
+        support_section = clone_section(
+            find_section(role_definition, "配套服务"),
+            metrics=exclude_metrics(find_section(role_definition, "配套服务"), "餐饮服务"),
+        )
+        smart_section = clone_section(
+            find_section(role_definition, "智慧场馆", "智慧服务"),
+            name="智慧场馆/服务",
+        )
+        dining_section = SectionDefinition(
+            name="餐饮服务",
+            metrics=(find_metric(role_definition, "餐饮服务"),),
+        )
+        return RoleDefinition(
+            role_name=role_name,
+            role_column=role_definition.role_column,
+            sections=(
+                product_section,
+                clone_section(find_section(role_definition, "硬件设施")),
+                support_section,
+                smart_section,
+                dining_section,
+            ),
+        )
+
+    if role_name in SUMMARY_HOTEL_ROLE_NAMES:
+        return RoleDefinition(
+            role_name=role_name,
+            role_column=role_definition.role_column,
+            sections=(
+                clone_section(find_section(role_definition, "入住服务"), name="产品服务"),
+                clone_section(find_section(role_definition, "硬件设施")),
+                clone_section(find_section(role_definition, "智慧场馆", "智慧服务"), name="智慧场馆/服务"),
+                clone_section(find_section(role_definition, "餐饮服务")),
+            ),
+        )
+
+    if role_name in SUMMARY_CATERING_ROLE_NAMES:
+        return RoleDefinition(
+            role_name=role_name,
+            role_column=role_definition.role_column,
+            sections=(
+                clone_section(find_section(role_definition, "硬件设施")),
+                clone_section(find_section(role_definition, "智慧场馆", "智慧服务"), name="智慧场馆/服务"),
+                clone_section(find_section(role_definition, "餐饮服务")),
+            ),
+        )
+
+    return role_definition
+
+
+def get_effective_role_definition(
+    role_definition: RoleDefinition,
+    calculation_mode: str = DEFAULT_CALCULATION_MODE,
+) -> RoleDefinition:
+    normalized_mode = normalize_calculation_mode(calculation_mode)
+    if normalized_mode == DEFAULT_CALCULATION_MODE:
+        return role_definition
+    return build_summary_role_definition(role_definition)
 
 
 def required_columns(role_definition: RoleDefinition) -> set[str]:
@@ -874,24 +1027,26 @@ def compute_metric_average(
     valid_series = series[role_mask & gt_zero_series.gt(0) & lt_eleven_series.lt(11)]
     if valid_series.empty:
         return None
-    return excel_round(valid_series.mean())
+    return excel_round(decimal_mean_ignore_empty(valid_series.tolist()))
 
 
 def compute_role_stats(
     df: pd.DataFrame,
     role_definition: RoleDefinition,
+    calculation_mode: str = DEFAULT_CALCULATION_MODE,
 ) -> SurveyStatistics:
+    effective_role_definition = get_effective_role_definition(role_definition, calculation_mode)
     role_series = (
-        df.iloc[:, excel_column_to_index(role_definition.role_column)]
+        df.iloc[:, excel_column_to_index(effective_role_definition.role_column)]
         .astype("string")
         .fillna("")
         .str.strip()
     )
-    role_mask = role_series.eq(role_definition.role_name)
+    role_mask = role_series.eq(effective_role_definition.role_name)
     matched_row_count = int(role_mask.sum())
 
     section_results: list[SectionResult] = []
-    for section in role_definition.sections:
+    for section in effective_role_definition.sections:
         metric_results: list[MetricResult] = []
         for metric in section.metrics:
             satisfaction = compute_metric_average(
@@ -928,7 +1083,7 @@ def compute_role_stats(
     overall_satisfaction = mean_ignore_empty([section.satisfaction for section in section_results])
     overall_importance = mean_ignore_empty([section.importance for section in section_results])
     return SurveyStatistics(
-        role_name=role_definition.role_name,
+        role_name=effective_role_definition.role_name,
         satisfaction=overall_satisfaction,
         importance=overall_importance,
         sections=tuple(section_results),
@@ -953,6 +1108,11 @@ def build_result_dataframe(stats: SurveyStatistics) -> pd.DataFrame:
                 "重要性": section.importance,
             }
         )
+        skip_single_metric_detail = (
+            len(section.metrics) == 1 and section.metrics[0].name == section.name
+        )
+        if skip_single_metric_detail:
+            continue
         for metric in section.metrics:
             rows.append(
                 {
@@ -1080,6 +1240,9 @@ def load_batch_config(config_path: Path, default_sheet_name: str = DEFAULT_SHEET
     output_format = str(raw_config.get("output_format", DEFAULT_OUTPUT_FORMAT)).lower()
     if output_format not in VALID_OUTPUT_FORMATS:
         raise ValueError(f"配置文件 output_format 仅支持: {', '.join(VALID_OUTPUT_FORMATS)}")
+    calculation_mode = normalize_calculation_mode(
+        raw_config.get("calculation_mode", DEFAULT_CALCULATION_MODE)
+    )
 
     jobs: list[JobConfig] = []
     for index, job_data in enumerate(raw_jobs, start=1):
@@ -1119,6 +1282,7 @@ def load_batch_config(config_path: Path, default_sheet_name: str = DEFAULT_SHEET
         config_path=config_path.resolve(),
         output_dir=output_dir,
         output_format=output_format,
+        calculation_mode=calculation_mode,
         jobs=tuple(jobs),
     )
 
@@ -1140,14 +1304,16 @@ def generate_role_report_bundle(
     output_path: Path,
     sheet_name: str = DEFAULT_SHEET_NAME,
     sheet_title: str | None = None,
+    calculation_mode: str = DEFAULT_CALCULATION_MODE,
     dry_run: bool = False,
 ) -> GeneratedReport:
-    survey_df = load_survey_dataframe(input_path, role_definition, sheet_name=sheet_name)
-    stats = compute_role_stats(survey_df, role_definition)
+    effective_role_definition = get_effective_role_definition(role_definition, calculation_mode)
+    survey_df = load_survey_dataframe(input_path, effective_role_definition, sheet_name=sheet_name)
+    stats = compute_role_stats(survey_df, effective_role_definition)
     result_df = build_result_dataframe(stats)
     final_sheet_title = sheet_title or role_definition.role_name
     if not dry_run:
-        save_results(result_df, output_path, role_definition, final_sheet_title)
+        save_results(result_df, output_path, effective_role_definition, final_sheet_title)
     return GeneratedReport(result_df=result_df, output_path=output_path, stats=stats)
 
 
@@ -1157,6 +1323,7 @@ def generate_role_report(
     output_path: Path,
     sheet_name: str = DEFAULT_SHEET_NAME,
     sheet_title: str | None = None,
+    calculation_mode: str = DEFAULT_CALCULATION_MODE,
     dry_run: bool = False,
 ) -> tuple[pd.DataFrame, Path]:
     report = generate_role_report_bundle(
@@ -1165,6 +1332,7 @@ def generate_role_report(
         output_path=output_path,
         sheet_name=sheet_name,
         sheet_title=sheet_title,
+        calculation_mode=calculation_mode,
         dry_run=dry_run,
     )
     return report.result_df, report.output_path
@@ -1206,6 +1374,7 @@ def run_single_mode(args: argparse.Namespace) -> None:
         output_path=args.output,
         sheet_name=args.sheet_name,
         sheet_title=args.output.stem,
+        calculation_mode=args.calculation_mode,
         dry_run=args.dry_run,
     )
     print_report(args.role_name, report.result_df, report.output_path, dry_run=args.dry_run)
@@ -1238,6 +1407,7 @@ def run_legacy_batch_mode(args: argparse.Namespace) -> None:
             output_path=output_path,
             sheet_name=args.sheet_name,
             sheet_title=role_definition.role_name,
+            calculation_mode=args.calculation_mode,
             dry_run=args.dry_run,
         )
         print_report(
@@ -1262,6 +1432,7 @@ def run_config_mode(args: argparse.Namespace) -> None:
 
     output_dir = normalize_output_dir(args.output_dir or config.output_dir)
     global_output_format = args.output_format or config.output_format
+    calculation_mode = normalize_calculation_mode(args.calculation_mode or config.calculation_mode)
     missing_group_notices: list[MissingGroupNotice] = []
 
     for job in selected_jobs:
@@ -1274,6 +1445,7 @@ def run_config_mode(args: argparse.Namespace) -> None:
             output_path=output_path,
             sheet_name=job.sheet_name,
             sheet_title=job.name,
+            calculation_mode=calculation_mode,
             dry_run=args.dry_run,
         )
         title = f"{job.name} ({job.template_name})"
@@ -1296,6 +1468,11 @@ def parse_args() -> argparse.Namespace:
         "--output-format",
         choices=VALID_OUTPUT_FORMATS,
         help=f"覆盖输出格式，支持 {', '.join(VALID_OUTPUT_FORMATS)}",
+    )
+    parser.add_argument(
+        "--calculation-mode",
+        choices=VALID_CALCULATION_MODES,
+        help=f"计算口径，支持 {', '.join(VALID_CALCULATION_MODES)}；默认 template",
     )
     parser.add_argument("--output-dir", type=Path, help="批量模式输出目录，或覆盖配置里的 output_dir")
 

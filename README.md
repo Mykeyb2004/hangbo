@@ -1,6 +1,22 @@
 # Hangbo Survey Stats
 
+### 完整输出流程，从客户分组分项文件，到满意度汇总
+```bash
+uv run python survey_stats.py --config job.toml --calculation-mode template
+uv run python summary_table.py --input-dir '输出结果' --output-dir '汇总结果'
+```
+
+
 `uv run python survey_stats.py --config job.toml`
+
+
+```bash	
+uv run python summary_table.py \                                                                                        ─╯
+  --input-dir '输出结果' \
+  --output-dir '汇总结果'
+```
+
+
 
 基于会展问卷 Excel 的统计脚本。
 
@@ -27,6 +43,9 @@
 脚本入口文件：
 - [survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_stats.py)
 - [summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/summary_table.py)
+- [check_start_time_month.py](/Users/zhangqijin/PycharmProjects/hangbo/check_start_time_month.py)
+- [fill_year_month_columns.py](/Users/zhangqijin/PycharmProjects/hangbo/fill_year_month_columns.py)
+- [merge_questionnaire_workbooks.py](/Users/zhangqijin/PycharmProjects/hangbo/merge_questionnaire_workbooks.py)
 
 依赖通过 `uv` 管理，所有命令都建议使用 `uv run`。
 
@@ -48,6 +67,116 @@ uv sync
 uv run python survey_stats.py --config job.toml
 uv run python summary_table.py --input-dir 输出结果 --output-dir 汇总结果
 ```
+
+默认推荐使用 `template` 计算模式。
+
+- `template`：按各客户群体模板原公式计算，适合当前正式流程，也是 [job.toml](/Users/zhangqijin/PycharmProjects/hangbo/job.toml) 的默认配置
+- `summary`：按汇总表实际展示维度重组后再计算，会改变部分客户群体的二级指标结构和总体分口径
+
+说明：
+- [summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/summary_table.py) 的 `总分` 是直接读取输入分表中的总体满意度
+- 所以只要先用同一批分表生成汇总表，汇总表 `总分` 与对应客户分组分表的 `总分` 就会一致
+- `template` 不是“唯一能保证一致”的模式，但它是当前默认模式，也是保持“原模板公式口径”不变的推荐模式
+- 如果改用 `summary` 模式，请先重新生成 [输出结果](/Users/zhangqijin/PycharmProjects/hangbo/输出结果) 再跑汇总；这时汇总表也会与分表一致，但总分的业务口径会和 `template` 模式不同
+
+## `check_start_time_month.py` 用法
+
+用途：
+- 遍历指定目录下的 `xlsx`
+- 只读取 `问卷数据` sheet
+- 检查 `开始填表时间` 是否都属于同一个月
+- 列出每个文件对应的月份，以及字段缺失、空值、跨月情况
+
+基本用法：
+
+```bash
+uv run python check_start_time_month.py --input-dir '1-2月原始数据'
+```
+
+递归扫描子目录：
+
+```bash
+uv run python check_start_time_month.py --input-dir '1-2月原始数据' --recursive
+```
+
+输出会包含：
+- 整体结论：是否都属于同一个月、检测到的月份
+- 文件明细：逐个文件属于哪个月，是否跨月，是否缺少字段或 sheet
+
+详细说明见：
+- [docs/开始填表时间月份检查.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/开始填表时间月份检查.md)
+
+## `fill_year_month_columns.py` 用法
+
+用途：
+- 遍历指定目录下的 `xlsx`
+- 只处理 `问卷数据` sheet
+- 写入 `年份`、`月份` 两列
+- 两列都按文本值写入；如果列已存在，则覆盖原值
+
+基本用法：
+
+```bash
+uv run python fill_year_month_columns.py \
+  --input-dir './datas/1-2月' \
+  --year '2026' \
+  --month '02'
+```
+
+递归扫描子目录：
+
+```bash
+uv run python fill_year_month_columns.py \
+  --input-dir './datas/1-2月' \
+  --year '2026' \
+  --month '02' \
+  --recursive
+```
+
+输出会包含：
+- 扫描文件数
+- 更新成功数量、跳过/失败数量
+- 每个文件是否已更新，或是否缺少 `问卷数据` sheet
+- 如果存在跳过文件，会在结尾单独列出被跳过的文件和原因
+
+详细说明见：
+- [docs/问卷数据年月填充.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/问卷数据年月填充.md)
+
+## `merge_questionnaire_workbooks.py` 用法
+
+用途：
+- 接收多个输入目录
+- 按文件名合并这些目录中的 Excel 文件
+- 只读取并输出 `问卷数据` sheet
+- 如果同名文件列名不一致，则跳过该文件并输出列差异
+
+基本用法：
+
+```bash
+uv run python merge_questionnaire_workbooks.py \
+  --input-dir './datas/1月' \
+  --input-dir './datas/2月' \
+  --output-dir './datas/合并结果'
+```
+
+递归扫描子目录：
+
+```bash
+uv run python merge_questionnaire_workbooks.py \
+  --input-dir './datas/1月' \
+  --input-dir './datas/2月' \
+  --output-dir './datas/合并结果' \
+  --recursive
+```
+
+输出会包含：
+- 文件名分组数
+- 合并成功数量、跳过/失败数量
+- 每个同名文件是否已合并，或是否因为缺少 `问卷数据` sheet、列名不一致而被跳过
+- 当列名不一致时，会列出两个文件的完整列名和差异列
+
+详细说明见：
+- [docs/同名Excel问卷数据合并.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/同名Excel问卷数据合并.md)
 
 ## `survey_stats.py` 用法
 
@@ -93,6 +222,14 @@ uv run python survey_stats.py \
   --output-format xlsx
 ```
 
+覆盖计算模式：
+
+```bash
+uv run python survey_stats.py \
+  --config report_jobs.example.toml \
+  --calculation-mode summary
+```
+
 ### 2. 单任务模式
 
 适合临时只算一个群体。
@@ -111,6 +248,7 @@ uv run python survey_stats.py \
 - `--role-name`：来源 sheet 中用于筛选的客户分组名称
 - `--output`：输出文件路径
 - `--sheet-name`：来源 sheet 名，默认 `问卷数据`
+- `--calculation-mode`：计算口径，支持 `template`、`summary`
 - `--dry-run`：只预览结果，不写文件
 
 可选模板：
@@ -257,6 +395,7 @@ role_name = "会展服务商"
 字段说明：
 - `output_dir`：输出目录
 - `output_format`：默认输出格式，支持 `xlsx`、`csv`、`md`
+- `calculation_mode`：计算口径，支持 `template`、`summary`；默认 `template`
 - `jobs[].name`：任务名，同时默认作为输出文件名和 sheet 名
 - `jobs[].path`：该统计表对应的来源 Excel 文件
 - `jobs[].sheet`：该统计表对应的来源 sheet
@@ -283,6 +422,9 @@ role_name = "会展服务商"
 - `餐饮` 8 个客户分组按最新版 `餐饮过程分析.xlsx` 的公式映射实现
 - 如果配置里指定了某个客户分组，但来源 `问卷数据` 中完全没有该分组记录，脚本会照常输出空白结果，并在全部任务结束后统一提示
 - 其中包含模板本身已有的一些特殊列引用，没有做纠正
+
+两种计算模式的差异见：
+- [docs/survey_stats计算模式.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/survey_stats计算模式.md)
 
 ## 测试
 

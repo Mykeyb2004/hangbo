@@ -44,10 +44,12 @@ from survey_stats import (
     build_output_path,
     build_result_dataframe,
     compute_role_stats,
+    compute_metric_average,
     excel_column_to_index,
     excel_round,
     generate_role_report,
     load_batch_config,
+    mean_ignore_empty,
 )
 
 
@@ -146,6 +148,20 @@ class SurveyStatsTest(unittest.TestCase):
     def test_excel_round_matches_excel_style(self) -> None:
         self.assertEqual(excel_round(9.125), 9.13)
 
+    def test_mean_ignore_empty_avoids_float_boundary_rounding_error(self) -> None:
+        self.assertEqual(mean_ignore_empty([9.48, 9.52, 9.53, 9.49]), 9.51)
+
+    def test_compute_metric_average_avoids_float_boundary_rounding_error(self) -> None:
+        df = pd.DataFrame(
+            {
+                "role": [SERVICE_PROVIDER_ROLE_NAME] * 4,
+                "score": [9.48, 9.52, 9.53, 9.49],
+            }
+        )
+        role_mask = df["role"].eq(SERVICE_PROVIDER_ROLE_NAME)
+
+        self.assertEqual(compute_metric_average(df, role_mask, "B"), 9.51)
+
     def test_organizer_stats_follow_template_mapping(self) -> None:
         df = build_mock_dataframe(ORGANIZER_ROLE_NAME)
         stats = compute_role_stats(df, ORGANIZER_TEMPLATE)
@@ -158,6 +174,62 @@ class SurveyStatsTest(unittest.TestCase):
         section_row = result_df[result_df["指标"] == "会展服务"].iloc[0]
         self.assertEqual(section_row["满意度"], 9.0)
         self.assertEqual(section_row["重要性"], 9.0)
+
+    def test_summary_mode_rebuilds_organizer_sections_to_match_summary_dimensions(self) -> None:
+        df = build_mock_dataframe(ORGANIZER_ROLE_NAME)
+        stats = compute_role_stats(df, ORGANIZER_TEMPLATE, calculation_mode="summary")
+        result_df = build_result_dataframe(stats)
+
+        section_names = result_df["指标"].tolist()
+        self.assertIn("产品服务", section_names)
+        self.assertIn("硬件设施", section_names)
+        self.assertIn("配套服务", section_names)
+        self.assertIn("智慧场馆/服务", section_names)
+        self.assertIn("餐饮服务", section_names)
+        self.assertNotIn("会展服务", section_names)
+
+        product_row = result_df[result_df["指标"] == "产品服务"].iloc[0]
+        dining_row = result_df[result_df["指标"] == "餐饮服务"].iloc[0]
+
+        self.assertEqual(product_row["满意度"], 9.0)
+        self.assertEqual(product_row["重要性"], 9.0)
+        self.assertEqual(dining_row["满意度"], 9.0)
+        self.assertEqual(dining_row["重要性"], 9.0)
+
+    def test_summary_mode_rebuilds_hotel_guest_sections_and_omits_grey_dimensions(self) -> None:
+        df = build_mock_dataframe(HOTEL_INDIVIDUAL_GUEST_ROLE_NAME, role_column="C")
+        stats = compute_role_stats(
+            df,
+            HOTEL_INDIVIDUAL_GUEST_TEMPLATE,
+            calculation_mode="summary",
+        )
+        result_df = build_result_dataframe(stats)
+
+        section_names = result_df["指标"].tolist()
+        self.assertIn("产品服务", section_names)
+        self.assertIn("硬件设施", section_names)
+        self.assertIn("智慧场馆/服务", section_names)
+        self.assertIn("餐饮服务", section_names)
+        self.assertNotIn("入住服务", section_names)
+        self.assertNotIn("配套服务", section_names)
+
+    def test_summary_mode_splits_dining_out_of_support_section_for_organizer(self) -> None:
+        df = build_mock_dataframe(ORGANIZER_ROLE_NAME)
+        df.iloc[0, excel_column_to_index("BG")] = 3
+        df.iloc[0, excel_column_to_index("BH")] = 3
+
+        stats = compute_role_stats(df, ORGANIZER_TEMPLATE, calculation_mode="summary")
+        result_df = build_result_dataframe(stats)
+
+        support_row = result_df[result_df["指标"] == "配套服务"].iloc[0]
+        dining_row = result_df[
+            (result_df["指标"] == "餐饮服务") & result_df["满意度"].notna()
+        ].iloc[0]
+
+        self.assertEqual(support_row["满意度"], 9.0)
+        self.assertEqual(support_row["重要性"], 9.0)
+        self.assertEqual(dining_row["满意度"], 3.0)
+        self.assertEqual(dining_row["重要性"], 3.0)
 
     def test_organizer_template_uses_corrected_importance_columns(self) -> None:
         df = build_mock_dataframe(ORGANIZER_ROLE_NAME)
@@ -468,6 +540,30 @@ role_name = "会展服务商"
             self.assertEqual(config.jobs[0].name, "展览主承办")
             self.assertEqual(config.jobs[0].template_name, "organizer")
             self.assertEqual(config.jobs[1].template_name, "service_provider")
+
+    def test_load_batch_config_reads_summary_calculation_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_path = temp_path / "jobs.toml"
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+calculation_mode = "summary"
+
+[[jobs]]
+name = "展览主承办"
+path = "source.xlsx"
+sheet = "问卷数据"
+template = "organizer"
+role_name = "展览主承办"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            config = load_batch_config(config_path)
+            self.assertEqual(config.calculation_mode, "summary")
 
 
 if __name__ == "__main__":

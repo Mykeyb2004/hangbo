@@ -4,6 +4,9 @@
 
 output_dir = "输出结果"
 output_format = "xlsx"
+# - template: 按模板原始二级指标计算
+# - summary: 按汇总表灰格/非灰格重组后计算
+calculation_mode = "template"
 
 # 每个 [[jobs]] 直接绑定自己的数据源，更直观：
 # - path: 来源 Excel 文件
