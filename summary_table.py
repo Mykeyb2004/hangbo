@@ -27,6 +27,7 @@ SUMMARY_HEADER_FILL = PatternFill(fill_type="solid", start_color="8EA9DB", end_c
 SUMMARY_SIDE_FILL = PatternFill(fill_type="solid", start_color="D9E2F3", end_color="D9E2F3")
 SUMMARY_NA_FILL = PatternFill(fill_type="solid", start_color="BFBFBF", end_color="BFBFBF")
 SUMMARY_WHITE_FILL = PatternFill(fill_type="solid", start_color="FFFFFF", end_color="FFFFFF")
+SUMMARY_NUMBER_FORMAT = "0.00"
 SUMMARY_BORDER = Border(
     left=Side(style="thin", color="000000"),
     right=Side(style="thin", color="000000"),
@@ -303,7 +304,6 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
         selectors={
             "总分": overall_selector(),
             "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
             "智慧场馆/服务": SMART_SELECTORS,
             "餐饮服务": dining_selector(),
         },
@@ -594,7 +594,7 @@ def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> No
                 fill=fill,
                 font=SUMMARY_BODY_FONT,
             )
-            worksheet.cell(row=excel_row, column=column_index).number_format = "0.##"
+            worksheet.cell(row=excel_row, column=column_index).number_format = SUMMARY_NUMBER_FORMAT
 
     total_row_index = data_start_row + len(rows)
     worksheet.merge_cells(start_row=total_row_index, start_column=1, end_row=total_row_index, end_column=2)
@@ -610,7 +610,7 @@ def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> No
         value = total_values[column_name]
         if value is not None:
             worksheet.cell(row=total_row_index, column=column_index, value=value)
-        worksheet.cell(row=total_row_index, column=column_index).number_format = "0.##"
+        worksheet.cell(row=total_row_index, column=column_index).number_format = SUMMARY_NUMBER_FORMAT
 
     merge_category_cells(worksheet, rows, data_start_row)
     worksheet.freeze_panes = "C3"

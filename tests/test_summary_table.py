@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
 from openpyxl import Workbook, load_workbook
 
 from summary_table import (
@@ -160,6 +161,32 @@ class SummaryTableTest(unittest.TestCase):
             self.assertEqual(row["配套服务"], 9.2)
             self.assertEqual(row["餐饮服务"], 9.4)
 
+    def test_food_hall_support_section_is_not_used_in_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = Path(temp_dir)
+            write_role_report(
+                input_dir / "特色美食廊.xlsx",
+                "特色美食廊",
+                [
+                    ("特色美食廊", 9.4, "overall"),
+                    ("餐饮服务", 9.8, "section"),
+                    ("硬件设施", 9.1, "section"),
+                    ("配套服务", 8.5, "section"),
+                    ("智慧场馆", 8.7, "section"),
+                ],
+            )
+
+            reports = load_report_snapshots(input_dir)
+            rows = build_summary_rows(reports)
+            summary_df = build_summary_dataframe(rows)
+
+            row = summary_df[summary_df["样本类型"] == "特色美食廊"].iloc[0]
+            self.assertEqual(row["总分"], 9.4)
+            self.assertEqual(row["硬件设施"], 9.1)
+            self.assertEqual(row["智慧场馆/服务"], 8.7)
+            self.assertEqual(row["餐饮服务"], 9.8)
+            self.assertTrue(pd.isna(row["配套服务"]))
+
     def test_generate_summary_report_creates_expected_layout_and_grey_na_cells(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -204,7 +231,42 @@ class SummaryTableTest(unittest.TestCase):
 
             self.assertIsNotNone(business_meal_row)
             self.assertEqual(worksheet.cell(row=business_meal_row, column=3).value, 9.58)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=3).number_format, "0.00")
             self.assertEqual(worksheet.cell(row=business_meal_row, column=6).fill.start_color.rgb, "00BFBFBF")
+            self.assertEqual(worksheet.cell(row=worksheet.max_row, column=3).number_format, "0.00")
+
+    def test_food_hall_support_cell_is_greyed_out(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "inputs"
+            output_dir = temp_path / "outputs"
+            input_dir.mkdir()
+            output_dir.mkdir()
+
+            write_role_report(
+                input_dir / "特色美食廊.xlsx",
+                "特色美食廊",
+                [
+                    ("特色美食廊", 9.4, "overall"),
+                    ("餐饮服务", 9.8, "section"),
+                    ("硬件设施", 9.1, "section"),
+                    ("配套服务", 8.5, "section"),
+                    ("智慧场馆", 8.7, "section"),
+                ],
+            )
+
+            output_path = generate_summary_report(input_dir=input_dir, output_dir=output_dir)
+            worksheet = load_workbook(output_path).active
+
+            food_hall_row = None
+            for row_index in range(3, worksheet.max_row + 1):
+                if worksheet.cell(row=row_index, column=2).value == "特色美食廊":
+                    food_hall_row = row_index
+                    break
+
+            self.assertIsNotNone(food_hall_row)
+            self.assertIsNone(worksheet.cell(row=food_hall_row, column=6).value)
+            self.assertEqual(worksheet.cell(row=food_hall_row, column=6).fill.start_color.rgb, "00BFBFBF")
 
 
 if __name__ == "__main__":

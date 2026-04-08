@@ -40,7 +40,21 @@ uv sync
 
 如果你只是直接运行脚本，也可以直接用 `uv run`，`uv` 会自动准备环境。
 
-## 最常用用法
+## 推荐流程
+
+典型使用顺序是先跑 [survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_stats.py)，把原始问卷 `xlsx` 计算成“单群体统计结果”；再跑 [summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/summary_table.py)，把这些单群体统计结果汇总成客户类型总表。
+
+```bash
+uv run python survey_stats.py --config job.toml
+uv run python summary_table.py --input-dir 输出结果 --output-dir 汇总结果
+```
+
+## `survey_stats.py` 用法
+
+用途：
+- 输入原始问卷 `xlsx`
+- 按客户群体模板计算满意度、重要性
+- 输出单群体统计结果，支持 `xlsx`、`csv`、`md`
 
 ### 1. 配置文件批量模式
 
@@ -70,12 +84,13 @@ uv run python survey_stats.py \
   --job 参展商
 ```
 
-覆盖输出目录：
+覆盖输出目录或输出格式：
 
 ```bash
 uv run python survey_stats.py \
   --config report_jobs.example.toml \
-  --output-dir 输出结果
+  --output-dir 输出结果 \
+  --output-format xlsx
 ```
 
 ### 2. 单任务模式
@@ -89,6 +104,14 @@ uv run python survey_stats.py \
   --role-name '参展商' \
   --output '输出结果/参展商.xlsx'
 ```
+
+常用参数：
+- `--input`：原始问卷 Excel 文件
+- `--template`：模板类型
+- `--role-name`：来源 sheet 中用于筛选的客户分组名称
+- `--output`：输出文件路径
+- `--sheet-name`：来源 sheet 名，默认 `问卷数据`
+- `--dry-run`：只预览结果，不写文件
 
 可选模板：
 - `organizer`
@@ -122,9 +145,32 @@ uv run python survey_stats.py \
   --output-dir '输出结果'
 ```
 
-### 4. 客户类型汇总表
+### 4. 输出内容
 
-如果某个目录里已经放好了 `survey_stats.py` 导出的单群体统计结果 `xlsx`，可以继续汇总成截图里的“客户类型满意度情况表”：
+单群体统计结果默认包含：
+- 总体行
+- 一级维度行
+- 明细指标行
+
+导出为 `xlsx` 时会自动加基础样式：
+- 总体行填充橙色
+- 一级维度行填充浅绿色
+- 文本加粗并居中
+
+如果把 `--output-dir` 误传成了一个像文件名的值，例如 `输出文件.xlsx`，脚本会自动转成目录：
+
+```text
+输出文件_outputs/
+```
+
+## `summary_table.py` 用法
+
+用途：
+- 输入 `survey_stats.py` 导出的单群体统计结果 `xlsx`
+- 按截图中的客户大类、样本类型、列映射汇总
+- 输出 `客户类型满意度汇总表.xlsx`
+
+### 1. 基本用法
 
 ```bash
 uv run python summary_table.py \
@@ -132,14 +178,42 @@ uv run python summary_table.py \
   --output-dir '汇总结果'
 ```
 
-可选参数：
-- `--output-name`：自定义输出文件名，默认 `客户类型满意度汇总表.xlsx`
-- `--recursive`：递归扫描子目录中的 `xlsx`
+### 2. 自定义输出文件名
 
-说明：
-- 输入目录中的 `xlsx` 需要是单群体统计结果，第一行表头包含 `指标`、`满意度`
-- 汇总脚本会按 [docs/客户类型汇总表.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/客户类型汇总表.md) 中定义的“大类/样本类型/列映射”自动归并
-- `专项调研` 会保留空行，但当前不做数据匹配
+```bash
+uv run python summary_table.py \
+  --input-dir '输出结果' \
+  --output-dir '汇总结果' \
+  --output-name '2026年1-2月客户类型汇总表.xlsx'
+```
+
+### 3. 递归扫描子目录
+
+```bash
+uv run python summary_table.py \
+  --input-dir '输出结果' \
+  --output-dir '汇总结果' \
+  --recursive
+```
+
+### 4. 输入要求
+
+- 输入目录中的文件需要是单群体统计结果 `xlsx`
+- 第一行表头至少包含 `指标`、`满意度`
+- 最稳妥的输入来源，就是直接使用 `survey_stats.py` 导出的 `xlsx`
+- 汇总脚本会自动跳过不符合该结构的 `xlsx`
+
+### 5. 输出规则
+
+- 输出文件默认名为 `客户类型满意度汇总表.xlsx`
+- 工作表名为 `汇总表`
+- 顶部标题为 `杭博客户类型满意度情况表`
+- 数值单元格固定显示 2 位小数
+- `专项调研` 保留空行，当前不做数据匹配
+
+映射规则见：
+- [docs/客户类型汇总表.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/客户类型汇总表.md)
+- [docs/汇总文件对应关系.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/汇总文件对应关系.md)
 
 ## 配置文件说明
 
@@ -190,24 +264,6 @@ role_name = "会展服务商"
 - `jobs[].role_name`：按来源 sheet 中哪个身份值筛选
 - `jobs[].output_name`：可选，单独指定输出文件名
 - `jobs[].output_format`：可选，覆盖全局输出格式
-
-## 输出结果
-
-默认支持以下格式：
-- `xlsx`
-- `csv`
-- `md`
-
-导出为 `xlsx` 时会自动添加基础样式：
-- 总体行填充橙色
-- 一级维度行填充浅绿色
-- 文本加粗并居中
-
-如果把 `--output-dir` 误传成了一个像文件名的值，例如 `输出文件.xlsx`，脚本会自动转成目录：
-
-```text
-输出文件_outputs/
-```
 
 ## 计算规则
 
