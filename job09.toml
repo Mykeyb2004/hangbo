@@ -1,0 +1,120 @@
+# 9 月批量统计任务配置
+#
+# 运行方式：
+# uv run python survey_stats.py --config job09.toml
+#
+# 只校验不落文件：
+# uv run python survey_stats.py --config job09.toml --dry-run
+#
+# 说明：
+# - 当前只包含 datas/9月 下“survey_stats.py 已支持模板”且“问卷数据 中实际有记录”的客户群体
+# - datas/9月/旅游.xlsx 暂未纳入，因为 survey_stats.py 目前没有“游客 / 旅行社工作人员”模板
+
+output_dir = "输出结果/9月"
+output_format = "xlsx"
+calculation_mode = "template"
+
+[[jobs]]
+name = "展览主承办"
+path = "datas/9月/展览.xlsx"
+sheet = "问卷数据"
+template = "organizer"
+role_name = "展览主承办"
+
+[[jobs]]
+name = "参展商"
+path = "datas/9月/展览.xlsx"
+sheet = "问卷数据"
+template = "exhibitor"
+role_name = "参展商"
+
+[[jobs]]
+name = "专业观众"
+path = "datas/9月/展览.xlsx"
+sheet = "问卷数据"
+template = "visitor"
+role_name = "专业观众"
+
+[[jobs]]
+name = "会议主承办"
+path = "datas/9月/会议.xlsx"
+sheet = "问卷数据"
+template = "meeting_organizer"
+role_name = "会议主承办"
+
+[[jobs]]
+name = "酒店会议主承办"
+path = "datas/9月/会议.xlsx"
+sheet = "问卷数据"
+template = "hotel_meeting_organizer"
+role_name = "酒店会议主承办"
+
+[[jobs]]
+name = "酒店参会客户"
+path = "datas/9月/会议.xlsx"
+sheet = "问卷数据"
+template = "hotel_meeting_attendee"
+role_name = "酒店参会客户"
+
+[[jobs]]
+name = "参会人员"
+path = "datas/9月/会议.xlsx"
+sheet = "问卷数据"
+template = "meeting_attendee"
+role_name = "参会人员"
+
+[[jobs]]
+name = "会展服务商"
+path = "datas/9月/会展服务商.xlsx"
+sheet = "问卷数据"
+template = "service_provider"
+role_name = "会展服务商"
+
+[[jobs]]
+name = "散客"
+path = "datas/9月/酒店.xlsx"
+sheet = "问卷数据"
+template = "hotel_individual_guest"
+role_name = "散客"
+
+[[jobs]]
+name = "住宿团队"
+path = "datas/9月/酒店.xlsx"
+sheet = "问卷数据"
+template = "hotel_group_guest"
+role_name = "住宿团队"
+
+[[jobs]]
+name = "特色美食廊"
+path = "datas/9月/餐饮.xlsx"
+sheet = "问卷数据"
+template = "catering_food_hall"
+role_name = "特色美食廊"
+
+[[jobs]]
+name = "婚宴"
+path = "datas/9月/餐饮.xlsx"
+sheet = "问卷数据"
+template = "catering_wedding_banquet"
+role_name = "婚宴"
+
+[[jobs]]
+name = "自助餐"
+path = "datas/9月/餐饮.xlsx"
+sheet = "问卷数据"
+template = "catering_buffet"
+role_name = "自助餐"
+
+[[jobs]]
+name = "酒店宴会"
+path = "datas/9月/餐饮.xlsx"
+sheet = "问卷数据"
+template = "catering_hotel_banquet"
+role_name = "酒店宴会"
+
+[[jobs]]
+name = "酒店自助餐"
+path = "datas/9月/餐饮.xlsx"
+sheet = "问卷数据"
+template = "catering_hotel_buffet"
+role_name = "酒店自助餐"
