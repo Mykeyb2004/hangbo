@@ -1,0 +1,49 @@
+# 批量统计示例
+# 运行方式：
+# uv run python survey_stats.py --config report_jobs.example.toml
+
+output_dir = "输出结果"
+output_format = "xlsx"
+
+# 每个 [[jobs]] 直接绑定自己的数据源，更直观：
+# - path: 来源 Excel 文件
+# - sheet: 来源 sheet
+# - template: 使用哪套解析模板
+# - role_name: 按哪个身份值分组
+
+[[jobs]]
+name = "展览主承办"
+path = "1-2月原始数据/展览-2.xlsx"
+sheet = "问卷数据"
+template = "organizer"
+role_name = "展览主承办"
+
+[[jobs]]
+name = "参展商"
+path = "1-2月原始数据/展览-2.xlsx"
+sheet = "问卷数据"
+template = "exhibitor"
+role_name = "参展商"
+
+[[jobs]]
+name = "专业观众"
+path = "1-2月原始数据/展览-2.xlsx"
+sheet = "问卷数据"
+template = "visitor"
+role_name = "专业观众"
+
+[[jobs]]
+name = "会展服务商"
+path = "1-2月原始数据/7月会展服务商.xlsx"
+sheet = "问卷数据"
+template = "service_provider"
+role_name = "会展服务商"
+
+# 你也可以把“输出文件名”和“问卷里的身份值”拆开：
+#[[jobs]]
+#name = "专业买家-3月"
+#output_name = "专业买家-3月"
+#path = "1-2月原始数据/展览-3.xlsx"
+#sheet = "问卷数据"
+#template = "visitor"
+#role_name = "专业买家"

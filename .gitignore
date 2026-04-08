@@ -1,0 +1,34 @@
+# Project data and local templates
+/1-2月原始数据/
+/月报模版V1.0（数据+雷达图）/
+
+# Generated report outputs
+/输出文件.xlsx
+/输出结果/
+
+# Runtime logs
+/logs/
+*.log
+
+# uv-managed virtual environment
+/.venv/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
