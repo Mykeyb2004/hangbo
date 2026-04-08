@@ -57,6 +57,8 @@
   - 汇总实现说明、运行命令和产物位置。
   - 根据截图将表格配色调整为酒红/粉色系，并重新生成 9 月 PPT。
   - 新增 `.env` / `system_role.md` 驱动的备注页 LLM 分析能力。
+  - 新增 LLM 流式输出进度、partial checkpoint 保留和中断恢复保护。
+  - 调整 prompt，对空值二级/三级指标不再要求特别提及。
 - Files created/modified:
   - `输出结果/9月满意度报告.pptx` (generated)
 
@@ -72,6 +74,8 @@
 | 实际生成 | `uv run python generate_ppt.py --config ppt_job.example.toml` | 成功输出 PPT | 已生成 15 页 PPT | ✓ |
 | 样式回归 | `uv run python -m unittest tests.test_generate_ppt` | 样式断言通过 | 已校验表头/分组/正文/边框颜色 | ✓ |
 | LLM 备注页测试 | `uv run python -m unittest tests.test_generate_ppt` | fake client 写入备注页 | 已通过 | ✓ |
+| LLM 中断保护 | `uv run python -m unittest tests.test_generate_ppt` | 中断后保留 partial checkpoint | 已通过 | ✓ |
+| 示例配置校验 | `uv run python generate_ppt.py --config ppt_job.example.toml --dry-run` | 配置解析通过 | 已通过 | ✓ |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |

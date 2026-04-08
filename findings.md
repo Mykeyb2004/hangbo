@@ -21,6 +21,8 @@
 - 表格样式已调整为接近截图的配色主题：深酒红表头、玫粉分组行、浅粉灰正文、白色分隔线。
 - `python-pptx` 的 `slide.notes_slide.notes_text_frame` 可直接写入备注页文本。
 - 仓库当前不存在 `.env`，因此补充了 `.env.example` 作为连接配置模板。
+- LLM 备注页现已支持流式输出到终端，并在生成过程中持续把收到的文本写回备注页。
+- 当 LLM 中断或用户 `Ctrl+C` 终止时，会保留 `*.partial.pptx` 检查点，已完成页和当前页已收到的片段文本都可保住。
 
 ## Technical Decisions
 | Decision | Rationale |
@@ -32,6 +34,8 @@
 | 采用“摘要表 + 明细表”布局 | 让总体行不参与左右双表拆分 |
 | 实际默认值采用 `max_single_table_rows=18`、`max_split_table_rows=19` | 与当前模板布局和 9 月数据最匹配 |
 | LLM 备注页做成可开关配置 | 不影响现有纯本地 PPT 生成流程 |
+| 空值二级/三级指标不再单独喂给 LLM | 用户明确要求空值不特别提及 |
+| LLM 流式过程中按字符阈值保存检查点 | 在失败、中断场景下尽量保住已生成文本 |
 
 ## Issues Encountered
 | Issue | Resolution |
