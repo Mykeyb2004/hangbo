@@ -22,6 +22,10 @@ from survey_stats import (
     HOTEL_MEETING_ATTENDEE_TEMPLATE,
     HOTEL_MEETING_ORGANIZER_ROLE_NAME,
     HOTEL_MEETING_ORGANIZER_TEMPLATE,
+    HOTEL_GROUP_GUEST_ROLE_NAME,
+    HOTEL_GROUP_GUEST_TEMPLATE,
+    HOTEL_INDIVIDUAL_GUEST_ROLE_NAME,
+    HOTEL_INDIVIDUAL_GUEST_TEMPLATE,
     MEETING_ATTENDEE_ROLE_NAME,
     MEETING_ATTENDEE_TEMPLATE,
     MEETING_ORGANIZER_ROLE_NAME,
@@ -112,6 +116,11 @@ def build_mock_dataframe(role_name: str, role_column: str = "E") -> pd.DataFrame
         "CE",
         "CF",
         "K",
+        "L",
+        "G",
+        "H",
+        "I",
+        "J",
         "M",
         "N",
         "O",
@@ -121,6 +130,7 @@ def build_mock_dataframe(role_name: str, role_column: str = "E") -> pd.DataFrame
         "S",
         "T",
         "U",
+        "V",
         "W",
         "X",
         "Y",
@@ -149,7 +159,41 @@ class SurveyStatsTest(unittest.TestCase):
         self.assertEqual(section_row["满意度"], 9.0)
         self.assertEqual(section_row["重要性"], 9.0)
 
-    def test_visitor_stats_keep_original_formula_quirks(self) -> None:
+    def test_organizer_template_uses_corrected_importance_columns(self) -> None:
+        df = build_mock_dataframe(ORGANIZER_ROLE_NAME)
+        df.iloc[0, excel_column_to_index("AW")] = 9
+        df.iloc[0, excel_column_to_index("AX")] = 2
+        df.iloc[0, excel_column_to_index("AY")] = 8
+        df.iloc[0, excel_column_to_index("K")] = 7
+        df.iloc[0, excel_column_to_index("L")] = 3
+        df.iloc[0, excel_column_to_index("U")] = 6
+        df.iloc[0, excel_column_to_index("V")] = 4
+        df.iloc[0, excel_column_to_index("W")] = 5
+        df.iloc[0, excel_column_to_index("X")] = 1
+        df.iloc[0, excel_column_to_index("BK")] = 8
+        df.iloc[0, excel_column_to_index("BL")] = 2
+
+        stats = compute_role_stats(df, ORGANIZER_TEMPLATE)
+        result_df = build_result_dataframe(stats)
+
+        report_process_row = result_df[result_df["指标"] == "报馆流程及服务"].iloc[0]
+        traffic_flow_row = result_df[result_df["指标"] == "交通流线"].iloc[0]
+        cargo_route_row = result_df[result_df["指标"] == "货运通道"].iloc[0]
+        facility_row = result_df[result_df["指标"] == "设施设备齐全"].iloc[0]
+        security_row = result_df[result_df["指标"] == "安保服务"].iloc[0]
+
+        self.assertEqual(report_process_row["满意度"], 9.0)
+        self.assertEqual(report_process_row["重要性"], 2.0)
+        self.assertEqual(traffic_flow_row["满意度"], 7.0)
+        self.assertEqual(traffic_flow_row["重要性"], 3.0)
+        self.assertEqual(cargo_route_row["满意度"], 6.0)
+        self.assertEqual(cargo_route_row["重要性"], 4.0)
+        self.assertEqual(facility_row["满意度"], 5.0)
+        self.assertEqual(facility_row["重要性"], 1.0)
+        self.assertEqual(security_row["满意度"], 8.0)
+        self.assertEqual(security_row["重要性"], 2.0)
+
+    def test_visitor_stats_use_corrected_importance_columns(self) -> None:
         df = build_mock_dataframe(VISITOR_ROLE_NAME)
         df.iloc[0, excel_column_to_index("W")] = 7
         df.iloc[0, excel_column_to_index("X")] = 3
@@ -163,9 +207,9 @@ class SurveyStatsTest(unittest.TestCase):
         security_row = result_df[result_df["指标"] == "安保服务"].iloc[0]
 
         self.assertEqual(facility_row["满意度"], 7.0)
-        self.assertEqual(facility_row["重要性"], 7.0)
+        self.assertEqual(facility_row["重要性"], 3.0)
         self.assertEqual(security_row["满意度"], 8.0)
-        self.assertEqual(security_row["重要性"], 8.0)
+        self.assertEqual(security_row["重要性"], 2.0)
 
     def test_service_provider_stats_keep_original_formula_quirks(self) -> None:
         df = build_mock_dataframe(SERVICE_PROVIDER_ROLE_NAME, role_column="D")
@@ -292,6 +336,36 @@ class SurveyStatsTest(unittest.TestCase):
             self.assertEqual(skill_row["重要性"], 4.0)
             self.assertEqual(parking_row["满意度"], 3.0)
             self.assertEqual(parking_row["重要性"], 2.0)
+
+    def test_hotel_guest_templates_use_role_column_c_and_fixed_importance_columns(self) -> None:
+        for role_name, template in (
+            (HOTEL_INDIVIDUAL_GUEST_ROLE_NAME, HOTEL_INDIVIDUAL_GUEST_TEMPLATE),
+            (HOTEL_GROUP_GUEST_ROLE_NAME, HOTEL_GROUP_GUEST_TEMPLATE),
+        ):
+            df = build_mock_dataframe(role_name, role_column="C")
+            df.iloc[0, excel_column_to_index("Q")] = 4
+            df.iloc[0, excel_column_to_index("R")] = 3
+            df.iloc[0, excel_column_to_index("AA")] = 8
+            df.iloc[0, excel_column_to_index("AB")] = 7
+            df.iloc[0, excel_column_to_index("Y")] = 6
+            df.iloc[0, excel_column_to_index("Z")] = 5
+            df.iloc[0, excel_column_to_index("AI")] = 2
+            df.iloc[0, excel_column_to_index("AJ")] = 1
+
+            stats = compute_role_stats(df, template)
+            result_df = build_result_dataframe(stats)
+
+            room_facility_row = result_df[result_df["指标"] == "客房设施设备"].iloc[0]
+            checkin_row = result_df[result_df["指标"] == "入住登记"].iloc[0]
+            appearance_row = result_df[result_df["指标"] == "工作人员仪容仪表"].iloc[0]
+
+            self.assertEqual(stats.matched_row_count, 1)
+            self.assertEqual(room_facility_row["满意度"], 4.0)
+            self.assertEqual(room_facility_row["重要性"], 3.0)
+            self.assertEqual(checkin_row["满意度"], 6.0)
+            self.assertEqual(checkin_row["重要性"], 5.0)
+            self.assertEqual(appearance_row["满意度"], 2.0)
+            self.assertEqual(appearance_row["重要性"], 1.0)
 
     def test_missing_group_outputs_blank_statistics_without_error(self) -> None:
         df = build_mock_dataframe("不存在的餐饮群体", role_column="D")

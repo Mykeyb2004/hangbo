@@ -67,6 +67,20 @@ template = "meeting_attendee"
 role_name = "参会人员"
 
 [[jobs]]
+name = "散客"
+path = "1-2月原始数据/8月酒店过程分析.xlsx"
+sheet = "问卷数据"
+template = "hotel_individual_guest"
+role_name = "散客"
+
+[[jobs]]
+name = "住宿团队"
+path = "1-2月原始数据/8月酒店过程分析.xlsx"
+sheet = "问卷数据"
+template = "hotel_group_guest"
+role_name = "住宿团队"
+
+[[jobs]]
 name = "特色美食廊"
 path = "1-2月原始数据/餐饮-4.xlsx"
 sheet = "问卷数据"

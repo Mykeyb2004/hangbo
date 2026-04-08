@@ -39,6 +39,20 @@ sheet = "问卷数据"
 template = "service_provider"
 role_name = "会展服务商"
 
+[[jobs]]
+name = "散客"
+path = "1-2月原始数据/8月酒店过程分析.xlsx"
+sheet = "问卷数据"
+template = "hotel_individual_guest"
+role_name = "散客"
+
+[[jobs]]
+name = "住宿团队"
+path = "1-2月原始数据/8月酒店过程分析.xlsx"
+sheet = "问卷数据"
+template = "hotel_group_guest"
+role_name = "住宿团队"
+
 # 你也可以把“输出文件名”和“问卷里的身份值”拆开：
 #[[jobs]]
 #name = "专业买家-3月"

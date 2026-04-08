@@ -22,6 +22,8 @@ MEETING_ORGANIZER_ROLE_NAME = "会议主承办"
 HOTEL_MEETING_ORGANIZER_ROLE_NAME = "酒店会议主承办"
 HOTEL_MEETING_ATTENDEE_ROLE_NAME = "酒店参会客户"
 MEETING_ATTENDEE_ROLE_NAME = "参会人员"
+HOTEL_INDIVIDUAL_GUEST_ROLE_NAME = "散客"
+HOTEL_GROUP_GUEST_ROLE_NAME = "住宿团队"
 CATERING_FOOD_HALL_ROLE_NAME = "特色美食廊"
 CATERING_BUSINESS_MEAL_ROLE_NAME = "商务简餐"
 CATERING_TOUR_MEAL_ROLE_NAME = "旅游团餐"
@@ -30,6 +32,7 @@ CATERING_WEDDING_BANQUET_ROLE_NAME = "婚宴"
 CATERING_BUFFET_ROLE_NAME = "自助餐"
 CATERING_HOTEL_BANQUET_ROLE_NAME = "酒店宴会"
 CATERING_HOTEL_BUFFET_ROLE_NAME = "酒店自助餐"
+HOTEL_ROLE_COLUMN = "C"
 CATERING_ROLE_COLUMN = "D"
 
 OVERALL_FILL = PatternFill(fill_type="solid", start_color="F4B183", end_color="F4B183")
@@ -133,7 +136,7 @@ ORGANIZER_TEMPLATE = RoleDefinition(
                 MetricDefinition("工作人员仪容仪表", "AM", "AN"),
                 MetricDefinition("工作人员服务态度", "AO", "AP"),
                 MetricDefinition("工作人员业务技能", "AQ", "AR"),
-                MetricDefinition("报馆流程及服务", "AW", "AY"),
+                MetricDefinition("报馆流程及服务", "AW", "AX"),
                 MetricDefinition("现场布置与搭建", "BA", "BB"),
                 MetricDefinition("在线服务渠道便捷", "AY", "AZ"),
                 MetricDefinition("撤展服务", "BC", "BD"),
@@ -148,10 +151,10 @@ ORGANIZER_TEMPLATE = RoleDefinition(
             (
                 MetricDefinition("园区停车方便", "O", "P"),
                 MetricDefinition("交通便利，容易到达", "M", "N"),
-                MetricDefinition("交通流线", "K", "K"),
-                MetricDefinition("货运通道", "U", "U"),
+                MetricDefinition("交通流线", "K", "L"),
+                MetricDefinition("货运通道", "U", "V"),
                 MetricDefinition("标识标牌清晰", "S", "T"),
-                MetricDefinition("设施设备齐全", "W", "W"),
+                MetricDefinition("设施设备齐全", "W", "X"),
                 MetricDefinition("展厅使用情况", "Y", "Z"),
             ),
         ),
@@ -160,7 +163,7 @@ ORGANIZER_TEMPLATE = RoleDefinition(
             (
                 MetricDefinition("餐饮服务", "BG", "BH"),
                 MetricDefinition("客房服务", "BI", "BJ"),
-                MetricDefinition("安保服务", "BK", "BK"),
+                MetricDefinition("安保服务", "BK", "BL"),
                 MetricDefinition("保洁服务", "BM", "BN"),
             ),
         ),
@@ -242,7 +245,7 @@ VISITOR_TEMPLATE = RoleDefinition(
                 MetricDefinition("园区停车方便", "O", "P"),
                 MetricDefinition("交通便利，容易到达", "M", "N"),
                 MetricDefinition("标识标牌清晰", "S", "T"),
-                MetricDefinition("设施设备齐全", "W", "W"),
+                MetricDefinition("设施设备齐全", "W", "X"),
                 MetricDefinition("展厅使用情况", "Y", "Z"),
                 MetricDefinition("参展环境", "AC", "AD"),
             ),
@@ -252,7 +255,7 @@ VISITOR_TEMPLATE = RoleDefinition(
             (
                 MetricDefinition("餐饮服务", "BG", "BH"),
                 MetricDefinition("客房服务", "BI", "BJ"),
-                MetricDefinition("安保服务", "BK", "BK"),
+                MetricDefinition("安保服务", "BK", "BL"),
                 MetricDefinition("保洁服务", "BM", "BN"),
             ),
         ),
@@ -452,6 +455,75 @@ MEETING_ATTENDEE_TEMPLATE = RoleDefinition(
         MEETING_ATTENDEE_HARDWARE_SECTION,
         MEETING_SUPPORT_SECTION,
         MEETING_SMART_SECTION,
+    ),
+)
+
+HOTEL_HARDWARE_SECTION = SectionDefinition(
+    "硬件设施",
+    (
+        MetricDefinition("交通便利，容易到达", "G", "H"),
+        MetricDefinition("标识标牌清晰", "K", "L"),
+        MetricDefinition("适合商务旅行", "M", "N"),
+        MetricDefinition("园区停车方便", "I", "J"),
+        MetricDefinition("客房整体环境", "O", "P"),
+        MetricDefinition("客房设施设备", "Q", "R"),
+        MetricDefinition("住宿用品质量", "S", "T"),
+        MetricDefinition("客房私密性", "U", "V"),
+    ),
+)
+
+HOTEL_CHECKIN_SERVICE_SECTION = SectionDefinition(
+    "入住服务",
+    (
+        MetricDefinition("礼宾服务", "W", "X"),
+        MetricDefinition("入住登记", "Y", "Z"),
+        MetricDefinition("客房服务", "AA", "AB"),
+        MetricDefinition("离店退房", "AC", "AD"),
+        MetricDefinition("工作人员仪容仪表", "AI", "AJ"),
+        MetricDefinition("工作人员服务态度", "AG", "AH"),
+        MetricDefinition("工作人员业务技能", "AE", "AF"),
+    ),
+)
+
+HOTEL_DINING_SECTION = SectionDefinition(
+    "餐饮服务",
+    (
+        MetricDefinition("自助早餐", "AK", "AL"),
+        MetricDefinition("自助晚餐", "AM", "AN"),
+        MetricDefinition("送餐服务", "AO", "AP"),
+        MetricDefinition("零点服务", "AQ", "AR"),
+    ),
+)
+
+HOTEL_SMART_SECTION = SectionDefinition(
+    "智慧场馆",
+    (
+        MetricDefinition("杭州国博APP", "AT", "AU"),
+        MetricDefinition("室内导航系统", "AW", "AX"),
+        MetricDefinition("寻车系统", "AZ", "BA"),
+        MetricDefinition("云上看馆", "BC", "BD"),
+    ),
+)
+
+HOTEL_INDIVIDUAL_GUEST_TEMPLATE = RoleDefinition(
+    role_name=HOTEL_INDIVIDUAL_GUEST_ROLE_NAME,
+    role_column=HOTEL_ROLE_COLUMN,
+    sections=(
+        HOTEL_HARDWARE_SECTION,
+        HOTEL_CHECKIN_SERVICE_SECTION,
+        HOTEL_DINING_SECTION,
+        HOTEL_SMART_SECTION,
+    ),
+)
+
+HOTEL_GROUP_GUEST_TEMPLATE = RoleDefinition(
+    role_name=HOTEL_GROUP_GUEST_ROLE_NAME,
+    role_column=HOTEL_ROLE_COLUMN,
+    sections=(
+        HOTEL_HARDWARE_SECTION,
+        HOTEL_CHECKIN_SERVICE_SECTION,
+        HOTEL_DINING_SECTION,
+        HOTEL_SMART_SECTION,
     ),
 )
 
@@ -691,6 +763,8 @@ TEMPLATE_DEFINITIONS: dict[str, RoleDefinition] = {
     "hotel_meeting_organizer": HOTEL_MEETING_ORGANIZER_TEMPLATE,
     "hotel_meeting_attendee": HOTEL_MEETING_ATTENDEE_TEMPLATE,
     "meeting_attendee": MEETING_ATTENDEE_TEMPLATE,
+    "hotel_individual_guest": HOTEL_INDIVIDUAL_GUEST_TEMPLATE,
+    "hotel_group_guest": HOTEL_GROUP_GUEST_TEMPLATE,
     "catering_food_hall": CATERING_FOOD_HALL_TEMPLATE,
     "catering_business_meal": CATERING_BUSINESS_MEAL_TEMPLATE,
     "catering_tour_meal": CATERING_TOUR_MEAL_TEMPLATE,

@@ -13,6 +13,8 @@
 - `酒店会议主承办`
 - `酒店参会客户`
 - `参会人员`
+- `散客`
+- `住宿团队`
 - `特色美食廊`
 - `商务简餐`
 - `旅游团餐`
@@ -24,6 +26,7 @@
 
 脚本入口文件：
 - [survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_stats.py)
+- [summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/summary_table.py)
 
 依赖通过 `uv` 管理，所有命令都建议使用 `uv run`。
 
@@ -96,6 +99,8 @@ uv run python survey_stats.py \
 - `hotel_meeting_organizer`
 - `hotel_meeting_attendee`
 - `meeting_attendee`
+- `hotel_individual_guest`
+- `hotel_group_guest`
 - `catering_food_hall`
 - `catering_business_meal`
 - `catering_tour_meal`
@@ -116,6 +121,25 @@ uv run python survey_stats.py \
   --visitor-input '文件3.xlsx' \
   --output-dir '输出结果'
 ```
+
+### 4. 客户类型汇总表
+
+如果某个目录里已经放好了 `survey_stats.py` 导出的单群体统计结果 `xlsx`，可以继续汇总成截图里的“客户类型满意度情况表”：
+
+```bash
+uv run python summary_table.py \
+  --input-dir '输出结果' \
+  --output-dir '汇总结果'
+```
+
+可选参数：
+- `--output-name`：自定义输出文件名，默认 `客户类型满意度汇总表.xlsx`
+- `--recursive`：递归扫描子目录中的 `xlsx`
+
+说明：
+- 输入目录中的 `xlsx` 需要是单群体统计结果，第一行表头包含 `指标`、`满意度`
+- 汇总脚本会按 [docs/客户类型汇总表.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/客户类型汇总表.md) 中定义的“大类/样本类型/列映射”自动归并
+- `专项调研` 会保留空行，但当前不做数据匹配
 
 ## 配置文件说明
 
@@ -199,6 +223,7 @@ role_name = "会展服务商"
 - `参展商` 和 `专业观众` 当前是按模板原公式原样实现
 - `会展服务商` 也按模板原公式原样实现
 - `会议` 4 个客户分组按你确认后的修正版公式映射实现
+- `酒店住宿` 2 个客户分组按最新版 `酒店过程分析.xlsx` 的公式映射实现
 - `餐饮` 8 个客户分组按最新版 `餐饮过程分析.xlsx` 的公式映射实现
 - 如果配置里指定了某个客户分组，但来源 `问卷数据` 中完全没有该分组记录，脚本会照常输出空白结果，并在全部任务结束后统一提示
 - 其中包含模板本身已有的一些特殊列引用，没有做纠正
@@ -213,3 +238,4 @@ uv run python -m unittest discover -s tests
 
 测试文件：
 - [tests/test_survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/tests/test_survey_stats.py)
+- [tests/test_summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/tests/test_summary_table.py)
