@@ -18,6 +18,9 @@
 - 不同 Excel 的行数不同，约在 19 到 38 行之间，需要做自适应行高或分页策略。
 - 对 9 月实际数据按二级标题切分后，左右双表最优容量需求在 9 到 19 行之间。
 - 其中 `会展服务商`、`会议主承办`、`酒店会议主承办` 的最优单侧容量都需要 19 行。
+- 表格样式已调整为接近截图的配色主题：深酒红表头、玫粉分组行、浅粉灰正文、白色分隔线。
+- `python-pptx` 的 `slide.notes_slide.notes_text_frame` 可直接写入备注页文本。
+- 仓库当前不存在 `.env`，因此补充了 `.env.example` 作为连接配置模板。
 
 ## Technical Decisions
 | Decision | Rationale |
@@ -28,6 +31,7 @@
 | 对空值单元格做可配置渲染 | 样本中存在 `None`，例如 `客房服务`、`室内导航系统` 等行 |
 | 采用“摘要表 + 明细表”布局 | 让总体行不参与左右双表拆分 |
 | 实际默认值采用 `max_single_table_rows=18`、`max_split_table_rows=19` | 与当前模板布局和 9 月数据最匹配 |
+| LLM 备注页做成可开关配置 | 不影响现有纯本地 PPT 生成流程 |
 
 ## Issues Encountered
 | Issue | Resolution |
@@ -45,6 +49,8 @@
 - `/Users/zhangqijin/PycharmProjects/hangbo/ppt_job.example.toml`
 - `/Users/zhangqijin/PycharmProjects/hangbo/docs/PPT批量生成.md`
 - `/Users/zhangqijin/PycharmProjects/hangbo/tests/test_generate_ppt.py`
+- `/Users/zhangqijin/PycharmProjects/hangbo/.env.example`
+- `/Users/zhangqijin/PycharmProjects/hangbo/system_role.md`
 
 ## Visual/Browser Findings
 - `template.pptx` 文件存在，大小约 689 KB，说明不是空模板。
@@ -54,6 +60,8 @@
 - 生成后的 `输出结果/9月满意度报告.pptx` 共 15 页。
 - `特色美食廊`、`自助餐`、`酒店自助餐` 使用 2 张表（摘要 + 单表）。
 - 其余 12 个客户群体使用 3 张表（摘要 + 左右双表）。
+- 当前生成版表格配色已从默认蓝绿橙切换为截图风格的红粉色系。
+- 备注页占位文本框存在，可直接用于写入 LLM 生成的分析段落。
 
 ---
 *Update this file after every 2 view/browser/search operations*

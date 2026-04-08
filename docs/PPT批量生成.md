@@ -60,6 +60,57 @@
 - `layout.*`
   - 表格位置和尺寸，单位为英寸
 
+### 备注页 LLM 分析
+
+支持使用 OpenAI 兼容的 `openai` Python SDK，为每一页 PPT 自动生成约 300 字的数据分析，并写入备注页。
+
+配置项位于：
+
+```toml
+[llm_notes]
+enabled = false
+env_path = ".env"
+system_role_path = "system_role.md"
+target_chars = 300
+temperature = 0.4
+max_tokens = 500
+checkpoint_chars = 80
+```
+
+说明：
+
+- `enabled`
+  - 是否启用备注页分析
+- `env_path`
+  - `.env` 文件路径
+- `system_role_path`
+  - system role 提示词文件路径
+- `target_chars`
+  - 目标字数，默认约 300 字
+- `temperature`
+  - LLM 生成温度
+- `max_tokens`
+  - 单次生成的最大 token 数
+- `checkpoint_chars`
+  - 流式生成时累计到多少字符，就把当前备注写回备注页并保存一次检查点
+
+`.env` 参考 [/.env.example](/Users/zhangqijin/PycharmProjects/hangbo/.env.example)：
+
+```env
+OPENAI_API_KEY=your-api-key
+OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_TEMPERATURE=0.4
+```
+
+当前代码会从 `.env` 中读取这些基础连接配置：
+
+- `OPENAI_API_KEY` 或 `LLM_API_KEY`
+- `OPENAI_BASE_URL` 或 `LLM_BASE_URL`
+- `OPENAI_MODEL` 或 `LLM_MODEL`
+- `OPENAI_TEMPERATURE` 或 `LLM_TEMPERATURE`（可选，会覆盖配置文件中的 `temperature`）
+- `OPENAI_TIMEOUT` 或 `LLM_TIMEOUT`（可选）
+
 ## 运行方式
 
 使用配置文件：
@@ -67,6 +118,29 @@
 ```bash
 uv run python generate_ppt.py --config ppt_job.example.toml
 ```
+
+启用备注页分析前，先复制环境变量模板并填写真实值：
+
+```bash
+cp .env.example .env
+```
+
+然后把 `ppt_job.example.toml` 中的 `[llm_notes].enabled` 改成 `true`，再执行生成命令。
+
+启用后，终端会按页输出备注页分析进度，例如：
+
+```text
+[1/15] 正在生成备注页分析：专业观众
+[1/15] 流式输出：本页数据显示，整体满意度和重要性均处于较高水平……
+[1/15] 已保存检查点：9月满意度报告.partial.pptx
+[1/15] 备注页分析完成：专业观众（298字）
+```
+
+如果 LLM 调用失败、超时、卡住后被手动中断，或用户使用 `Ctrl+C` 终止程序：
+
+- 已成功完成的页面备注会保存在 `*.partial.pptx` 检查点文件中
+- 当前页已流式接收到的部分文本，也会尽量写入备注并保存到检查点
+- 成功全部生成后，检查点文件会自动删除，只保留正式输出文件
 
 直接传参数：
 
@@ -90,6 +164,12 @@ uv run python generate_ppt.py --config ppt_job.example.toml --dry-run
 - 标题下方为总体满意度/重要性摘要
 - 下方为明细指标表
 - 超长明细会拆成左右双表，但不会把同一个二级标题拆到两边
+- 表格主题默认采用截图风格近似配色：
+  - 表头为深酒红
+  - 总体/二级标题行为玫粉色
+  - 正文行为浅粉灰色
+  - 表格分隔线为白色
+- 若启用 `llm_notes`，每页备注页会额外写入一段基于当页表格数据的中文分析描述
 
 ## 测试
 

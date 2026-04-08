@@ -1,16 +1,28 @@
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from openpyxl import Workbook
 from pptx import Presentation
+from pptx.oxml.ns import qn
 
 from generate_ppt import (
+    BODY_FILL_COLOR,
+    BODY_TEXT_COLOR,
+    BORDER_COLOR,
+    HEADER_FILL_COLOR,
+    HEADER_TEXT_COLOR,
+    LlmNotesConfig,
+    OVERALL_FILL_COLOR,
     PptBatchConfig,
     PptLayoutConfig,
+    SECTION_FILL_COLOR,
     TableRegion,
+    build_partial_output_path,
     build_section_blocks,
     choose_detail_layout,
     format_report_value,
@@ -28,7 +40,129 @@ def create_report_workbook(path: Path, rows: list[tuple[object, object, object]]
     workbook.save(path)
 
 
+class FakeMessage:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class FakeChoice:
+    def __init__(self, content: str) -> None:
+        self.message = FakeMessage(content)
+
+
+class FakeCompletionResponse:
+    def __init__(self, content: str) -> None:
+        self.choices = [FakeChoice(content)]
+
+
+class FakeDelta:
+    def __init__(self, content: str | None) -> None:
+        self.content = content
+
+
+class FakeStreamChoice:
+    def __init__(self, content: str | None) -> None:
+        self.delta = FakeDelta(content)
+
+
+class FakeStreamChunk:
+    def __init__(self, content: str | None) -> None:
+        self.choices = [FakeStreamChoice(content)]
+
+
+class FakeChatCompletions:
+    RESPONSE_TEXT = (
+        "本页数据显示，整体满意度和重要性均处于较高水平，说明当前客户体验基础较稳。"
+        "从分项看，会展服务与硬件设施相关指标表现较好，多数条目维持在较高分值，反映基础服务与现场保障较为成熟。"
+        "相较之下，部分细分指标表现存在一定差异，后续可持续关注相对低分项的变化。"
+        "后续建议持续关注相对低分项的波动，并结合后续月份数据判断是否形成稳定改进方向。"
+    )
+
+    def __init__(self, outer) -> None:
+        self.outer = outer
+
+    def create(self, **kwargs):
+        self.outer.create_calls.append(kwargs)
+        if kwargs.get("stream"):
+            return [
+                FakeStreamChunk("本页数据显示，整体满意度和重要性均处于较高水平，"),
+                FakeStreamChunk("说明当前客户体验基础较稳。"),
+                FakeStreamChunk("从分项看，会展服务与硬件设施相关指标表现较好，"),
+                FakeStreamChunk("多数条目维持在较高分值，反映基础服务与现场保障较为成熟。"),
+                FakeStreamChunk("相较之下，个别配套服务和智慧场馆细项存在空值，"),
+                FakeStreamChunk("说明这些项目当前暂无有效评价，解读时应避免过度延伸。"),
+                FakeStreamChunk("后续建议持续关注相对低分项的波动，并结合后续月份数据判断是否形成稳定改进方向。"),
+                FakeStreamChunk(None),
+            ]
+        return FakeCompletionResponse(self.RESPONSE_TEXT)
+
+
+class FakeChat:
+    def __init__(self, outer) -> None:
+        self.completions = FakeChatCompletions(outer)
+
+
+class FakeOpenAI:
+    instances: list["FakeOpenAI"] = []
+
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+        self.create_calls: list[dict[str, object]] = []
+        self.chat = FakeChat(self)
+        self.__class__.instances.append(self)
+
+
+class FakeInterruptedChatCompletions:
+    FIRST_RESPONSE_TEXT = (
+        "第一页分析已经完成，整体表现较稳，重点服务指标保持在较高水平，"
+        "建议继续关注优势环节的稳定性，并结合后续数据观察波动。"
+    )
+
+    def __init__(self, outer) -> None:
+        self.outer = outer
+        self.stream_calls = 0
+
+    def create(self, **kwargs):
+        self.outer.create_calls.append(kwargs)
+        if not kwargs.get("stream"):
+            return FakeCompletionResponse(self.FIRST_RESPONSE_TEXT)
+
+        self.stream_calls += 1
+        if self.stream_calls == 1:
+            return [
+                FakeStreamChunk("第一页分析已经完成，整体表现较稳，"),
+                FakeStreamChunk("重点服务指标保持在较高水平，"),
+                FakeStreamChunk("建议继续关注优势环节的稳定性，并结合后续数据观察波动。"),
+                FakeStreamChunk(None),
+            ]
+
+        def interrupted_stream():
+            yield FakeStreamChunk("第二页分析进行到一半，")
+            raise KeyboardInterrupt()
+
+        return interrupted_stream()
+
+
+class FakeInterruptedChat:
+    def __init__(self, outer) -> None:
+        self.completions = FakeInterruptedChatCompletions(outer)
+
+
+class FakeInterruptedOpenAI:
+    instances: list["FakeInterruptedOpenAI"] = []
+
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+        self.create_calls: list[dict[str, object]] = []
+        self.chat = FakeInterruptedChat(self)
+        self.__class__.instances.append(self)
+
+
 class GeneratePptTest(unittest.TestCase):
+    def setUp(self) -> None:
+        FakeOpenAI.instances.clear()
+        FakeInterruptedOpenAI.instances.clear()
+
     def test_build_section_blocks_groups_rows_by_second_level_titles(self) -> None:
         rows = [
             ("专业观众", 9.93, 10.0),
@@ -188,6 +322,189 @@ class GeneratePptTest(unittest.TestCase):
             self.assertTrue(any("智慧场馆" in text for text in slide_tables["专业观众"][1]))
             self.assertTrue(any("补菜及时性" in text for text in slide_tables["自助餐"][1]))
             self.assertTrue(any("\n\n" in text or text.endswith("\n") for text in slide_tables["专业观众"][1]))
+
+            first_slide_tables = [
+                shape.table
+                for shape in presentation.slides[0].shapes
+                if getattr(shape, "has_table", False)
+            ]
+            summary_table = first_slide_tables[0]
+            detail_table = first_slide_tables[1]
+
+            self.assertEqual(str(summary_table.cell(0, 0).fill.fore_color.rgb), HEADER_FILL_COLOR)
+            self.assertEqual(str(summary_table.cell(1, 0).fill.fore_color.rgb), OVERALL_FILL_COLOR)
+            self.assertEqual(str(detail_table.cell(1, 0).fill.fore_color.rgb), SECTION_FILL_COLOR)
+            self.assertEqual(str(detail_table.cell(2, 0).fill.fore_color.rgb), BODY_FILL_COLOR)
+            self.assertEqual(
+                str(summary_table.cell(0, 0).text_frame.paragraphs[0].runs[0].font.color.rgb),
+                HEADER_TEXT_COLOR,
+            )
+            self.assertEqual(
+                str(detail_table.cell(2, 0).text_frame.paragraphs[0].runs[0].font.color.rgb),
+                BODY_TEXT_COLOR,
+            )
+
+            left_border = detail_table.cell(2, 0)._tc.tcPr.find(qn("a:lnL"))
+            border_color = left_border.find(qn("a:solidFill")).find(qn("a:srgbClr")).get("val")
+            self.assertEqual(border_color, BORDER_COLOR)
+
+    def test_generate_presentation_writes_llm_notes_from_env_and_system_role(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "notes-report.pptx"
+            env_path = temp_path / ".env"
+            system_role_path = temp_path / "system_role.md"
+
+            env_path.write_text(
+                "OPENAI_API_KEY=test-key\n"
+                "OPENAI_BASE_URL=https://example.com/v1\n"
+                "OPENAI_MODEL=fake-model\n"
+                "OPENAI_TEMPERATURE=0.75\n",
+                encoding="utf-8",
+            )
+            system_role_path.write_text("你是测试用分析助手。", encoding="utf-8")
+
+            create_report_workbook(
+                input_dir / "专业观众.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("专业观众", 9.93, 10.0),
+                    ("会展服务", 10.0, 10.0),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                    ("智慧场馆", 10.0, 10.0),
+                    ("室内导航系统", None, None),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                max_single_table_rows=3,
+                max_split_table_rows=4,
+                llm_notes=LlmNotesConfig(
+                    enabled=True,
+                    env_path=env_path,
+                    system_role_path=system_role_path,
+                    target_chars=300,
+                    temperature=0.2,
+                    max_tokens=400,
+                ),
+            )
+
+            stdout_buffer = io.StringIO()
+            with redirect_stdout(stdout_buffer):
+                generate_presentation(config, llm_client_factory=FakeOpenAI)
+
+            self.assertEqual(len(FakeOpenAI.instances), 1)
+            fake_client = FakeOpenAI.instances[0]
+            self.assertEqual(fake_client.kwargs["api_key"], "test-key")
+            self.assertEqual(fake_client.kwargs["base_url"], "https://example.com/v1")
+            self.assertEqual(fake_client.create_calls[0]["model"], "fake-model")
+            self.assertTrue(fake_client.create_calls[0]["stream"])
+            self.assertEqual(fake_client.create_calls[0]["temperature"], 0.75)
+            self.assertEqual(fake_client.create_calls[0]["max_tokens"], 400)
+            self.assertEqual(
+                fake_client.create_calls[0]["messages"][0]["content"],
+                "你是测试用分析助手。",
+            )
+            self.assertIn(
+                "页面标题：专业观众",
+                fake_client.create_calls[0]["messages"][1]["content"],
+            )
+            self.assertNotIn("空值项：", fake_client.create_calls[0]["messages"][1]["content"])
+            self.assertNotIn("室内导航系统", fake_client.create_calls[0]["messages"][1]["content"])
+
+            presentation = Presentation(output_path)
+            notes_text = presentation.slides[0].notes_slide.notes_text_frame.text
+            self.assertIn("整体满意度和重要性均处于较高水平", notes_text)
+
+            progress_output = stdout_buffer.getvalue()
+            self.assertIn("[1/1] 正在生成备注页分析：专业观众", progress_output)
+            self.assertIn("[1/1] 流式输出：", progress_output)
+            self.assertIn("本页数据显示，整体满意度和重要性均处于较高水平", progress_output)
+            self.assertIn("[1/1] 备注页分析完成：专业观众", progress_output)
+
+    def test_generate_presentation_preserves_checkpoint_when_llm_is_interrupted(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "notes-report.pptx"
+            partial_path = build_partial_output_path(output_path)
+            env_path = temp_path / ".env"
+            system_role_path = temp_path / "system_role.md"
+
+            env_path.write_text(
+                "OPENAI_API_KEY=test-key\n"
+                "OPENAI_BASE_URL=https://example.com/v1\n"
+                "OPENAI_MODEL=fake-model\n",
+                encoding="utf-8",
+            )
+            system_role_path.write_text("你是测试用分析助手。", encoding="utf-8")
+
+            create_report_workbook(
+                input_dir / "第一页.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("第一页", 9.93, 10.0),
+                    ("会展服务", 10.0, 10.0),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                ],
+            )
+            create_report_workbook(
+                input_dir / "第二页.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("第二页", 9.83, 9.5),
+                    ("会展服务", 9.7, 9.4),
+                    ("工作人员服务态度", 9.6, 9.3),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                llm_notes=LlmNotesConfig(
+                    enabled=True,
+                    env_path=env_path,
+                    system_role_path=system_role_path,
+                    target_chars=300,
+                    temperature=0.2,
+                    max_tokens=400,
+                    checkpoint_chars=20,
+                ),
+            )
+
+            stdout_buffer = io.StringIO()
+            with self.assertRaises(KeyboardInterrupt):
+                with redirect_stdout(stdout_buffer):
+                    generate_presentation(config, llm_client_factory=FakeInterruptedOpenAI)
+
+            self.assertTrue(partial_path.exists())
+            partial_presentation = Presentation(partial_path)
+            self.assertEqual(len(partial_presentation.slides), 2)
+            self.assertIn(
+                "第一页分析已经完成",
+                partial_presentation.slides[0].notes_slide.notes_text_frame.text,
+            )
+            self.assertIn(
+                "第二页分析进行到一半",
+                partial_presentation.slides[1].notes_slide.notes_text_frame.text,
+            )
+
+            progress_output = stdout_buffer.getvalue()
+            self.assertIn("[1/2] 已保存检查点：notes-report.partial.pptx", progress_output)
+            self.assertIn("生成中断，已保存当前检查点", progress_output)
 
 
 if __name__ == "__main__":

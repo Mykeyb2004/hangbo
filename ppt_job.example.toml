@@ -26,6 +26,17 @@ header_font_size_pt = 11.0
 summary_font_size_pt = 12.0
 template_slide_index = 0
 
+[llm_notes]
+# 启用后，会为每一页 PPT 生成约 300 字的数据分析并写入备注页
+enabled = true
+env_path = ".env"
+system_role_path = "system_role.md"
+target_chars = 300
+temperature = 0.4
+max_tokens = 500
+# 流式生成时，累计多少字符就把当前备注写回 notes 并保存一次 partial 检查点
+checkpoint_chars = 80
+
 [layout.summary_table]
 left = 0.73
 top = 1.45
