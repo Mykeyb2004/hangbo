@@ -182,6 +182,8 @@ class WorkbookDisplayMeta:
 class RenderedWorkbookSlide:
     title: str
     chart_points: tuple[ChartPoint, ...] = ()
+    overall_satisfaction: float | None = None
+    notes_text: str | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1018,25 +1020,29 @@ def render_chart_slide(
     *,
     title: str,
     chart_points: Sequence[ChartPoint],
+    overall_satisfaction: float | None,
+    description_text: str | None,
     config: PptBatchConfig,
 ) -> None:
     apply_title(slide, title)
     chart_bytes = render_chart_image(
         chart_points,
         config=ChartRenderConfig(dpi=config.chart_page.image_dpi),
+        overall_satisfaction=overall_satisfaction,
         width_inches=config.layout.chart_image.width,
         height_inches=config.layout.chart_image.height,
     )
     left, top, width, height = config.layout.chart_image.emu()
     slide.shapes.add_picture(BytesIO(chart_bytes), left, top, width=width, height=height)
-    render_chart_placeholder_textbox(
+    chart_text = description_text.strip() if description_text and description_text.strip() else ""
+    render_chart_textbox(
         slide,
         config.layout.chart_textbox,
-        config.chart_page.placeholder_text,
+        chart_text or config.chart_page.placeholder_text,
     )
 
 
-def render_chart_placeholder_textbox(
+def render_chart_textbox(
     slide,
     region: TableRegion,
     text: str,
@@ -1122,6 +1128,8 @@ def generate_presentation(
                     chart_slide,
                     title=rendered_slide.title,
                     chart_points=rendered_slide.chart_points,
+                    overall_satisfaction=rendered_slide.overall_satisfaction,
+                    description_text=rendered_slide.notes_text,
                     config=config,
                 )
             if partial_output_path is not None:
@@ -1163,6 +1171,7 @@ def render_workbook_slide(
     total_slides: int | None = None,
 ) -> RenderedWorkbookSlide:
     title = resolve_workbook_display_meta(workbook_path.stem).title + config.title_suffix
+    notes_text: str | None = None
     apply_title(slide, title)
 
     report_rows = read_report_rows(
@@ -1273,7 +1282,12 @@ def render_workbook_slide(
             flush=True,
         )
 
-    return RenderedWorkbookSlide(title=title, chart_points=chart_points)
+    return RenderedWorkbookSlide(
+        title=title,
+        chart_points=chart_points,
+        overall_satisfaction=overall_row[1],
+        notes_text=notes_text,
+    )
 
 
 def render_table(

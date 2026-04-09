@@ -45,6 +45,7 @@ def render_chart_image(
     points: Sequence[ChartPoint],
     *,
     config: ChartRenderConfig | None = None,
+    overall_satisfaction: float | None = None,
     width_inches: float = 5.6,
     height_inches: float = 5.1,
 ) -> bytes:
@@ -59,7 +60,11 @@ def render_chart_image(
     if chart_type == "bar":
         _render_bar_chart(figure, points)
     else:
-        _render_radar_chart(figure, points)
+        _render_radar_chart(
+            figure,
+            points,
+            overall_satisfaction=overall_satisfaction,
+        )
 
     output = BytesIO()
     figure.savefig(output, format="png", bbox_inches="tight", facecolor="white")
@@ -132,7 +137,12 @@ def _render_bar_chart(figure, points: Sequence[ChartPoint]) -> None:
     figure.subplots_adjust(top=0.72, bottom=0.12, left=0.12, right=0.96)
 
 
-def _render_radar_chart(figure, points: Sequence[ChartPoint]) -> None:
+def _render_radar_chart(
+    figure,
+    points: Sequence[ChartPoint],
+    *,
+    overall_satisfaction: float | None = None,
+) -> None:
     ax = figure.add_subplot(111, polar=True)
     labels = [point.label for point in points]
     angles = [index / len(points) * 2 * pi for index in range(len(points))]
@@ -152,10 +162,10 @@ def _render_radar_chart(figure, points: Sequence[ChartPoint]) -> None:
         fontproperties=_font_properties(),
         color=AXIS_TEXT_COLOR,
     )
-    ax.tick_params(axis="x", pad=22)
+    ax.tick_params(axis="x", pad=19)
     ax.set_ylim(0, 10)
     ax.set_yticks([2, 4, 6, 8, 10])
-    ax.set_yticklabels(["2", "4", "6", "8", "10"], color=AXIS_TEXT_COLOR, fontproperties=_font_properties())
+    ax.set_yticklabels([])
     ax.grid(color=GRID_COLOR, alpha=0.85)
     ax.spines["polar"].set_color(GRID_COLOR)
 
@@ -190,7 +200,21 @@ def _render_radar_chart(figure, points: Sequence[ChartPoint]) -> None:
             fontsize=9,
             color=AXIS_TEXT_COLOR,
             fontproperties=_font_properties(),
-            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 0.8},
+        )
+
+    if overall_satisfaction is not None:
+        ax.text(
+            0.5,
+            0.5,
+            format_chart_score(overall_satisfaction),
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=28,
+            color="white",
+            fontproperties=_impact_font_properties(),
+            fontweight="bold",
+            zorder=10,
         )
 
     ax.legend(
@@ -213,6 +237,14 @@ def _configure_font() -> None:
 
 def _font_properties() -> FontProperties:
     return FontProperties(family=_choose_font_family())
+
+
+def _impact_font_properties() -> FontProperties:
+    return FontProperties(family=_choose_impact_font_family())
+
+
+def format_chart_score(value: float) -> str:
+    return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
 def _radar_value_annotation_layout(angle: float) -> tuple[int, int, str, str]:
@@ -251,3 +283,19 @@ def _choose_font_family() -> str:
         if candidate in available:
             return candidate
     return "DejaVu Sans"
+
+
+@lru_cache(maxsize=1)
+def _choose_impact_font_family() -> str:
+    candidates = [
+        "Impact",
+        "Haettenschweiler",
+        "Arial Black",
+        "Microsoft YaHei",
+        "DejaVu Sans",
+    ]
+    available = {font.name for font in fontManager.ttflist}
+    for candidate in candidates:
+        if candidate in available:
+            return candidate
+    return _choose_font_family()

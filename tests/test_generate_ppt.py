@@ -583,6 +583,70 @@ class GeneratePptTest(unittest.TestCase):
                 collect_slide_texts(presentation.slides[1]),
             )
 
+    def test_generate_presentation_reuses_llm_notes_in_chart_slide_textbox(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "report-with-chart-and-notes.pptx"
+            env_path = temp_path / ".env"
+            system_role_path = temp_path / "system_role.md"
+
+            env_path.write_text(
+                "OPENAI_API_KEY=test-key\n"
+                "OPENAI_BASE_URL=https://example.com/v1\n"
+                "OPENAI_MODEL=fake-model\n",
+                encoding="utf-8",
+            )
+            system_role_path.write_text("你是测试用分析助手。", encoding="utf-8")
+
+            create_report_workbook(
+                input_dir / "专业观众.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("专业观众", 9.93, 10.0),
+                    ("会展服务", 9.86, 9.90),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                    ("硬件设施", 9.31, 9.89),
+                    ("园区停车方便", 9.67, 9.92),
+                    ("配套服务", 9.47, 9.82),
+                    ("餐饮服务", 8.9, 9.8),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                chart_page=ChartPageConfig(
+                    enabled=True,
+                    placeholder_text="图表分析内容待补充。",
+                    image_dpi=120,
+                ),
+                llm_notes=LlmNotesConfig(
+                    enabled=True,
+                    env_path=env_path,
+                    system_role_path=system_role_path,
+                    target_chars=300,
+                    temperature=0.2,
+                    max_tokens=400,
+                ),
+            )
+
+            generate_presentation(config, llm_client_factory=FakeOpenAI)
+
+            presentation = Presentation(output_path)
+            notes_text = presentation.slides[0].notes_slide.notes_text_frame.text
+            chart_texts = collect_slide_texts(presentation.slides[1])
+
+            self.assertEqual(len(presentation.slides), 2)
+            self.assertTrue(notes_text)
+            self.assertIn(notes_text, chart_texts)
+            self.assertNotIn("图表分析内容待补充。", chart_texts)
+
     def test_generate_presentation_skips_sections_when_all_metric_satisfaction_values_are_empty(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         template_path = repo_root / "templates" / "template.pptx"
