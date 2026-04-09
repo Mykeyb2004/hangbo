@@ -29,6 +29,7 @@ from generate_ppt import (
     format_report_value,
     generate_presentation,
     resolve_section_definition,
+    resolve_workbook_display_meta,
 )
 
 
@@ -270,6 +271,13 @@ class GeneratePptTest(unittest.TestCase):
                 ],
             )
 
+    def test_resolve_workbook_display_meta_forces_shared_display_name(self) -> None:
+        banquet_meta = resolve_workbook_display_meta("酒店宴会")
+        buffet_meta = resolve_workbook_display_meta("酒店自助餐")
+
+        self.assertEqual(banquet_meta.title, "酒店客户——餐饮客户")
+        self.assertEqual(buffet_meta.title, "酒店客户——餐饮客户")
+
     def test_generate_presentation_creates_single_and_double_table_slides(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         template_path = repo_root / "templates" / "template.pptx"
@@ -392,6 +400,63 @@ class GeneratePptTest(unittest.TestCase):
             left_border = detail_table.cell(2, 0)._tc.tcPr.find(qn("a:lnL"))
             border_color = left_border.find(qn("a:solidFill")).find(qn("a:srgbClr")).get("val")
             self.assertEqual(border_color, BORDER_COLOR)
+
+    def test_generate_presentation_skips_sections_when_all_metric_satisfaction_values_are_empty(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "report.pptx"
+
+            create_report_workbook(
+                input_dir / "专业观众.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("专业观众", 9.93, 10.0),
+                    ("会展服务", 10.0, 10.0),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                    ("工作人员服务态度", 9.9, 10.0),
+                    ("智慧场馆", None, None),
+                    ("杭州国博APP", None, 10.0),
+                    ("室内导航系统", None, 10.0),
+                    ("配套服务", 9.8, 10.0),
+                    ("餐饮服务", 9.4, 10.0),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                blank_display="",
+                max_single_table_rows=10,
+                max_split_table_rows=19,
+                layout=PptLayoutConfig(),
+            )
+
+            generate_presentation(config)
+
+            presentation = Presentation(output_path)
+            detail_tables = [
+                shape.table
+                for shape in presentation.slides[0].shapes
+                if getattr(shape, "has_table", False)
+            ][1:]
+            detail_text = "\n".join(
+                cell.text
+                for table in detail_tables
+                for row in table.rows
+                for cell in row.cells
+            )
+
+            self.assertIn("会展服务", detail_text)
+            self.assertIn("配套服务", detail_text)
+            self.assertNotIn("智慧场馆", detail_text)
+            self.assertNotIn("杭州国博APP", detail_text)
+            self.assertNotIn("室内导航系统", detail_text)
 
     def test_generate_presentation_writes_llm_notes_from_env_and_system_role(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

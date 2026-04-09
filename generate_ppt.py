@@ -477,6 +477,22 @@ def build_section_blocks(
     return blocks
 
 
+def filter_empty_satisfaction_sections(
+    detail_rows: Sequence[tuple[str, float | None, float | None]],
+    role_definition: RoleDefinition | None,
+) -> list[tuple[str, float | None, float | None]]:
+    if not detail_rows or role_definition is None:
+        return list(detail_rows)
+
+    filtered_blocks: list[SectionBlock] = []
+    for block in build_section_blocks(detail_rows, role_definition):
+        metric_rows = block.rows[1:]
+        if metric_rows and all(satisfaction is None for _, satisfaction, _ in metric_rows):
+            continue
+        filtered_blocks.append(block)
+    return flatten_blocks(filtered_blocks)
+
+
 def choose_detail_layout(
     *,
     detail_rows: Sequence[tuple[str, float | None, float | None]],
@@ -863,6 +879,7 @@ def render_workbook_slide(
         report_rows,
         section_mode=config.section_mode,
     )
+    detail_rows = filter_empty_satisfaction_sections(detail_rows, role_definition)
 
     render_table(
         slide,
@@ -945,7 +962,7 @@ def render_workbook_slide(
 
         notes_text = generate_notes_text(
             title=title,
-            report_rows=report_rows,
+            report_rows=[overall_row, *detail_rows],
             role_definition=role_definition,
             runtime=llm_runtime,
             on_text_update=handle_notes_update,
