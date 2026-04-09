@@ -9,6 +9,8 @@ from pathlib import Path
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 
+from phase_column_preprocess import preprocess_phase_column_if_needed
+
 DEFAULT_SHEET_NAME = "问卷数据"
 DEFAULT_OUTPUT_FORMAT = "xlsx"
 DEFAULT_ROLE_COLUMN = "E"
@@ -116,6 +118,7 @@ class GeneratedReport:
     result_df: pd.DataFrame
     output_path: Path
     stats: SurveyStatistics
+    preprocess_notice: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1002,10 +1005,11 @@ def load_survey_dataframe(
     input_path: Path,
     role_definition: RoleDefinition,
     sheet_name: str = DEFAULT_SHEET_NAME,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, str | None]:
+    preprocess_notice = preprocess_phase_column_if_needed(input_path, sheet_name)
     df = pd.read_excel(input_path, sheet_name=sheet_name)
     validate_dataframe(df, role_definition)
-    return df
+    return df, preprocess_notice
 
 
 def compute_metric_average(
@@ -1308,13 +1312,22 @@ def generate_role_report_bundle(
     dry_run: bool = False,
 ) -> GeneratedReport:
     effective_role_definition = get_effective_role_definition(role_definition, calculation_mode)
-    survey_df = load_survey_dataframe(input_path, effective_role_definition, sheet_name=sheet_name)
+    survey_df, preprocess_notice = load_survey_dataframe(
+        input_path,
+        effective_role_definition,
+        sheet_name=sheet_name,
+    )
     stats = compute_role_stats(survey_df, effective_role_definition)
     result_df = build_result_dataframe(stats)
     final_sheet_title = sheet_title or role_definition.role_name
     if not dry_run:
         save_results(result_df, output_path, effective_role_definition, final_sheet_title)
-    return GeneratedReport(result_df=result_df, output_path=output_path, stats=stats)
+    return GeneratedReport(
+        result_df=result_df,
+        output_path=output_path,
+        stats=stats,
+        preprocess_notice=preprocess_notice,
+    )
 
 
 def generate_role_report(
@@ -1354,13 +1367,32 @@ def print_missing_group_summary(notices: list[MissingGroupNotice]) -> None:
         print(f"\n{summary}")
 
 
-def print_report(title: str, result_df: pd.DataFrame, output_path: Path, dry_run: bool = False) -> None:
-    print(f"\n## {title}")
-    print(render_markdown_table(result_df))
-    if dry_run:
-        print(f"\n[DRY RUN] 将输出到: {output_path}")
-    else:
-        print(f"\n结果已保存到: {output_path}")
+def build_progress_prefix(current: int, total: int) -> str:
+    return f"[{current}/{total}]"
+
+
+def print_file_progress_start(current: int, total: int, input_path: Path, job_name: str) -> None:
+    print(f"{build_progress_prefix(current, total)} 正在处理文件：{input_path.name}（{job_name}）")
+
+
+def print_preprocess_notice(current: int, total: int, notice: str | None) -> None:
+    if notice is not None:
+        print(f"{build_progress_prefix(current, total)} {notice}")
+
+
+def print_file_progress_result(
+    current: int,
+    total: int,
+    input_path: Path,
+    job_name: str,
+    output_path: Path,
+    dry_run: bool = False,
+) -> None:
+    status = "已完成校验" if dry_run else "结果已保存"
+    print(
+        f"{build_progress_prefix(current, total)} "
+        f"{status}：{input_path.name}（{job_name}） -> {output_path}"
+    )
 
 
 def run_single_mode(args: argparse.Namespace) -> None:
@@ -1368,6 +1400,7 @@ def run_single_mode(args: argparse.Namespace) -> None:
         raise ValueError("--input、--template、--role-name、--output 必须同时提供。")
 
     role_definition = resolve_role_definition(args.template, args.role_name)
+    print_file_progress_start(1, 1, args.input, args.role_name)
     report = generate_role_report_bundle(
         input_path=args.input,
         role_definition=role_definition,
@@ -1377,7 +1410,8 @@ def run_single_mode(args: argparse.Namespace) -> None:
         calculation_mode=args.calculation_mode,
         dry_run=args.dry_run,
     )
-    print_report(args.role_name, report.result_df, report.output_path, dry_run=args.dry_run)
+    print_preprocess_notice(1, 1, report.preprocess_notice)
+    print_file_progress_result(1, 1, args.input, args.role_name, report.output_path, dry_run=args.dry_run)
     if report.stats.matched_row_count == 0:
         print_missing_group_summary(
             [MissingGroupNotice(args.role_name, args.input, args.sheet_name)]
@@ -1398,9 +1432,11 @@ def run_legacy_batch_mode(args: argparse.Namespace) -> None:
     output_dir = normalize_output_dir(args.output_dir)
     output_format = args.output_format or DEFAULT_OUTPUT_FORMAT
     missing_group_notices: list[MissingGroupNotice] = []
+    total_jobs = len(jobs)
 
-    for role_definition, input_path in jobs:
+    for index, (role_definition, input_path) in enumerate(jobs, start=1):
         output_path = build_output_path(output_dir, role_definition.role_name, output_format)
+        print_file_progress_start(index, total_jobs, input_path, role_definition.role_name)
         report = generate_role_report_bundle(
             input_path=input_path,
             role_definition=role_definition,
@@ -1410,9 +1446,12 @@ def run_legacy_batch_mode(args: argparse.Namespace) -> None:
             calculation_mode=args.calculation_mode,
             dry_run=args.dry_run,
         )
-        print_report(
+        print_preprocess_notice(index, total_jobs, report.preprocess_notice)
+        print_file_progress_result(
+            index,
+            total_jobs,
+            input_path,
             role_definition.role_name,
-            report.result_df,
             report.output_path,
             dry_run=args.dry_run,
         )
@@ -1434,11 +1473,13 @@ def run_config_mode(args: argparse.Namespace) -> None:
     global_output_format = args.output_format or config.output_format
     calculation_mode = normalize_calculation_mode(args.calculation_mode or config.calculation_mode)
     missing_group_notices: list[MissingGroupNotice] = []
+    total_jobs = len(selected_jobs)
 
-    for job in selected_jobs:
+    for index, job in enumerate(selected_jobs, start=1):
         role_definition = resolve_role_definition(job.template_name, job.role_name)
         output_format = job.output_format or global_output_format
         output_path = build_output_path(output_dir, job.output_name, output_format)
+        print_file_progress_start(index, total_jobs, job.path, job.name)
         report = generate_role_report_bundle(
             input_path=job.path,
             role_definition=role_definition,
@@ -1448,8 +1489,15 @@ def run_config_mode(args: argparse.Namespace) -> None:
             calculation_mode=calculation_mode,
             dry_run=args.dry_run,
         )
-        title = f"{job.name} ({job.template_name})"
-        print_report(title, report.result_df, report.output_path, dry_run=args.dry_run)
+        print_preprocess_notice(index, total_jobs, report.preprocess_notice)
+        print_file_progress_result(
+            index,
+            total_jobs,
+            job.path,
+            job.name,
+            report.output_path,
+            dry_run=args.dry_run,
+        )
         if report.stats.matched_row_count == 0:
             missing_group_notices.append(MissingGroupNotice(job.name, job.path, job.sheet_name))
 
@@ -1462,7 +1510,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", type=Path, help="批量模式：TOML 配置文件路径")
     parser.add_argument("--job", action="append", default=[], help="批量模式：只运行某个 job 名称，可重复传入")
-    parser.add_argument("--dry-run", action="store_true", help="只校验并展示结果，不实际写文件")
+    parser.add_argument("--dry-run", action="store_true", help="只校验并显示处理进度，不实际写文件")
     parser.add_argument("--sheet-name", default=DEFAULT_SHEET_NAME, help=f"默认 sheet 名，默认 {DEFAULT_SHEET_NAME}")
     parser.add_argument(
         "--output-format",

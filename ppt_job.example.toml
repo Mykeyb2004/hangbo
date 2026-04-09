@@ -28,7 +28,7 @@ template_slide_index = 0
 
 [llm_notes]
 # 启用后，会为每一页 PPT 生成约 300 字的数据分析并写入备注页
-enabled = true
+enabled = false
 env_path = ".env"
 system_role_path = "system_role.md"
 target_chars = 300

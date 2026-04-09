@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import argparse
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import pandas as pd
 from openpyxl import load_workbook
 
+from phase_column_preprocess import preprocess_phase_column_if_needed
 from survey_stats import (
     CATERING_BUFFET_ROLE_NAME,
     CATERING_BUFFET_TEMPLATE,
@@ -48,8 +52,11 @@ from survey_stats import (
     excel_column_to_index,
     excel_round,
     generate_role_report,
+    generate_role_report_bundle,
     load_batch_config,
     mean_ignore_empty,
+    run_config_mode,
+    run_single_mode,
 )
 
 
@@ -142,6 +149,16 @@ def build_mock_dataframe(role_name: str, role_column: str = "E") -> pd.DataFrame
         rows[1][excel_column_to_index(column_name)] = 1
 
     return pd.DataFrame(rows, columns=columns)
+
+
+def build_shifted_dataframe_with_phase_column(
+    role_name: str,
+    role_column: str = "E",
+    phase_values: tuple[str, str] = ("一期", "二期"),
+) -> pd.DataFrame:
+    df = build_mock_dataframe(role_name, role_column=role_column)
+    df.insert(2, "phase_marker", list(phase_values))
+    return df
 
 
 class SurveyStatsTest(unittest.TestCase):
@@ -501,6 +518,149 @@ class SurveyStatsTest(unittest.TestCase):
             self.assertEqual(worksheet["A2"].fill.start_color.rgb, OVERALL_FILL.start_color.rgb)
             self.assertEqual(worksheet["A3"].fill.start_color.rgb, SECTION_FILL.start_color.rgb)
             self.assertEqual(worksheet["B3"].fill.start_color.rgb, SECTION_FILL.start_color.rgb)
+
+    def test_preprocess_phase_column_moves_third_column_to_end_and_saves_workbook(self) -> None:
+        df = build_shifted_dataframe_with_phase_column(EXHIBITOR_ROLE_NAME)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_file = Path(temp_dir) / "shifted.xlsx"
+            with pd.ExcelWriter(input_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            notice = preprocess_phase_column_if_needed(input_file, DEFAULT_SHEET_NAME)
+
+            self.assertIsNotNone(notice)
+            reloaded_df = pd.read_excel(input_file, sheet_name=DEFAULT_SHEET_NAME)
+            self.assertEqual(reloaded_df.iloc[0, excel_column_to_index("E")], EXHIBITOR_ROLE_NAME)
+            self.assertEqual(reloaded_df.iloc[0, reloaded_df.shape[1] - 1], "一期")
+            self.assertEqual(reloaded_df.iloc[1, reloaded_df.shape[1] - 1], "二期")
+
+    def test_run_single_mode_prints_notice_when_phase_column_preprocessed(self) -> None:
+        df = build_shifted_dataframe_with_phase_column(EXHIBITOR_ROLE_NAME)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_file = temp_path / "shifted.xlsx"
+            output_file = temp_path / "result.xlsx"
+
+            with pd.ExcelWriter(input_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                run_single_mode(
+                    argparse.Namespace(
+                        input=input_file,
+                        template="exhibitor",
+                        role_name=EXHIBITOR_ROLE_NAME,
+                        output=output_file,
+                        sheet_name=DEFAULT_SHEET_NAME,
+                        calculation_mode="template",
+                        dry_run=True,
+                    )
+                )
+
+            output = buffer.getvalue()
+            self.assertIn("已执行输入文件预处理", output)
+            report = generate_role_report_bundle(
+                input_path=input_file,
+                role_definition=EXHIBITOR_TEMPLATE,
+                output_path=output_file,
+                sheet_name=DEFAULT_SHEET_NAME,
+                sheet_title=EXHIBITOR_ROLE_NAME,
+                calculation_mode="template",
+                dry_run=True,
+            )
+            self.assertEqual(report.stats.matched_row_count, 1)
+            self.assertEqual(report.result_df.iloc[0]["满意度"], 9.0)
+
+    def test_run_single_mode_only_prints_file_progress_without_result_table(self) -> None:
+        df = build_mock_dataframe(EXHIBITOR_ROLE_NAME)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_file = temp_path / "input.xlsx"
+            output_file = temp_path / "result.xlsx"
+
+            with pd.ExcelWriter(input_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                run_single_mode(
+                    argparse.Namespace(
+                        input=input_file,
+                        template="exhibitor",
+                        role_name=EXHIBITOR_ROLE_NAME,
+                        output=output_file,
+                        sheet_name=DEFAULT_SHEET_NAME,
+                        calculation_mode="template",
+                        dry_run=True,
+                    )
+                )
+
+            output = buffer.getvalue()
+            self.assertIn("[1/1] 正在处理文件：input.xlsx（参展商）", output)
+            self.assertIn("[1/1] 已完成校验：input.xlsx（参展商）", output)
+            self.assertNotIn("## 参展商", output)
+            self.assertNotIn("| 指标 |", output)
+
+    def test_run_config_mode_only_prints_file_progress_without_result_table(self) -> None:
+        df = build_mock_dataframe(EXHIBITOR_ROLE_NAME)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source_file = temp_path / "source.xlsx"
+            config_path = temp_path / "jobs.toml"
+
+            with pd.ExcelWriter(source_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+
+[[jobs]]
+name = "参展商-一批"
+path = "source.xlsx"
+sheet = "问卷数据"
+template = "exhibitor"
+role_name = "参展商"
+output_name = "参展商-一批"
+
+[[jobs]]
+name = "参展商-二批"
+path = "source.xlsx"
+sheet = "问卷数据"
+template = "exhibitor"
+role_name = "参展商"
+output_name = "参展商-二批"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                run_config_mode(
+                    argparse.Namespace(
+                        config=config_path,
+                        job=[],
+                        dry_run=True,
+                        sheet_name=DEFAULT_SHEET_NAME,
+                        output_format=None,
+                        calculation_mode=None,
+                        output_dir=None,
+                    )
+                )
+
+            output = buffer.getvalue()
+            self.assertIn("[1/2] 正在处理文件：source.xlsx（参展商-一批）", output)
+            self.assertIn("[2/2] 正在处理文件：source.xlsx（参展商-二批）", output)
+            self.assertIn("[1/2] 已完成校验：source.xlsx（参展商-一批）", output)
+            self.assertIn("[2/2] 已完成校验：source.xlsx（参展商-二批）", output)
+            self.assertNotIn("## 参展商-一批", output)
+            self.assertNotIn("| 指标 |", output)
 
     def test_load_batch_config_reads_sources_and_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

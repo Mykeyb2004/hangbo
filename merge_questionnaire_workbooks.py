@@ -17,13 +17,10 @@ class WorkbookReadError:
 
 
 @dataclass(frozen=True)
-class ColumnDifference:
-    left_path: Path
-    right_path: Path
-    left_columns: tuple[str, ...]
-    right_columns: tuple[str, ...]
-    left_only_columns: tuple[str, ...]
-    right_only_columns: tuple[str, ...]
+class DuplicateHeaderError:
+    path: Path
+    headers: tuple[str, ...]
+    duplicate_headers: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -42,7 +39,7 @@ class MergeResult:
     output_path: Path | None = None
     missing_sheet_paths: tuple[Path, ...] = ()
     read_errors: tuple[WorkbookReadError, ...] = ()
-    column_differences: tuple[ColumnDifference, ...] = ()
+    duplicate_header_errors: tuple[DuplicateHeaderError, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -144,46 +141,28 @@ def read_questionnaire_sheet(
     )
 
 
-def ordered_counter_difference(
-    source_headers: tuple[str, ...],
-    other_headers: tuple[str, ...],
-) -> tuple[str, ...]:
-    remaining = Counter(other_headers)
-    differences: list[str] = []
-    for header in source_headers:
-        if remaining[header] > 0:
-            remaining[header] -= 1
-        else:
-            differences.append(header)
-    return tuple(differences)
+def find_duplicate_headers(headers: tuple[str, ...]) -> tuple[str, ...]:
+    counts = Counter(headers)
+    duplicates: list[str] = []
+    seen: set[str] = set()
+    for header in headers:
+        if counts[header] <= 1 or header in seen:
+            continue
+        duplicates.append(header)
+        seen.add(header)
+    return tuple(duplicates)
 
 
-def has_duplicate_headers(headers: tuple[str, ...]) -> bool:
-    return any(count > 1 for count in Counter(headers).values())
-
-
-def build_column_difference(
-    left_data: WorkbookSheetData,
-    right_data: WorkbookSheetData,
-) -> ColumnDifference | None:
-    left_headers = left_data.headers
-    right_headers = right_data.headers
-
-    if left_headers == right_headers:
-        return None
-
-    if Counter(left_headers) == Counter(right_headers):
-        if not has_duplicate_headers(left_headers) and not has_duplicate_headers(right_headers):
-            return None
-
-    return ColumnDifference(
-        left_path=left_data.path,
-        right_path=right_data.path,
-        left_columns=left_headers,
-        right_columns=right_headers,
-        left_only_columns=ordered_counter_difference(left_headers, right_headers),
-        right_only_columns=ordered_counter_difference(right_headers, left_headers),
-    )
+def merge_headers(sheet_data_items: tuple[WorkbookSheetData, ...]) -> tuple[str, ...]:
+    merged_headers: list[str] = []
+    seen_headers: set[str] = set()
+    for sheet_data in sheet_data_items:
+        for header in sheet_data.headers:
+            if header in seen_headers:
+                continue
+            merged_headers.append(header)
+            seen_headers.add(header)
+    return tuple(merged_headers)
 
 
 def align_rows(
@@ -196,7 +175,7 @@ def align_rows(
 
     index_by_header = {header: index for index, header in enumerate(source_headers)}
     return tuple(
-        tuple(row[index_by_header[header]] for header in target_headers)
+        tuple(row[index_by_header[header]] if header in index_by_header else None for header in target_headers)
         for row in rows
     )
 
@@ -299,39 +278,44 @@ def merge_workbooks_by_filename(
             )
             continue
 
-        reference_data = sheet_data_items[0]
-        merged_rows: list[tuple[object, ...]] = list(reference_data.rows)
-        column_differences: list[ColumnDifference] = []
-
-        for sheet_data in sheet_data_items[1:]:
-            difference = build_column_difference(reference_data, sheet_data)
-            if difference is not None:
-                column_differences.append(difference)
-                continue
-
-            merged_rows.extend(
-                align_rows(
-                    sheet_data.rows,
-                    source_headers=sheet_data.headers,
-                    target_headers=reference_data.headers,
+        duplicate_header_errors: list[DuplicateHeaderError] = []
+        for sheet_data in sheet_data_items:
+            duplicate_headers = find_duplicate_headers(sheet_data.headers)
+            if duplicate_headers:
+                duplicate_header_errors.append(
+                    DuplicateHeaderError(
+                        path=sheet_data.path,
+                        headers=sheet_data.headers,
+                        duplicate_headers=duplicate_headers,
+                    )
                 )
-            )
 
-        if column_differences:
+        if duplicate_header_errors:
             results.append(
                 MergeResult(
                     file_name=file_name,
                     source_paths=source_paths,
-                    status="column_mismatch",
-                    column_differences=tuple(column_differences),
+                    status="duplicate_headers",
+                    duplicate_header_errors=tuple(duplicate_header_errors),
                 )
             )
             continue
 
+        merged_headers = merge_headers(tuple(sheet_data_items))
+        merged_rows: list[tuple[object, ...]] = []
+        for sheet_data in sheet_data_items:
+            merged_rows.extend(
+                align_rows(
+                    sheet_data.rows,
+                    source_headers=sheet_data.headers,
+                    target_headers=merged_headers,
+                )
+            )
+
         output_path = normalized_output_dir / file_name
         write_merged_workbook(
             output_path,
-            headers=reference_data.headers,
+            headers=merged_headers,
             rows=tuple(merged_rows),
             sheet_name=sheet_name,
         )
@@ -390,27 +374,16 @@ def format_merge_summary(
                 lines.append(f"  - 读取失败: {error.path}（{error.error_message}）")
             continue
 
-        if result.status == "column_mismatch":
-            lines.append(f"- {result.file_name}: 跳过，列名不一致")
-            for difference in result.column_differences:
+        if result.status == "duplicate_headers":
+            lines.append(f"- {result.file_name}: 跳过，存在重复列名，无法按列名安全合并")
+            for error in result.duplicate_header_errors:
+                lines.append(f"  - 文件: {error.path}")
                 lines.append(
-                    f"  - 对比文件: {difference.left_path} <> {difference.right_path}"
+                    f"  - 重复列名: {', '.join(error.duplicate_headers) if error.duplicate_headers else '无'}"
                 )
                 lines.append(
-                    f"  - 仅 {difference.left_path}: "
-                    f"{', '.join(difference.left_only_columns) if difference.left_only_columns else '无'}"
-                )
-                lines.append(
-                    f"  - 仅 {difference.right_path}: "
-                    f"{', '.join(difference.right_only_columns) if difference.right_only_columns else '无'}"
-                )
-                lines.append(
-                    "  - 左侧列名: "
-                    f"{', '.join(difference.left_columns) if difference.left_columns else '空表头'}"
-                )
-                lines.append(
-                    "  - 右侧列名: "
-                    f"{', '.join(difference.right_columns) if difference.right_columns else '空表头'}"
+                    "  - 完整列名: "
+                    f"{', '.join(error.headers) if error.headers else '空表头'}"
                 )
             continue
 
@@ -423,7 +396,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "按文件名合并多个目录中的 Excel 文件，只合并“问卷数据”sheet。"
-            "如果同名文件的列名不一致，则跳过并输出列差异。"
+            "同名列合并到同一列，不同名列追加到结果末尾。"
         )
     )
     parser.add_argument(
