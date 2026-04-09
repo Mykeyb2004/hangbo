@@ -47,7 +47,7 @@ placeholder_text = "图表分析内容待补充。后续将在此处补充该客
 image_dpi = 220
 
 [llm_notes]
-enabled = false
+enabled = true
 env_path = ".env"
 system_role_path = "system_role.md"
 target_chars = 300

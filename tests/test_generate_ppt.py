@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx import Presentation
 from pptx.oxml.ns import qn
+from pptx.util import Pt
 
 from generate_ppt import (
     BODY_FILL_COLOR,
@@ -17,6 +18,9 @@ from generate_ppt import (
     BORDER_COLOR,
     CategoryIntroSlideConfig,
     ChartPageConfig,
+    CHART_TEXTBOX_FONT_SIZE_PT,
+    CHART_TEXTBOX_FONT_NAME,
+    CHART_TEXTBOX_LINE_SPACING,
     HEADER_FILL_COLOR,
     HEADER_TEXT_COLOR,
     LlmNotesConfig,
@@ -582,6 +586,15 @@ class GeneratePptTest(unittest.TestCase):
                 "图表分析内容待补充。",
                 collect_slide_texts(presentation.slides[1]),
             )
+            textbox_shape = next(
+                shape
+                for shape in presentation.slides[1].shapes
+                if shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX
+            )
+            textbox_run = textbox_shape.text_frame.paragraphs[0].runs[0]
+            self.assertEqual(textbox_run.font.name, CHART_TEXTBOX_FONT_NAME)
+            self.assertEqual(textbox_run.font.size, Pt(CHART_TEXTBOX_FONT_SIZE_PT))
+            self.assertEqual(textbox_shape.text_frame.paragraphs[0].line_spacing, CHART_TEXTBOX_LINE_SPACING)
 
     def test_generate_presentation_reuses_llm_notes_in_chart_slide_textbox(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

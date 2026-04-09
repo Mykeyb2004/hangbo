@@ -53,6 +53,9 @@ CATEGORY_LABEL_PREFIX_RE = re.compile(r"^[一二三四五六七八九十百零]+
 CHART_TEXTBOX_FILL_COLOR = "F7E8EC"
 CHART_TEXTBOX_TEXT_COLOR = "5D667A"
 CHART_TEXTBOX_BORDER_COLOR = "E8D5DA"
+CHART_TEXTBOX_FONT_NAME = "Kaiti SC"
+CHART_TEXTBOX_FONT_SIZE_PT = 14
+CHART_TEXTBOX_LINE_SPACING = 1.3
 
 
 @dataclass(frozen=True)
@@ -1066,11 +1069,25 @@ def render_chart_textbox(
     for paragraph_index, line in enumerate(text.splitlines()):
         paragraph = text_frame.paragraphs[0] if paragraph_index == 0 else text_frame.add_paragraph()
         paragraph.alignment = PP_ALIGN.LEFT
+        paragraph.line_spacing = CHART_TEXTBOX_LINE_SPACING
         run = paragraph.add_run()
         run.text = line
-        run.font.size = Pt(18)
+        run.font.size = Pt(CHART_TEXTBOX_FONT_SIZE_PT)
         run.font.color.rgb = RGBColor.from_string(CHART_TEXTBOX_TEXT_COLOR)
-        paragraph.space_after = Pt(8)
+        apply_run_font_name(run, CHART_TEXTBOX_FONT_NAME)
+        paragraph.space_after = Pt(6)
+
+
+def apply_run_font_name(run, font_name: str) -> None:
+    run.font.name = font_name
+    r_pr = run._r.get_or_add_rPr()
+    r_pr.set("lang", "zh-CN")
+    for tag in ("a:latin", "a:ea", "a:cs"):
+        typeface = r_pr.find(qn(tag))
+        if typeface is None:
+            typeface = OxmlElement(tag)
+            r_pr.append(typeface)
+        typeface.set("typeface", font_name)
 
 
 def generate_presentation(
