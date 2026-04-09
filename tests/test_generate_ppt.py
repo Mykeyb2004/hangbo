@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from openpyxl import Workbook
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx import Presentation
 from pptx.oxml.ns import qn
 
@@ -15,6 +16,7 @@ from generate_ppt import (
     BODY_TEXT_COLOR,
     BORDER_COLOR,
     CategoryIntroSlideConfig,
+    ChartPageConfig,
     HEADER_FILL_COLOR,
     HEADER_TEXT_COLOR,
     LlmNotesConfig,
@@ -320,6 +322,11 @@ class GeneratePptTest(unittest.TestCase):
                         '[category_intro_slides."五、酒店客户"]',
                         f'ppt_path = "{chapter_template_path}"',
                         "slide_number = 5",
+                        "",
+                        "[chart_page]",
+                        "enabled = true",
+                        'placeholder_text = "图表解读待补充"',
+                        "image_dpi = 180",
                     ]
                 ),
                 encoding="utf-8",
@@ -333,6 +340,9 @@ class GeneratePptTest(unittest.TestCase):
             )
             self.assertEqual(config.category_intro_slides["一、会展客户"].slide_number, 3)
             self.assertEqual(config.category_intro_slides["五、酒店客户"].slide_number, 5)
+            self.assertTrue(config.chart_page.enabled)
+            self.assertEqual(config.chart_page.placeholder_text, "图表解读待补充")
+            self.assertEqual(config.chart_page.image_dpi, 180)
 
     def test_generate_presentation_creates_single_and_double_table_slides(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -520,6 +530,57 @@ class GeneratePptTest(unittest.TestCase):
             )
             self.assertFalse(
                 any("酒店区客户满意度及酒店暗访评分" in texts for texts in slide_texts),
+            )
+
+    def test_generate_presentation_appends_chart_slide_with_same_title(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "report-with-chart.pptx"
+
+            create_report_workbook(
+                input_dir / "专业观众.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("专业观众", 9.93, 10.0),
+                    ("会展服务", 9.86, 9.90),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                    ("硬件设施", 9.31, 9.89),
+                    ("园区停车方便", 9.67, 9.92),
+                    ("配套服务", 9.47, 9.82),
+                    ("餐饮服务", 8.9, 9.8),
+                    ("智慧场馆", 8.5, 9.0),
+                    ("杭州国博APP", 9.0, 8.0),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                chart_page=ChartPageConfig(
+                    enabled=True,
+                    placeholder_text="图表分析内容待补充。",
+                    image_dpi=120,
+                ),
+            )
+
+            generate_presentation(config)
+
+            presentation = Presentation(output_path)
+            self.assertEqual(len(presentation.slides), 2)
+            self.assertEqual(presentation.slides[0].shapes.title.text, "会展客户——专业观众")
+            self.assertEqual(presentation.slides[1].shapes.title.text, "会展客户——专业观众")
+            self.assertTrue(
+                any(shape.shape_type == MSO_SHAPE_TYPE.PICTURE for shape in presentation.slides[1].shapes)
+            )
+            self.assertIn(
+                "图表分析内容待补充。",
+                collect_slide_texts(presentation.slides[1]),
             )
 
     def test_generate_presentation_skips_sections_when_all_metric_satisfaction_values_are_empty(self) -> None:

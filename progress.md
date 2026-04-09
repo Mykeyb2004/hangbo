@@ -2,6 +2,32 @@
 
 ## Session: 2026-04-09
 
+### Phase 1: Chart Slide Requirements & Planning
+- **Status:** complete
+- Actions taken:
+  - 复查了 `generate_ppt.py` 当前页级生成流程，确认图表页应在数据页后追加。
+  - 检查了 `pyproject.toml` 当前依赖，确认尚无图表绘图库。
+  - 抽查了 Q1 实际导出的 Excel，确认二级指标聚合行可以直接作为图表数据源。
+  - 结合用户补充截图，明确图表页采用“左侧图表、右侧占位文字框”的版式。
+  - 使用 `uv add matplotlib` 补充图表渲染依赖。
+  - 新增 `ppt_chart_renderer.py`，实现图表类型判断和 PNG 输出。
+  - 在 `generate_ppt.py` 中接入图表页配置、图表页渲染和数据页后自动插入逻辑。
+  - 更新 `ppt_job.example.toml`、`report_jobs.Q1.toml` 和 `docs/PPT批量生成.md`。
+  - 用真实 Q1 数据重新生成 PPT，确认页数、标题复用、图片插入和占位文字框均符合预期。
+- Files created/modified:
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+  - `ppt_chart_renderer.py` (created)
+  - `tests/test_ppt_chart_renderer.py` (created)
+  - `generate_ppt.py` (updated)
+  - `tests/test_generate_ppt.py` (updated)
+  - `pyproject.toml` (updated)
+  - `uv.lock` (updated)
+  - `ppt_job.example.toml` (updated)
+  - `report_jobs.Q1.toml` (updated)
+  - `docs/PPT批量生成.md` (updated)
+
 ### Phase 1: Requirements & Discovery
 - **Status:** complete
 - **Started:** 2026-04-09
@@ -76,6 +102,10 @@
 | LLM 备注页测试 | `uv run python -m unittest tests.test_generate_ppt` | fake client 写入备注页 | 已通过 | ✓ |
 | LLM 中断保护 | `uv run python -m unittest tests.test_generate_ppt` | 中断后保留 partial checkpoint | 已通过 | ✓ |
 | 示例配置校验 | `uv run python generate_ppt.py --config ppt_job.example.toml --dry-run` | 配置解析通过 | 已通过 | ✓ |
+| 图表模块单测 | `uv run python -m unittest tests.test_ppt_chart_renderer` | 图表类型判断和 PNG 输出通过 | 已通过 | ✓ |
+| 图表页集成测试 | `uv run python -m unittest tests.test_generate_ppt.GeneratePptTest.test_generate_presentation_appends_chart_slide_with_same_title` | 成功追加图表页 | 已通过 | ✓ |
+| 图表页全量回归 | `uv run python -m unittest discover -s tests` | 全部通过 | 73 个测试通过 | ✓ |
+| Q1 图表页实产验证 | `uv run python generate_ppt.py --config report_jobs.Q1.toml` | 输出带图表页 PPT | 已生成 33 页 PPT | ✓ |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |
@@ -86,10 +116,10 @@
 | Question | Answer |
 |----------|--------|
 | Where am I? | Phase 5，已完成交付 |
-| Where am I going? | 等用户验收或提出样式/布局微调 |
-| What's the goal? | 实现基于模板和 Excel 批量生成 PPT 的可配置脚本 |
+| Where am I going? | 等用户验收图表页版式，或继续补右侧文字自动生成 |
+| What's the goal? | 实现基于模板和 Excel 批量生成 PPT，并为每个客户分组追加图表页 |
 | What have I learned? | 见 `findings.md` |
-| What have I done? | 已完成实现、测试、文档和真实 PPT 产物生成 |
+| What have I done? | 已完成实现、测试、文档、Q1 图表页产物生成与结构验证 |
 
 ---
 *Update after completing each phase or encountering errors*

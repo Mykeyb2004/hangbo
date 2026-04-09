@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Survey statistics scripts for exhibition reports"
 requires-python = ">=3.11"
 dependencies = [
+    "matplotlib>=3.10.8",
     "openai>=2.30.0",
     "openpyxl>=3.1.5",
     "pandas>=2.2.3",

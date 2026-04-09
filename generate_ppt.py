@@ -7,6 +7,7 @@ import tomllib
 from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 from typing import Sequence
 
@@ -25,6 +26,7 @@ from survey_stats import (
     format_value,
     get_effective_role_definition,
 )
+from ppt_chart_renderer import ChartPoint, ChartRenderConfig, render_chart_image
 from summary_table import SUMMARY_ROW_DEFINITIONS, normalize_text
 
 VALID_SECTION_MODES = ("auto", "template", "summary")
@@ -43,7 +45,14 @@ DEFAULT_NOTES_TARGET_CHARS = 300
 DEFAULT_NOTES_TEMPERATURE = 0.4
 DEFAULT_NOTES_MAX_TOKENS = 500
 DEFAULT_NOTES_CHECKPOINT_CHARS = 80
+DEFAULT_CHART_PLACEHOLDER_TEXT = (
+    "图表分析内容待补充。\n"
+    "后续将在此处补充该客户分组二级指标的整体解读、优势项与待提升项。"
+)
 CATEGORY_LABEL_PREFIX_RE = re.compile(r"^[一二三四五六七八九十百零]+、")
+CHART_TEXTBOX_FILL_COLOR = "F7E8EC"
+CHART_TEXTBOX_TEXT_COLOR = "5D667A"
+CHART_TEXTBOX_BORDER_COLOR = "E8D5DA"
 
 
 @dataclass(frozen=True)
@@ -76,6 +85,12 @@ class PptLayoutConfig:
     detail_right_table: TableRegion = field(
         default_factory=lambda: TableRegion(6.82, 2.10, 5.78, 4.95)
     )
+    chart_image: TableRegion = field(
+        default_factory=lambda: TableRegion(0.78, 1.58, 5.55, 5.10)
+    )
+    chart_textbox: TableRegion = field(
+        default_factory=lambda: TableRegion(6.55, 1.58, 5.50, 5.10)
+    )
 
 
 @dataclass(frozen=True)
@@ -107,6 +122,13 @@ class CategoryIntroSlideConfig:
 
 
 @dataclass(frozen=True)
+class ChartPageConfig:
+    enabled: bool = False
+    placeholder_text: str = DEFAULT_CHART_PLACEHOLDER_TEXT
+    image_dpi: int = 220
+
+
+@dataclass(frozen=True)
 class PptBatchConfig:
     template_path: Path
     input_dir: Path
@@ -127,6 +149,7 @@ class PptBatchConfig:
     summary_font_size_pt: float = 12.0
     template_slide_index: int = 0
     category_intro_slides: dict[str, CategoryIntroSlideConfig] = field(default_factory=dict)
+    chart_page: ChartPageConfig = field(default_factory=ChartPageConfig)
 
 
 @dataclass(frozen=True)
@@ -153,6 +176,12 @@ class WorkbookDisplayMeta:
     alias_index: int
     title: str
     category_label: str | None = None
+
+
+@dataclass(frozen=True)
+class RenderedWorkbookSlide:
+    title: str
+    chart_points: tuple[ChartPoint, ...] = ()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -188,6 +217,7 @@ def load_batch_config(
     raw = tomllib.loads(config_path.read_text(encoding="utf-8"))
     layout = load_layout_config(raw.get("layout", {}))
     llm_notes = load_llm_notes_config(config_dir, raw.get("llm_notes", {}))
+    chart_page = load_chart_page_config(raw.get("chart_page"))
     category_intro_slides = load_category_intro_slides_config(
         config_dir,
         raw.get("category_intro_slides"),
@@ -214,6 +244,7 @@ def load_batch_config(
         summary_font_size_pt=float(raw.get("summary_font_size_pt", 12.0)),
         template_slide_index=int(raw.get("template_slide_index", 0)),
         category_intro_slides=category_intro_slides,
+        chart_page=chart_page,
     )
 
 
@@ -267,6 +298,18 @@ def load_category_intro_slides_config(
     return intro_slides
 
 
+def load_chart_page_config(raw: object) -> ChartPageConfig:
+    if raw is None:
+        return ChartPageConfig()
+    if not isinstance(raw, dict):
+        raise ValueError("chart_page 必须是对象")
+    return ChartPageConfig(
+        enabled=bool(raw.get("enabled", False)),
+        placeholder_text=str(raw.get("placeholder_text", DEFAULT_CHART_PLACEHOLDER_TEXT)),
+        image_dpi=int(raw.get("image_dpi", 220)),
+    )
+
+
 def resolve_config_path(config_dir: Path, raw_path: str | Path) -> Path:
     path = Path(raw_path)
     if path.is_absolute():
@@ -291,6 +334,14 @@ def load_layout_config(raw: dict[str, object]) -> PptLayoutConfig:
         detail_right_table=load_table_region(
             raw.get("detail_right_table"),
             TableRegion(6.82, 2.10, 5.78, 4.95),
+        ),
+        chart_image=load_table_region(
+            raw.get("chart_image"),
+            TableRegion(0.78, 1.58, 5.55, 5.10),
+        ),
+        chart_textbox=load_table_region(
+            raw.get("chart_textbox"),
+            TableRegion(6.55, 1.58, 5.50, 5.10),
         ),
     )
 
@@ -938,6 +989,84 @@ def insert_category_intro_slide(
     copy_supported_shapes(source_slide, destination_slide)
 
 
+def build_chart_points(
+    detail_rows: Sequence[tuple[str, float | None, float | None]],
+    role_definition: RoleDefinition | None,
+) -> tuple[ChartPoint, ...]:
+    if role_definition is None:
+        return ()
+
+    chart_points: list[ChartPoint] = []
+    for block in build_section_blocks(detail_rows, role_definition):
+        if not block.rows:
+            continue
+        label, satisfaction, importance = block.rows[0]
+        if satisfaction is None or importance is None:
+            continue
+        chart_points.append(
+            ChartPoint(
+                label=label,
+                satisfaction=satisfaction,
+                importance=importance,
+            )
+        )
+    return tuple(chart_points)
+
+
+def render_chart_slide(
+    slide,
+    *,
+    title: str,
+    chart_points: Sequence[ChartPoint],
+    config: PptBatchConfig,
+) -> None:
+    apply_title(slide, title)
+    chart_bytes = render_chart_image(
+        chart_points,
+        config=ChartRenderConfig(dpi=config.chart_page.image_dpi),
+        width_inches=config.layout.chart_image.width,
+        height_inches=config.layout.chart_image.height,
+    )
+    left, top, width, height = config.layout.chart_image.emu()
+    slide.shapes.add_picture(BytesIO(chart_bytes), left, top, width=width, height=height)
+    render_chart_placeholder_textbox(
+        slide,
+        config.layout.chart_textbox,
+        config.chart_page.placeholder_text,
+    )
+
+
+def render_chart_placeholder_textbox(
+    slide,
+    region: TableRegion,
+    text: str,
+) -> None:
+    left, top, width, height = region.emu()
+    textbox = slide.shapes.add_textbox(left, top, width, height)
+    textbox.fill.solid()
+    textbox.fill.fore_color.rgb = RGBColor.from_string(CHART_TEXTBOX_FILL_COLOR)
+    textbox.line.color.rgb = RGBColor.from_string(CHART_TEXTBOX_BORDER_COLOR)
+    textbox.line.width = Pt(1)
+
+    text_frame = textbox.text_frame
+    text_frame.clear()
+    text_frame.word_wrap = True
+    text_frame.vertical_anchor = MSO_ANCHOR.TOP
+    text_frame.margin_left = Pt(18)
+    text_frame.margin_right = Pt(18)
+    text_frame.margin_top = Pt(18)
+    text_frame.margin_bottom = Pt(18)
+
+    for paragraph_index, line in enumerate(text.splitlines()):
+        paragraph = text_frame.paragraphs[0] if paragraph_index == 0 else text_frame.add_paragraph()
+        paragraph.alignment = PP_ALIGN.LEFT
+        run = paragraph.add_run()
+        run.text = line
+        run.font.size = Pt(18)
+        run.font.color.rgb = RGBColor.from_string(CHART_TEXTBOX_TEXT_COLOR)
+        paragraph.space_after = Pt(8)
+
+
 def generate_presentation(
     config: PptBatchConfig,
     *,
@@ -977,7 +1106,7 @@ def generate_presentation(
                 inserted_intro_categories.add(category_label)
 
             slide = presentation.slides.add_slide(template_layout)
-            render_workbook_slide(
+            rendered_slide = render_workbook_slide(
                 slide,
                 workbook_path,
                 config,
@@ -987,6 +1116,14 @@ def generate_presentation(
                 slide_index=index + 1,
                 total_slides=total_files,
             )
+            if config.chart_page.enabled and len(rendered_slide.chart_points) >= 2:
+                chart_slide = presentation.slides.add_slide(template_layout)
+                render_chart_slide(
+                    chart_slide,
+                    title=rendered_slide.title,
+                    chart_points=rendered_slide.chart_points,
+                    config=config,
+                )
             if partial_output_path is not None:
                 save_presentation_checkpoint(presentation, partial_output_path)
                 print(
@@ -1024,7 +1161,7 @@ def render_workbook_slide(
     llm_runtime: LlmRuntimeConfig | None = None,
     slide_index: int | None = None,
     total_slides: int | None = None,
-) -> None:
+) -> RenderedWorkbookSlide:
     title = resolve_workbook_display_meta(workbook_path.stem).title + config.title_suffix
     apply_title(slide, title)
 
@@ -1041,6 +1178,7 @@ def render_workbook_slide(
         section_mode=config.section_mode,
     )
     detail_rows = filter_empty_satisfaction_sections(detail_rows, role_definition)
+    chart_points = build_chart_points(detail_rows, role_definition)
 
     render_table(
         slide,
@@ -1134,6 +1272,8 @@ def render_workbook_slide(
             f"{progress_prefix}备注页分析完成：{title}（{len(notes_text)}字）",
             flush=True,
         )
+
+    return RenderedWorkbookSlide(title=title, chart_points=chart_points)
 
 
 def render_table(

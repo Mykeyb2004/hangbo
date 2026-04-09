@@ -1,58 +1,58 @@
-# Task Plan: Excel 批量生成 PPT 方案设计
+# Task Plan: Excel 批量生成 PPT 增强规划
 
 ## Goal
-基于 `templates/template.pptx` 和 `输出结果/9月/` 下的 Excel 文件，设计一套参数可配置的 PPT 生成方案，并在用户确认后进入实现。
+在现有 `generate_ppt.py` 基础上，为每个客户分组新增图表页能力：基于二级指标绘制柱状图或雷达图，将图表与占位文字框并列展示，并保持独立模块封装、可配置、可测试。
 
 ## Current Phase
 Phase 5
 
 ## Phases
 
-### Phase 1: Requirements & Discovery
-- [x] Understand user intent
-- [x] Identify constraints and requirements
-- [x] Document findings in findings.md
+### Phase 1: Requirements & Scope Freeze
+- [x] 明确图表页触发条件、页内布局和占位文案策略
+- [x] 明确图表数据口径与空值过滤规则
+- [x] 记录依赖与实现约束
 - **Status:** complete
 
-### Phase 2: Planning & Structure
-- [x] Define technical approach
-- [x] Create project structure if needed
-- [x] Document decisions with rationale
+### Phase 2: Module Design
+- [x] 设计独立图表模块 API
+- [x] 设计图表页配置结构与布局参数
+- [x] 定义生成中间产物与临时文件管理方式
 - **Status:** complete
 
-### Phase 3: Implementation
-- [x] Execute the plan step by step
-- [x] Write code to files before executing
-- [x] Test incrementally
+### Phase 3: TDD & Implementation
+- [x] 先补图表数据提取/图表类型判断测试
+- [x] 实现图表图片生成模块
+- [x] 将图表页接入 PPT 主生成流程
 - **Status:** complete
 
-### Phase 4: Testing & Verification
-- [x] Verify all requirements met
-- [x] Document test results in progress.md
-- [x] Fix any issues found
+### Phase 4: Verification
+- [x] 校验图表页顺序、标题复用和图片插入
+- [x] 用真实 Q1 数据生成并人工验收
+- [x] 更新 progress.md 中的测试记录
 - **Status:** complete
 
-### Phase 5: Delivery
-- [x] Review all output files
-- [x] Ensure deliverables are complete
-- [x] Deliver to user
+### Phase 5: Documentation & Delivery
+- [x] 更新 `docs/PPT批量生成.md`
+- [x] 更新示例 TOML 配置
+- [x] 向用户交付运行命令与注意事项
 - **Status:** complete
 
 ## Key Questions
-1. `template.pptx` 中用于标题、表格、图表的占位方式是什么？
-2. Excel 的读取规则应是“整表搬运”还是“按命名区域/指定 sheet 映射”？
-3. 参数配置采用 TOML、命令行参数，还是两者结合？
+1. 图表是否默认展示“满意度 + 重要性”双系列？
+2. 图表页的右侧文字框是否先用固定占位文案，后续再接 LLM？
+3. 图表绘制依赖是否引入 `matplotlib` 作为新依赖？
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| 先做方案确认，再动代码 | 用户明确要求先给方案确认 |
-| 优先沿用 TOML 配置风格 | 仓库中已有 `job.toml` / `report_jobs.example.toml`，一致性更好 |
-| PPT 首版方案采用“模板页复制 + 动态插表” | 模板中只有标题占位符，没有现成表格或图表对象 |
-| Excel 首版按“首个工作表整体读入”处理 | 当前样本文件结构统一，第一页就是目标数据 |
-| 总体行单独放在摘要表 | 用户要求超长时按二级标题拆左右双表，总体行单独放置更清晰 |
-| 左右双表每侧默认上限设为 19 行 | 结合 9 月真实数据统计，多个客户群体最优切分至少需要 19 行容量 |
-| 备注页分析采用 OpenAI 兼容 SDK + `.env` 配置 | 满足用户对兼容式 LLM 接入和连接参数外置的要求 |
+| 图表能力先独立封装到新文件 | 降低 `generate_ppt.py` 复杂度，便于单测 |
+| 图表页放在每个客户分组表格页之后 | 用户已明确要求 |
+| 图表页标题与前一页保持一致 | 用户已明确要求 |
+| 二级指标数为 2 时使用柱状图，3 个及以上用雷达图 | 用户已明确要求 |
+| 图表与文字框左右并列 | 参考用户给出的版式截图 |
+| 右侧文字框内容先占位 | 用户明确暂时无需生成正式分析文案 |
+| 图表数据直接复用当前二级指标口径 | 保证表格页与图表页一致 |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
@@ -62,4 +62,5 @@ Phase 5
 ## Notes
 - 遵循 AGENTS.md：使用 `uv` 作为包管理器，测试通过 `uv run` 执行。
 - 若开始实现，需要同步补充 `/docs` 技术文档和 `/tests` 测试脚本。
-- 已生成实际产物：`输出结果/9月满意度报告.pptx`
+- 图表页预计需要新增绘图库依赖，优先考虑 `matplotlib`。
+- 当前已完成独立图表模块、主流程接入、文档更新和 Q1 实际产物验证。
