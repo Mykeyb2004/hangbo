@@ -14,6 +14,7 @@ from generate_ppt import (
     BODY_FILL_COLOR,
     BODY_TEXT_COLOR,
     BORDER_COLOR,
+    CategoryIntroSlideConfig,
     HEADER_FILL_COLOR,
     HEADER_TEXT_COLOR,
     LlmNotesConfig,
@@ -28,6 +29,7 @@ from generate_ppt import (
     discover_input_files,
     format_report_value,
     generate_presentation,
+    load_batch_config,
     resolve_section_definition,
     resolve_workbook_display_meta,
 )
@@ -40,6 +42,25 @@ def create_report_workbook(path: Path, rows: list[tuple[object, object, object]]
     for row in rows:
         worksheet.append(list(row))
     workbook.save(path)
+
+
+def collect_slide_texts(slide) -> list[str]:
+    texts: list[str] = []
+    for shape in slide.shapes:
+        if getattr(shape, "has_text_frame", False):
+            for paragraph in shape.text_frame.paragraphs:
+                text = paragraph.text.strip()
+                if text:
+                    texts.append(text)
+        if hasattr(shape, "shapes"):
+            for nested_shape in shape.shapes:
+                if not getattr(nested_shape, "has_text_frame", False):
+                    continue
+                for paragraph in nested_shape.text_frame.paragraphs:
+                    text = paragraph.text.strip()
+                    if text:
+                        texts.append(text)
+    return texts
 
 
 class FakeMessage:
@@ -278,6 +299,41 @@ class GeneratePptTest(unittest.TestCase):
         self.assertEqual(banquet_meta.title, "酒店客户——餐饮客户")
         self.assertEqual(buffet_meta.title, "酒店客户——餐饮客户")
 
+    def test_load_batch_config_parses_category_intro_slides(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+        chapter_template_path = repo_root / "templates" / "chapter.pptx"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_path = temp_path / "ppt-job.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        f'template_path = "{template_path}"',
+                        'input_dir = "input"',
+                        'output_ppt = "output/report.pptx"',
+                        "",
+                        '[category_intro_slides."一、会展客户"]',
+                        f'ppt_path = "{chapter_template_path}"',
+                        "slide_number = 3",
+                        "",
+                        '[category_intro_slides."五、酒店客户"]',
+                        f'ppt_path = "{chapter_template_path}"',
+                        "slide_number = 5",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_batch_config(config_path)
+
+            self.assertEqual(
+                config.category_intro_slides["一、会展客户"].ppt_path,
+                chapter_template_path,
+            )
+            self.assertEqual(config.category_intro_slides["一、会展客户"].slide_number, 3)
+            self.assertEqual(config.category_intro_slides["五、酒店客户"].slide_number, 5)
+
     def test_generate_presentation_creates_single_and_double_table_slides(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         template_path = repo_root / "templates" / "template.pptx"
@@ -400,6 +456,71 @@ class GeneratePptTest(unittest.TestCase):
             left_border = detail_table.cell(2, 0)._tc.tcPr.find(qn("a:lnL"))
             border_color = left_border.find(qn("a:solidFill")).find(qn("a:srgbClr")).get("val")
             self.assertEqual(border_color, BORDER_COLOR)
+
+    def test_generate_presentation_inserts_category_intro_slides_once_per_matching_category(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+        chapter_template_path = repo_root / "templates" / "chapter.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "report-with-chapters.pptx"
+
+            for file_name in ("参展商.xlsx", "会议主承办.xlsx", "自助餐.xlsx"):
+                create_report_workbook(
+                    input_dir / file_name,
+                    [
+                        ("指标", "满意度", "重要性"),
+                        (Path(file_name).stem, 9.9, 9.8),
+                    ],
+                )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                category_intro_slides={
+                    "一、会展客户": CategoryIntroSlideConfig(
+                        ppt_path=chapter_template_path,
+                        slide_number=3,
+                    ),
+                    "二、餐饮客户": CategoryIntroSlideConfig(
+                        ppt_path=chapter_template_path,
+                        slide_number=4,
+                    ),
+                    "五、酒店客户": CategoryIntroSlideConfig(
+                        ppt_path=chapter_template_path,
+                        slide_number=5,
+                    ),
+                },
+            )
+
+            generate_presentation(config)
+
+            presentation = Presentation(output_path)
+            slide_texts = [collect_slide_texts(slide) for slide in presentation.slides]
+
+            self.assertEqual(len(presentation.slides), 5)
+            self.assertIn("会展区客户满意度", slide_texts[0])
+            self.assertEqual(len(presentation.slides[0].placeholders), 0)
+            self.assertEqual(presentation.slides[1].shapes.title.text, "会展客户——参展商")
+            self.assertEqual(presentation.slides[2].shapes.title.text, "会展客户——会议活动主（承）办")
+            self.assertIn("餐饮区客户满意度", slide_texts[3])
+            self.assertEqual(len(presentation.slides[3].placeholders), 0)
+            self.assertEqual(presentation.slides[4].shapes.title.text, "餐饮客户——自助餐")
+            self.assertEqual(
+                sum("会展区客户满意度" in texts for texts in slide_texts),
+                1,
+            )
+            self.assertEqual(
+                sum("餐饮区客户满意度" in texts for texts in slide_texts),
+                1,
+            )
+            self.assertFalse(
+                any("酒店区客户满意度及酒店暗访评分" in texts for texts in slide_texts),
+            )
 
     def test_generate_presentation_skips_sections_when_all_metric_satisfaction_values_are_empty(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

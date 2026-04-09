@@ -4,6 +4,7 @@ import argparse
 import math
 import re
 import tomllib
+from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -100,6 +101,12 @@ class LlmRuntimeConfig:
 
 
 @dataclass(frozen=True)
+class CategoryIntroSlideConfig:
+    ppt_path: Path
+    slide_number: int
+
+
+@dataclass(frozen=True)
 class PptBatchConfig:
     template_path: Path
     input_dir: Path
@@ -119,6 +126,7 @@ class PptBatchConfig:
     header_font_size_pt: float = 11.0
     summary_font_size_pt: float = 12.0
     template_slide_index: int = 0
+    category_intro_slides: dict[str, CategoryIntroSlideConfig] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -144,6 +152,7 @@ class WorkbookDisplayMeta:
     sort_index: int
     alias_index: int
     title: str
+    category_label: str | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -179,6 +188,10 @@ def load_batch_config(
     raw = tomllib.loads(config_path.read_text(encoding="utf-8"))
     layout = load_layout_config(raw.get("layout", {}))
     llm_notes = load_llm_notes_config(config_dir, raw.get("llm_notes", {}))
+    category_intro_slides = load_category_intro_slides_config(
+        config_dir,
+        raw.get("category_intro_slides"),
+    )
 
     effective_section_mode = normalize_section_mode(section_mode or raw.get("section_mode"))
     return PptBatchConfig(
@@ -200,6 +213,7 @@ def load_batch_config(
         header_font_size_pt=float(raw.get("header_font_size_pt", 11.0)),
         summary_font_size_pt=float(raw.get("summary_font_size_pt", 12.0)),
         template_slide_index=int(raw.get("template_slide_index", 0)),
+        category_intro_slides=category_intro_slides,
     )
 
 
@@ -220,6 +234,37 @@ def load_llm_notes_config(config_dir: Path, raw: object) -> LlmNotesConfig:
         max_tokens=int(raw.get("max_tokens", DEFAULT_NOTES_MAX_TOKENS)),
         checkpoint_chars=int(raw.get("checkpoint_chars", DEFAULT_NOTES_CHECKPOINT_CHARS)),
     )
+
+
+def load_category_intro_slides_config(
+    config_dir: Path,
+    raw: object,
+) -> dict[str, CategoryIntroSlideConfig]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("category_intro_slides 必须是对象")
+
+    intro_slides: dict[str, CategoryIntroSlideConfig] = {}
+    for category_label, item in raw.items():
+        if not isinstance(category_label, str) or not category_label.strip():
+            raise ValueError("category_intro_slides 的键必须是非空客户大类名称")
+        if not isinstance(item, dict):
+            raise ValueError(f"{category_label} 的章节页配置必须是对象")
+        if "ppt_path" not in item:
+            raise ValueError(f"{category_label} 缺少 ppt_path")
+        if "slide_number" not in item:
+            raise ValueError(f"{category_label} 缺少 slide_number")
+
+        slide_number = int(item["slide_number"])
+        if slide_number < 1:
+            raise ValueError(f"{category_label} 的 slide_number 必须从 1 开始")
+
+        intro_slides[category_label] = CategoryIntroSlideConfig(
+            ppt_path=resolve_config_path(config_dir, item["ppt_path"]),
+            slide_number=slide_number,
+        )
+    return intro_slides
 
 
 def resolve_config_path(config_dir: Path, raw_path: str | Path) -> Path:
@@ -275,8 +320,8 @@ def strip_category_label_prefix(category_label: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def build_workbook_display_lookup() -> dict[str, tuple[int, int, str, str, int]]:
-    lookup: dict[str, tuple[int, int, str, str, int]] = {}
+def build_workbook_display_lookup() -> dict[str, tuple[int, int, str, str]]:
+    lookup: dict[str, tuple[int, int, str, str]] = {}
     for definition_index, definition in enumerate(SUMMARY_ROW_DEFINITIONS):
         display_key = normalize_text(definition.display_name)
         if display_key and display_key not in lookup:
@@ -285,7 +330,6 @@ def build_workbook_display_lookup() -> dict[str, tuple[int, int, str, str, int]]
                 -1,
                 definition.category_label,
                 definition.display_name,
-                len(definition.source_aliases),
             )
 
         for alias_index, alias in enumerate(definition.source_aliases):
@@ -296,7 +340,6 @@ def build_workbook_display_lookup() -> dict[str, tuple[int, int, str, str, int]]
                     alias_index,
                     definition.category_label,
                     definition.display_name,
-                    len(definition.source_aliases),
                 )
     return lookup
 
@@ -308,13 +351,15 @@ def resolve_workbook_display_meta(workbook_name: str) -> WorkbookDisplayMeta:
             sort_index=len(SUMMARY_ROW_DEFINITIONS),
             alias_index=0,
             title=workbook_name,
+            category_label=None,
         )
 
-    definition_index, alias_index, category_label, display_name, source_alias_count = entry
+    definition_index, alias_index, category_label, display_name = entry
     return WorkbookDisplayMeta(
         sort_index=definition_index,
         alias_index=max(alias_index, 0),
         title=f"{strip_category_label_prefix(category_label)}——{display_name}",
+        category_label=category_label,
     )
 
 
@@ -792,6 +837,107 @@ def apply_title(slide, title: str) -> None:
         title_shape.text_frame.word_wrap = True
 
 
+def remove_slide(presentation: Presentation, slide_index: int) -> None:
+    slide_id_list = presentation.slides._sldIdLst
+    slide_id = list(slide_id_list)[slide_index]
+    presentation.part.drop_rel(slide_id.rId)
+    slide_id_list.remove(slide_id)
+
+
+def clear_all_slides(presentation: Presentation) -> None:
+    for slide_index in range(len(presentation.slides) - 1, -1, -1):
+        remove_slide(presentation, slide_index)
+
+
+def get_blank_slide_layout(presentation: Presentation):
+    for layout in presentation.slide_layouts:
+        if layout.name in {"空白", "Blank"}:
+            return layout
+    return min(presentation.slide_layouts, key=lambda layout: len(layout.placeholders))
+
+
+def find_slide_layout_by_name(presentation: Presentation, layout_name: str | None):
+    if layout_name:
+        for layout in presentation.slide_layouts:
+            if layout.name == layout_name:
+                return layout
+    return None
+
+
+def shape_has_external_relationship(shape) -> bool:
+    xml = shape._element.xml
+    return 'r:embed="' in xml or 'r:link="' in xml or 'r:id="' in xml
+
+
+def assign_unique_shape_ids(shape_element, start_id: int) -> int:
+    next_id = start_id
+    for element in shape_element.iter():
+        if element.tag == qn("p:cNvPr"):
+            element.set("id", str(next_id))
+            next_id += 1
+    return next_id
+
+
+def remove_slide_placeholders(slide) -> None:
+    for shape in list(slide.shapes):
+        if not getattr(shape, "is_placeholder", False):
+            continue
+        sp_tree = shape._element.getparent()
+        if sp_tree is not None:
+            sp_tree.remove(shape._element)
+
+
+def copy_supported_shapes(source_slide, destination_slide) -> None:
+    sp_tree = destination_slide.shapes._spTree
+    next_shape_id = destination_slide.shapes._next_shape_id
+    copied_count = 0
+
+    for shape in source_slide.shapes:
+        if shape_has_external_relationship(shape):
+            continue
+        new_element = deepcopy(shape._element)
+        next_shape_id = assign_unique_shape_ids(new_element, next_shape_id)
+        sp_tree.insert_element_before(new_element, "p:extLst")
+        copied_count += 1
+
+    if copied_count == 0:
+        raise ValueError("章节页未找到可复制的可见形状")
+
+
+def insert_category_intro_slide(
+    presentation: Presentation,
+    intro_config: CategoryIntroSlideConfig,
+    *,
+    source_presentations: dict[Path, Presentation],
+) -> None:
+    source_path = intro_config.ppt_path.resolve()
+    if not source_path.exists():
+        raise FileNotFoundError(f"章节页模板不存在: {source_path}")
+
+    source_presentation = source_presentations.get(source_path)
+    if source_presentation is None:
+        source_presentation = Presentation(str(source_path))
+        source_presentations[source_path] = source_presentation
+
+    slide_index = intro_config.slide_number - 1
+    if slide_index < 0 or slide_index >= len(source_presentation.slides):
+        raise IndexError(
+            f"{source_path} 不存在第 {intro_config.slide_number} 页章节页"
+        )
+
+    source_slide = source_presentation.slides[slide_index]
+    destination_layout = find_slide_layout_by_name(
+        presentation,
+        source_slide.slide_layout.name if source_slide.slide_layout is not None else None,
+    )
+    if destination_layout is None:
+        destination_layout = get_blank_slide_layout(presentation)
+
+    destination_slide = presentation.slides.add_slide(destination_layout)
+    remove_slide_placeholders(destination_slide)
+    copy_supported_shapes(source_slide, destination_slide)
+
+
 def generate_presentation(
     config: PptBatchConfig,
     *,
@@ -811,11 +957,26 @@ def generate_presentation(
 
     template_slide = presentation.slides[config.template_slide_index]
     template_layout = template_slide.slide_layout
+    clear_all_slides(presentation)
     total_files = len(files)
+    inserted_intro_categories: set[str] = set()
+    source_presentations: dict[Path, Presentation] = {}
 
     try:
         for index, workbook_path in enumerate(files):
-            slide = template_slide if index == 0 else presentation.slides.add_slide(template_layout)
+            workbook_meta = resolve_workbook_display_meta(workbook_path.stem)
+            category_label = workbook_meta.category_label
+            if category_label and category_label not in inserted_intro_categories:
+                intro_config = config.category_intro_slides.get(category_label)
+                if intro_config is not None:
+                    insert_category_intro_slide(
+                        presentation,
+                        intro_config,
+                        source_presentations=source_presentations,
+                    )
+                inserted_intro_categories.add(category_label)
+
+            slide = presentation.slides.add_slide(template_layout)
             render_workbook_slide(
                 slide,
                 workbook_path,

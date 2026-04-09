@@ -15,6 +15,7 @@
 ## 当前规则
 
 - 页面顺序默认按 [客户类型汇总表.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/客户类型汇总表.md) 中“## 大类与样本类型”的顺序排列
+- 若配置了 `category_intro_slides`，会在某个客户大类第一次出现前插入指定章节页
 - 页面标题默认使用 `客户大类——客户分组`
 - 每个 Excel 生成 1 页 PPT
 - 模板页顶部标题占位符会被替换为展示标题
@@ -28,6 +29,7 @@
 
 - 如果 Excel 文件名是汇总表里的来源别名，例如 `展览主承办.xlsx`、`会议主承办.xlsx`、`参会人员.xlsx`，标题会自动转换成汇总展示名，如 `会展客户——展览活动主（承）办`
 - 若同一个汇总行对应多个来源文件，也会强制统一成同一个汇总展示标题；例如 `酒店宴会.xlsx`、`酒店自助餐.xlsx` 都显示为 `酒店客户——餐饮客户`
+- 章节页按客户大类触发，每个客户大类在一次批量生成中最多只插入 1 次；若该大类本次没有匹配到 Excel，则不会插入章节页
 
 ## 二级标题识别
 
@@ -66,6 +68,30 @@
   - 超出单表后，左右双表每侧能容纳的最大明细行数
 - `layout.*`
   - 表格位置和尺寸，单位为英寸
+- `category_intro_slides`
+  - 按客户大类配置章节页来源
+  - `ppt_path` 为章节页 PPT 路径
+  - `slide_number` 为章节页页码，按 PowerPoint 可见页码习惯从 `1` 开始
+
+章节页配置示例：
+
+```toml
+[category_intro_slides."一、会展客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 3
+
+[category_intro_slides."二、餐饮客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 4
+
+[category_intro_slides."三、G20峰会体验馆"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 6
+
+[category_intro_slides."五、酒店客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 5
+```
 
 ### 备注页 LLM 分析
 
@@ -167,6 +193,7 @@ uv run python generate_ppt.py --config ppt_job.example.toml --dry-run
 ## 输出说明
 
 - 输出文件为单个 `.pptx`
+- 若配置了章节页，会先输出客户大类章节页，再输出该大类下的数据页
 - 每页顶部是 `客户大类——客户分组` 标题
 - 标题下方为总体满意度/重要性摘要
 - 下方为明细指标表

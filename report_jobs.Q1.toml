@@ -25,6 +25,22 @@ header_font_size_pt = 11.0
 summary_font_size_pt = 12.0
 template_slide_index = 0
 
+[category_intro_slides."一、会展客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 3
+
+[category_intro_slides."二、餐饮客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 4
+
+[category_intro_slides."三、G20峰会体验馆"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 6
+
+[category_intro_slides."五、酒店客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 5
+
 [llm_notes]
 enabled = false
 env_path = ".env"
