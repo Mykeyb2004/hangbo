@@ -104,7 +104,16 @@ def _render_bar_chart(figure, points: Sequence[ChartPoint]) -> None:
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_color(GRID_COLOR)
     ax.spines["bottom"].set_color(GRID_COLOR)
-    ax.legend(loc="upper center", ncol=2, frameon=False, prop=_font_properties())
+    ax.legend(
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.10),
+        ncol=2,
+        frameon=False,
+        prop=_font_properties(),
+        borderaxespad=0.0,
+        columnspacing=1.2,
+        handletextpad=0.4,
+    )
 
     for bar in [*satisfaction_bars, *importance_bars]:
         height = bar.get_height()
@@ -120,7 +129,7 @@ def _render_bar_chart(figure, points: Sequence[ChartPoint]) -> None:
             fontproperties=_font_properties(),
         )
 
-    figure.tight_layout()
+    figure.subplots_adjust(top=0.72, bottom=0.12, left=0.12, right=0.96)
 
 
 def _render_radar_chart(figure, points: Sequence[ChartPoint]) -> None:
@@ -143,6 +152,7 @@ def _render_radar_chart(figure, points: Sequence[ChartPoint]) -> None:
         fontproperties=_font_properties(),
         color=AXIS_TEXT_COLOR,
     )
+    ax.tick_params(axis="x", pad=22)
     ax.set_ylim(0, 10)
     ax.set_yticks([2, 4, 6, 8, 10])
     ax.set_yticklabels(["2", "4", "6", "8", "10"], color=AXIS_TEXT_COLOR, fontproperties=_font_properties())
@@ -169,21 +179,31 @@ def _render_radar_chart(figure, points: Sequence[ChartPoint]) -> None:
     ax.fill(closed_angles, closed_importance, color=SECONDARY_SERIES_COLOR, alpha=0.16)
 
     for angle, value in zip(angles, satisfaction_values):
+        x_offset, y_offset, ha, va = _radar_value_annotation_layout(angle)
         ax.annotate(
             f"{value:.2f}".rstrip("0").rstrip("."),
             xy=(angle, value),
-            xytext=(0, 8),
+            xytext=(x_offset, y_offset),
             textcoords="offset points",
-            ha="center",
-            va="center",
+            ha=ha,
+            va=va,
             fontsize=9,
             color=AXIS_TEXT_COLOR,
             fontproperties=_font_properties(),
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 0.8},
         )
 
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.18), ncol=2, frameon=False, prop=_font_properties())
-    figure.tight_layout()
+    ax.legend(
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.18),
+        ncol=2,
+        frameon=False,
+        prop=_font_properties(),
+        borderaxespad=0.0,
+        columnspacing=1.2,
+        handletextpad=0.4,
+    )
+    figure.subplots_adjust(top=0.66, bottom=0.08, left=0.06, right=0.94)
 
 
 def _configure_font() -> None:
@@ -193,6 +213,26 @@ def _configure_font() -> None:
 
 def _font_properties() -> FontProperties:
     return FontProperties(family=_choose_font_family())
+
+
+def _radar_value_annotation_layout(angle: float) -> tuple[int, int, str, str]:
+    normalized = angle % (2 * pi)
+
+    if normalized < pi / 12 or normalized > 23 * pi / 12:
+        return (0, -14, "center", "top")
+    if normalized < 5 * pi / 12:
+        return (-12, 4, "right", "bottom")
+    if normalized < 7 * pi / 12:
+        return (-14, 0, "right", "center")
+    if normalized < 11 * pi / 12:
+        return (-10, 8, "right", "bottom")
+    if normalized < 13 * pi / 12:
+        return (0, 12, "center", "bottom")
+    if normalized < 17 * pi / 12:
+        return (10, 8, "left", "bottom")
+    if normalized < 19 * pi / 12:
+        return (14, 0, "left", "center")
+    return (12, 4, "left", "bottom")
 
 
 @lru_cache(maxsize=1)
