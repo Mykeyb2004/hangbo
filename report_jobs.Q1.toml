@@ -1,0 +1,59 @@
+template_path = "templates/template.pptx"
+input_dir = "输出结果/Q1"
+output_ppt = "输出结果/Q1满意度报告.pptx"
+
+file_pattern = "*.xlsx"
+sheet_name_mode = "first"
+
+# auto: 自动在 template / summary 两套二级标题定义里选更匹配的一套
+# template: 按 survey_stats.py 原始导出口径识别二级标题
+# summary: 按汇总口径识别二级标题
+section_mode = "auto"
+
+# 空值不显示
+blank_display = ""
+title_suffix = ""
+
+# 明细行数 <= max_single_table_rows 时，使用单表
+max_single_table_rows = 18
+# 明细行数超出单表后，按二级标题拆为左右双表，每侧最多容纳的明细行数
+max_split_table_rows = 19
+
+sort_files = true
+body_font_size_pt = 10.5
+header_font_size_pt = 11.0
+summary_font_size_pt = 12.0
+template_slide_index = 0
+
+[llm_notes]
+enabled = false
+env_path = ".env"
+system_role_path = "system_role.md"
+target_chars = 300
+temperature = 0.4
+max_tokens = 500
+checkpoint_chars = 80
+
+[layout.summary_table]
+left = 0.73
+top = 1.45
+width = 11.87
+height = 0.56
+
+[layout.detail_single_table]
+left = 0.73
+top = 2.10
+width = 11.87
+height = 4.95
+
+[layout.detail_left_table]
+left = 0.73
+top = 2.10
+width = 5.78
+height = 4.95
+
+[layout.detail_right_table]
+left = 6.82
+top = 2.10
+width = 5.78
+height = 4.95

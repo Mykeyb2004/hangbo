@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 DEFAULT_SHEET_NAME = "问卷数据"
+QUESTION_NUMBER_PREFIX_PATTERN = re.compile(r"^Q\d+\s*[-_、.．]?")
 
 
 @dataclass(frozen=True)
@@ -19,8 +21,8 @@ class WorkbookReadError:
 @dataclass(frozen=True)
 class DuplicateHeaderError:
     path: Path
-    headers: tuple[str, ...]
-    duplicate_headers: tuple[str, ...]
+    exact_duplicate_headers: tuple[str, ...]
+    semantic_duplicate_headers: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,13 @@ def normalize_header(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def normalize_header_semantics(header: str) -> str:
+    normalized_header = normalize_header(header)
+    if not normalized_header:
+        return ""
+    return QUESTION_NUMBER_PREFIX_PATTERN.sub("", normalized_header, count=1).strip()
 
 
 def trim_trailing_empty_headers(headers: list[str]) -> tuple[str, ...]:
@@ -153,15 +162,27 @@ def find_duplicate_headers(headers: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(duplicates)
 
 
+def find_duplicate_semantic_headers(headers: tuple[str, ...]) -> tuple[str, ...]:
+    counts = Counter(normalize_header_semantics(header) for header in headers)
+    duplicates: list[str] = []
+    for header in headers:
+        semantic_header = normalize_header_semantics(header)
+        if not semantic_header or counts[semantic_header] <= 1:
+            continue
+        duplicates.append(header)
+    return tuple(duplicates)
+
+
 def merge_headers(sheet_data_items: tuple[WorkbookSheetData, ...]) -> tuple[str, ...]:
     merged_headers: list[str] = []
     seen_headers: set[str] = set()
     for sheet_data in sheet_data_items:
         for header in sheet_data.headers:
-            if header in seen_headers:
+            semantic_header = normalize_header_semantics(header)
+            if semantic_header in seen_headers:
                 continue
             merged_headers.append(header)
-            seen_headers.add(header)
+            seen_headers.add(semantic_header)
     return tuple(merged_headers)
 
 
@@ -173,9 +194,16 @@ def align_rows(
     if source_headers == target_headers:
         return rows
 
-    index_by_header = {header: index for index, header in enumerate(source_headers)}
+    index_by_header = {
+        normalize_header_semantics(header): index
+        for index, header in enumerate(source_headers)
+    }
+    target_header_keys = tuple(normalize_header_semantics(header) for header in target_headers)
     return tuple(
-        tuple(row[index_by_header[header]] if header in index_by_header else None for header in target_headers)
+        tuple(
+            row[index_by_header[header_key]] if header_key in index_by_header else None
+            for header_key in target_header_keys
+        )
         for row in rows
     )
 
@@ -281,12 +309,13 @@ def merge_workbooks_by_filename(
         duplicate_header_errors: list[DuplicateHeaderError] = []
         for sheet_data in sheet_data_items:
             duplicate_headers = find_duplicate_headers(sheet_data.headers)
-            if duplicate_headers:
+            duplicate_semantic_headers = find_duplicate_semantic_headers(sheet_data.headers)
+            if duplicate_headers or duplicate_semantic_headers:
                 duplicate_header_errors.append(
                     DuplicateHeaderError(
                         path=sheet_data.path,
-                        headers=sheet_data.headers,
-                        duplicate_headers=duplicate_headers,
+                        exact_duplicate_headers=duplicate_headers,
+                        semantic_duplicate_headers=duplicate_semantic_headers,
                     )
                 )
 
@@ -375,16 +404,11 @@ def format_merge_summary(
             continue
 
         if result.status == "duplicate_headers":
-            lines.append(f"- {result.file_name}: 跳过，存在重复列名，无法按列名安全合并")
+            lines.append(f"- {result.file_name}: 跳过，存在重复列名或语义重复列名，无法安全合并")
             for error in result.duplicate_header_errors:
                 lines.append(f"  - 文件: {error.path}")
-                lines.append(
-                    f"  - 重复列名: {', '.join(error.duplicate_headers) if error.duplicate_headers else '无'}"
-                )
-                lines.append(
-                    "  - 完整列名: "
-                    f"{', '.join(error.headers) if error.headers else '空表头'}"
-                )
+                lines.append(f"  - 完全重复列数: {len(error.exact_duplicate_headers)}")
+                lines.append(f"  - 语义重复列数（忽略题号前缀后）: {len(error.semantic_duplicate_headers)}")
             continue
 
         lines.append(f"- {result.file_name}: {result.status}")
@@ -396,7 +420,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "按文件名合并多个目录中的 Excel 文件，只合并“问卷数据”sheet。"
-            "同名列合并到同一列，不同名列追加到结果末尾。"
+            "语义相同的列（忽略题号前缀）合并到同一列，不同列追加到结果末尾。"
         )
     )
     parser.add_argument(

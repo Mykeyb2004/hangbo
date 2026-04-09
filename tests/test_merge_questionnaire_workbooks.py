@@ -247,7 +247,42 @@ class MergeQuestionnaireWorkbooksTest(unittest.TestCase):
             self.assertEqual(result.status, "duplicate_headers")
             self.assertFalse((output_dir / "回访.xlsx").exists())
             self.assertIn("存在重复列名", report)
-            self.assertIn("电话", report)
+            self.assertIn("完全重复列数: 1", report)
+            self.assertIn("语义重复列数（忽略题号前缀后）: 2", report)
+
+    def test_merge_workbooks_by_filename_skips_when_duplicate_semantic_headers_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first_dir = root / "目录A"
+            second_dir = root / "目录B"
+            output_dir = root / "合并结果"
+            first_dir.mkdir()
+            second_dir.mkdir()
+
+            write_workbook(
+                first_dir / "会议.xlsx",
+                headers=["Q1-调研类别", "Q2-调研类别", "姓名"],
+                rows=[["会议", "会议", "张三"]],
+            )
+            write_workbook(
+                second_dir / "会议.xlsx",
+                headers=["Q3-调研类别", "姓名"],
+                rows=[["会议", "李四"]],
+            )
+
+            summary = merge_workbooks_by_filename(
+                [first_dir, second_dir],
+                output_dir=output_dir,
+            )
+            report = format_merge_summary(summary)
+
+            self.assertEqual(len(summary.results), 1)
+            result = summary.results[0]
+            self.assertEqual(result.status, "duplicate_headers")
+            self.assertFalse((output_dir / "会议.xlsx").exists())
+            self.assertIn("语义重复列名", report)
+            self.assertIn("完全重复列数: 0", report)
+            self.assertIn("语义重复列数（忽略题号前缀后）: 2", report)
 
     def test_merge_workbooks_by_filename_skips_when_sheet_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
