@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import tomllib
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Sequence
 
@@ -22,6 +24,7 @@ from survey_stats import (
     format_value,
     get_effective_role_definition,
 )
+from summary_table import SUMMARY_ROW_DEFINITIONS, normalize_text
 
 VALID_SECTION_MODES = ("auto", "template", "summary")
 DEFAULT_FILE_PATTERN = "*.xlsx"
@@ -39,6 +42,7 @@ DEFAULT_NOTES_TARGET_CHARS = 300
 DEFAULT_NOTES_TEMPERATURE = 0.4
 DEFAULT_NOTES_MAX_TOKENS = 500
 DEFAULT_NOTES_CHECKPOINT_CHARS = 80
+CATEGORY_LABEL_PREFIX_RE = re.compile(r"^[一二三四五六七八九十百零]+、")
 
 
 @dataclass(frozen=True)
@@ -133,6 +137,13 @@ class DetailLayout:
     single_rows: tuple[tuple[str, float | None, float | None], ...] = ()
     left_blocks: tuple[SectionBlock, ...] = ()
     right_blocks: tuple[SectionBlock, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorkbookDisplayMeta:
+    sort_index: int
+    alias_index: int
+    title: str
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -259,6 +270,54 @@ def normalize_section_mode(section_mode: str | None) -> str:
     return normalized
 
 
+def strip_category_label_prefix(category_label: str) -> str:
+    return CATEGORY_LABEL_PREFIX_RE.sub("", category_label).strip()
+
+
+@lru_cache(maxsize=1)
+def build_workbook_display_lookup() -> dict[str, tuple[int, int, str, str, int]]:
+    lookup: dict[str, tuple[int, int, str, str, int]] = {}
+    for definition_index, definition in enumerate(SUMMARY_ROW_DEFINITIONS):
+        display_key = normalize_text(definition.display_name)
+        if display_key and display_key not in lookup:
+            lookup[display_key] = (
+                definition_index,
+                -1,
+                definition.category_label,
+                definition.display_name,
+                len(definition.source_aliases),
+            )
+
+        for alias_index, alias in enumerate(definition.source_aliases):
+            alias_key = normalize_text(alias)
+            if alias_key and alias_key not in lookup:
+                lookup[alias_key] = (
+                    definition_index,
+                    alias_index,
+                    definition.category_label,
+                    definition.display_name,
+                    len(definition.source_aliases),
+                )
+    return lookup
+
+
+def resolve_workbook_display_meta(workbook_name: str) -> WorkbookDisplayMeta:
+    entry = build_workbook_display_lookup().get(normalize_text(workbook_name))
+    if entry is None:
+        return WorkbookDisplayMeta(
+            sort_index=len(SUMMARY_ROW_DEFINITIONS),
+            alias_index=0,
+            title=workbook_name,
+        )
+
+    definition_index, alias_index, category_label, display_name, source_alias_count = entry
+    return WorkbookDisplayMeta(
+        sort_index=definition_index,
+        alias_index=max(alias_index, 0),
+        title=f"{strip_category_label_prefix(category_label)}——{display_name}",
+    )
+
+
 def build_partial_output_path(output_ppt: Path) -> Path:
     return output_ppt.with_name(f"{output_ppt.stem}.partial{output_ppt.suffix}")
 
@@ -269,7 +328,13 @@ def discover_input_files(config: PptBatchConfig) -> list[Path]:
     files = list(config.input_dir.glob(config.file_pattern))
     files = [path for path in files if path.is_file()]
     if config.sort_files:
-        files.sort(key=lambda path: path.name)
+        files.sort(
+            key=lambda path: (
+                resolve_workbook_display_meta(path.stem).sort_index,
+                resolve_workbook_display_meta(path.stem).alias_index,
+                path.name,
+            )
+        )
     if not files:
         raise FileNotFoundError(
             f"{config.input_dir} 下没有匹配 {config.file_pattern} 的 Excel 文件"
@@ -783,7 +848,7 @@ def render_workbook_slide(
     slide_index: int | None = None,
     total_slides: int | None = None,
 ) -> None:
-    title = workbook_path.stem + config.title_suffix
+    title = resolve_workbook_display_meta(workbook_path.stem).title + config.title_suffix
     apply_title(slide, title)
 
     report_rows = read_report_rows(

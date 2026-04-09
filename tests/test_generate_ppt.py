@@ -25,6 +25,7 @@ from generate_ppt import (
     build_partial_output_path,
     build_section_blocks,
     choose_detail_layout,
+    discover_input_files,
     format_report_value,
     generate_presentation,
     resolve_section_definition,
@@ -229,6 +230,46 @@ class GeneratePptTest(unittest.TestCase):
         self.assertEqual(format_report_value(None, blank_display=""), "")
         self.assertEqual(format_report_value(9.50, blank_display=""), "9.5")
 
+    def test_discover_input_files_uses_customer_group_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+
+            for file_name in (
+                "自助餐.xlsx",
+                "未知客户.xlsx",
+                "会议主承办.xlsx",
+                "展览主承办.xlsx",
+                "参展商.xlsx",
+            ):
+                create_report_workbook(
+                    input_dir / file_name,
+                    [
+                        ("指标", "满意度", "重要性"),
+                        (Path(file_name).stem, 9.9, 9.8),
+                    ],
+                )
+
+            config = PptBatchConfig(
+                template_path=Path("templates/template.pptx"),
+                input_dir=input_dir,
+                output_ppt=temp_path / "report.pptx",
+            )
+
+            files = discover_input_files(config)
+
+            self.assertEqual(
+                [path.name for path in files],
+                [
+                    "展览主承办.xlsx",
+                    "参展商.xlsx",
+                    "会议主承办.xlsx",
+                    "自助餐.xlsx",
+                    "未知客户.xlsx",
+                ],
+            )
+
     def test_generate_presentation_creates_single_and_double_table_slides(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         template_path = repo_root / "templates" / "template.pptx"
@@ -316,12 +357,16 @@ class GeneratePptTest(unittest.TestCase):
                 ]
                 slide_tables[title] = (table_count, table_texts)
 
-            self.assertEqual(slide_tables["专业观众"][0], 3)
-            self.assertEqual(slide_tables["自助餐"][0], 2)
-            self.assertTrue(any("会展服务" in text for text in slide_tables["专业观众"][1]))
-            self.assertTrue(any("智慧场馆" in text for text in slide_tables["专业观众"][1]))
-            self.assertTrue(any("补菜及时性" in text for text in slide_tables["自助餐"][1]))
-            self.assertTrue(any("\n\n" in text or text.endswith("\n") for text in slide_tables["专业观众"][1]))
+            professional_audience_title = "会展客户——专业观众"
+            buffet_title = "餐饮客户——自助餐"
+            self.assertEqual(slide_tables[professional_audience_title][0], 3)
+            self.assertEqual(slide_tables[buffet_title][0], 2)
+            self.assertTrue(any("会展服务" in text for text in slide_tables[professional_audience_title][1]))
+            self.assertTrue(any("智慧场馆" in text for text in slide_tables[professional_audience_title][1]))
+            self.assertTrue(any("补菜及时性" in text for text in slide_tables[buffet_title][1]))
+            self.assertTrue(
+                any("\n\n" in text or text.endswith("\n") for text in slide_tables[professional_audience_title][1])
+            )
 
             first_slide_tables = [
                 shape.table
@@ -414,7 +459,7 @@ class GeneratePptTest(unittest.TestCase):
                 "你是测试用分析助手。",
             )
             self.assertIn(
-                "页面标题：专业观众",
+                "页面标题：会展客户——专业观众",
                 fake_client.create_calls[0]["messages"][1]["content"],
             )
             self.assertNotIn("空值项：", fake_client.create_calls[0]["messages"][1]["content"])
@@ -425,10 +470,10 @@ class GeneratePptTest(unittest.TestCase):
             self.assertIn("整体满意度和重要性均处于较高水平", notes_text)
 
             progress_output = stdout_buffer.getvalue()
-            self.assertIn("[1/1] 正在生成备注页分析：专业观众", progress_output)
+            self.assertIn("[1/1] 正在生成备注页分析：会展客户——专业观众", progress_output)
             self.assertIn("[1/1] 流式输出：", progress_output)
             self.assertIn("本页数据显示，整体满意度和重要性均处于较高水平", progress_output)
-            self.assertIn("[1/1] 备注页分析完成：专业观众", progress_output)
+            self.assertIn("[1/1] 备注页分析完成：会展客户——专业观众", progress_output)
 
     def test_generate_presentation_preserves_checkpoint_when_llm_is_interrupted(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
