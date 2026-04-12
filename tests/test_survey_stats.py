@@ -20,6 +20,8 @@ from survey_stats import (
     CATERING_WEDDING_BANQUET_ROLE_NAME,
     CATERING_WEDDING_BANQUET_TEMPLATE,
     DEFAULT_SHEET_NAME,
+    DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA,
+    DIRECTORY_NOTICE_REASON_MISSING_SOURCE_FILE,
     EXHIBITOR_ROLE_NAME,
     EXHIBITOR_TEMPLATE,
     HOTEL_MEETING_ATTENDEE_ROLE_NAME,
@@ -34,6 +36,7 @@ from survey_stats import (
     MEETING_ATTENDEE_TEMPLATE,
     MEETING_ORGANIZER_ROLE_NAME,
     MEETING_ORGANIZER_TEMPLATE,
+    MissingCustomerTypeNotice,
     MissingGroupNotice,
     ORGANIZER_ROLE_NAME,
     ORGANIZER_TEMPLATE,
@@ -44,6 +47,7 @@ from survey_stats import (
     TEMPLATE_DEFINITIONS,
     VISITOR_ROLE_NAME,
     VISITOR_TEMPLATE,
+    build_missing_customer_type_summary,
     build_missing_group_summary,
     build_output_path,
     build_result_dataframe,
@@ -483,6 +487,31 @@ class SurveyStatsTest(unittest.TestCase):
         self.assertIn("特色美食廊 [catering.xlsx / 问卷数据]", summary)
         self.assertIn("婚宴 [catering.xlsx / 问卷数据]", summary)
 
+    def test_build_missing_customer_type_summary_groups_reasons(self) -> None:
+        summary = build_missing_customer_type_summary(
+            [
+                MissingCustomerTypeNotice(
+                    "会展服务商",
+                    "会展服务商.xlsx",
+                    DEFAULT_SHEET_NAME,
+                    DIRECTORY_NOTICE_REASON_MISSING_SOURCE_FILE,
+                ),
+                MissingCustomerTypeNotice(
+                    "专业观众",
+                    "展览.xlsx",
+                    DEFAULT_SHEET_NAME,
+                    DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA,
+                ),
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        self.assertIn("以下客户类型因缺少来源数据被跳过", summary)
+        self.assertIn("[缺少来源文件]", summary)
+        self.assertIn("会展服务商 [会展服务商.xlsx / 问卷数据]", summary)
+        self.assertIn("[来源文件存在但未找到匹配身份值]", summary)
+        self.assertIn("专业观众 [展览.xlsx / 问卷数据]", summary)
+
     def test_template_role_names_are_unique(self) -> None:
         role_names = [role_definition.role_name for role_definition in TEMPLATE_DEFINITIONS.values()]
         self.assertEqual(len(role_names), len(set(role_names)))
@@ -724,6 +753,141 @@ role_name = "展览主承办"
 
             config = load_batch_config(config_path)
             self.assertEqual(config.calculation_mode, "summary")
+
+    def test_load_batch_config_reads_input_dir_mode_and_source_file_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_path = temp_path / "jobs.toml"
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+sheet_name = "数据"
+input_dir = "datas"
+
+[source_file_overrides]
+"会展服务商.xlsx" = "自定义会展服务商.xlsx"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            config = load_batch_config(config_path)
+            self.assertEqual(config.output_dir, (temp_path / "exports").resolve())
+            self.assertEqual(config.sheet_name, "数据")
+            self.assertEqual(config.input_dir, (temp_path / "datas").resolve())
+            self.assertEqual(config.jobs, ())
+            self.assertEqual(len(config.source_file_overrides), 1)
+            self.assertEqual(config.source_file_overrides[0].standard_file_name, "会展服务商.xlsx")
+            self.assertEqual(config.source_file_overrides[0].actual_file_name, "自定义会展服务商.xlsx")
+
+    def test_load_batch_config_rejects_jobs_and_input_dir_together(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_path = temp_path / "jobs.toml"
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+input_dir = "datas"
+
+[[jobs]]
+name = "展览主承办"
+path = "source.xlsx"
+template = "organizer"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "不能同时包含 input_dir 和 \\[\\[jobs\\]\\]"):
+                load_batch_config(config_path)
+
+    def test_run_config_mode_directory_mode_only_reports_missing_customer_types_at_end(self) -> None:
+        df = build_mock_dataframe(ORGANIZER_ROLE_NAME)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            data_dir = temp_path / "datas"
+            data_dir.mkdir()
+            source_file = data_dir / "展览.xlsx"
+            config_path = temp_path / "jobs.toml"
+
+            with pd.ExcelWriter(source_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+input_dir = "datas"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                run_config_mode(
+                    argparse.Namespace(
+                        config=config_path,
+                        job=[],
+                        dry_run=True,
+                        sheet_name=DEFAULT_SHEET_NAME,
+                        output_format=None,
+                        calculation_mode=None,
+                        output_dir=None,
+                    )
+                )
+
+            output = buffer.getvalue()
+            self.assertIn("[1/1] 正在处理文件：展览.xlsx（展览主承办）", output)
+            self.assertIn("[1/1] 已完成校验：展览.xlsx（展览主承办）", output)
+            self.assertIn("以下客户类型因缺少来源数据被跳过，未生成统计结果", output)
+            self.assertIn("[缺少来源文件]", output)
+            self.assertIn("会展服务商 [会展服务商.xlsx / 问卷数据]", output)
+            self.assertIn("[来源文件存在但未找到匹配身份值]", output)
+            self.assertIn("参展商 [展览.xlsx / 问卷数据]", output)
+            self.assertIn("专业观众 [展览.xlsx / 问卷数据]", output)
+            self.assertNotIn("展览主承办 [展览.xlsx / 问卷数据]", output)
+
+    def test_run_config_mode_directory_mode_skips_empty_exports(self) -> None:
+        df = build_mock_dataframe(ORGANIZER_ROLE_NAME)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            data_dir = temp_path / "datas"
+            data_dir.mkdir()
+            source_file = data_dir / "展览.xlsx"
+            config_path = temp_path / "jobs.toml"
+
+            with pd.ExcelWriter(source_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+input_dir = "datas"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with redirect_stdout(io.StringIO()):
+                run_config_mode(
+                    argparse.Namespace(
+                        config=config_path,
+                        job=[],
+                        dry_run=False,
+                        sheet_name=DEFAULT_SHEET_NAME,
+                        output_format=None,
+                        calculation_mode=None,
+                        output_dir=None,
+                    )
+                )
+
+            self.assertTrue((temp_path / "exports" / "展览主承办.xlsx").exists())
+            self.assertFalse((temp_path / "exports" / "参展商.xlsx").exists())
+            self.assertFalse((temp_path / "exports" / "专业观众.xlsx").exists())
 
 
 if __name__ == "__main__":

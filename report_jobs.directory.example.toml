@@ -1,0 +1,13 @@
+output_dir = "输出结果/3月"
+output_format = "xlsx"
+calculation_mode = "template"
+input_dir = "datas/3月"
+
+# 可选：覆盖默认 sheet 名
+# sheet_name = "问卷数据"
+
+# 可选：当真实文件名不是标准来源文件名时，显式指定覆盖关系
+#
+#[source_file_overrides]
+#"会展服务商.xlsx" = "7月会展服务商.xlsx"
+#"酒店.xlsx" = "8月酒店过程分析.xlsx"

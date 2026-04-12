@@ -10,6 +10,10 @@ import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from phase_column_preprocess import preprocess_phase_column_if_needed
+from survey_customer_mappings import (
+    SOURCE_FILE_TO_TEMPLATE_NAMES,
+    STANDARD_CUSTOMER_TYPE_MAPPINGS,
+)
 
 DEFAULT_SHEET_NAME = "问卷数据"
 DEFAULT_OUTPUT_FORMAT = "xlsx"
@@ -81,12 +85,21 @@ class JobConfig:
 
 
 @dataclass(frozen=True)
+class SourceFileOverride:
+    standard_file_name: str
+    actual_file_name: str
+
+
+@dataclass(frozen=True)
 class BatchConfig:
     config_path: Path
     output_dir: Path
     output_format: str
     calculation_mode: str
-    jobs: tuple[JobConfig, ...]
+    sheet_name: str
+    jobs: tuple[JobConfig, ...] = ()
+    input_dir: Path | None = None
+    source_file_overrides: tuple[SourceFileOverride, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -126,6 +139,31 @@ class MissingGroupNotice:
     job_name: str
     input_path: Path
     sheet_name: str
+
+
+DIRECTORY_NOTICE_REASON_MISSING_SOURCE_FILE = "missing_source_file"
+DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA = "missing_role_data"
+
+
+@dataclass(frozen=True)
+class MissingCustomerTypeNotice:
+    customer_type_name: str
+    source_reference: str
+    sheet_name: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class PreprocessNoticeRecord:
+    input_path: Path
+    notice: str
+
+
+@dataclass(frozen=True)
+class DirectoryDiscoveryResult:
+    jobs: tuple[JobConfig, ...]
+    missing_customer_type_notices: tuple[MissingCustomerTypeNotice, ...]
+    preprocess_notices: tuple[PreprocessNoticeRecord, ...]
 
 
 ORGANIZER_TEMPLATE = RoleDefinition(
@@ -1227,13 +1265,45 @@ def default_config_output_dir(config_path: Path) -> Path:
     return config_path.parent / f"{config_path.stem}_outputs"
 
 
+def load_source_file_overrides(raw_overrides: object) -> tuple[SourceFileOverride, ...]:
+    if raw_overrides is None:
+        return ()
+
+    if not isinstance(raw_overrides, dict):
+        raise ValueError("source_file_overrides 必须是表结构。")
+
+    supported_source_files = set(SOURCE_FILE_TO_TEMPLATE_NAMES)
+    overrides: list[SourceFileOverride] = []
+    for standard_file_name, actual_file_name_value in raw_overrides.items():
+        normalized_standard_file_name = str(standard_file_name).strip()
+        normalized_actual_file_name = str(actual_file_name_value).strip()
+        if not normalized_standard_file_name or not normalized_actual_file_name:
+            raise ValueError("source_file_overrides 的键和值都不能为空。")
+        if normalized_standard_file_name not in supported_source_files:
+            supported = ", ".join(sorted(supported_source_files))
+            raise ValueError(
+                f"source_file_overrides 包含未知来源文件: {normalized_standard_file_name}；"
+                f"支持的来源文件有: {supported}"
+            )
+        overrides.append(
+            SourceFileOverride(
+                standard_file_name=normalized_standard_file_name,
+                actual_file_name=normalized_actual_file_name,
+            )
+        )
+    return tuple(overrides)
+
+
 def load_batch_config(config_path: Path, default_sheet_name: str = DEFAULT_SHEET_NAME) -> BatchConfig:
     with config_path.open("rb") as file:
         raw_config = tomllib.load(file)
 
     raw_jobs = raw_config.get("jobs")
-    if not isinstance(raw_jobs, list) or not raw_jobs:
-        raise ValueError("配置文件必须包含至少一个 [[jobs]] 定义。")
+    raw_input_dir = raw_config.get("input_dir")
+    if raw_jobs is not None and raw_input_dir is not None:
+        raise ValueError("配置文件不能同时包含 input_dir 和 [[jobs]]。")
+    if raw_jobs is None and raw_input_dir is None:
+        raise ValueError("配置文件必须包含 input_dir 或至少一个 [[jobs]] 定义。")
 
     output_dir_value = raw_config.get("output_dir")
     if output_dir_value is None:
@@ -1247,6 +1317,26 @@ def load_batch_config(config_path: Path, default_sheet_name: str = DEFAULT_SHEET
     calculation_mode = normalize_calculation_mode(
         raw_config.get("calculation_mode", DEFAULT_CALCULATION_MODE)
     )
+    sheet_name = str(raw_config.get("sheet_name", default_sheet_name)).strip() or default_sheet_name
+    source_file_overrides = load_source_file_overrides(raw_config.get("source_file_overrides"))
+
+    if raw_input_dir is not None:
+        if not str(raw_input_dir).strip():
+            raise ValueError("input_dir 不能为空。")
+        return BatchConfig(
+            config_path=config_path.resolve(),
+            output_dir=output_dir,
+            output_format=output_format,
+            calculation_mode=calculation_mode,
+            sheet_name=sheet_name,
+            input_dir=(config_path.parent / str(raw_input_dir)).resolve(),
+            source_file_overrides=source_file_overrides,
+        )
+
+    if source_file_overrides:
+        raise ValueError("source_file_overrides 仅能与 input_dir 一起使用。")
+    if not isinstance(raw_jobs, list) or not raw_jobs:
+        raise ValueError("配置文件必须包含至少一个 [[jobs]] 定义。")
 
     jobs: list[JobConfig] = []
     for index, job_data in enumerate(raw_jobs, start=1):
@@ -1260,7 +1350,7 @@ def load_batch_config(config_path: Path, default_sheet_name: str = DEFAULT_SHEET
         default_role_name = resolve_role_definition(template_name).role_name
         role_name = str(job_data.get("role_name", default_role_name)).strip() or default_role_name
         output_name = str(job_data.get("output_name", name)).strip() or name
-        sheet_name = str(job_data.get("sheet", default_sheet_name)).strip() or default_sheet_name
+        job_sheet_name = str(job_data.get("sheet", sheet_name)).strip() or sheet_name
         job_path = (config_path.parent / str(path_value)).resolve()
         job_output_format_value = job_data.get("output_format")
         job_output_format = None
@@ -1274,7 +1364,7 @@ def load_batch_config(config_path: Path, default_sheet_name: str = DEFAULT_SHEET
             JobConfig(
                 name=name,
                 path=job_path,
-                sheet_name=sheet_name,
+                sheet_name=job_sheet_name,
                 template_name=template_name,
                 role_name=role_name,
                 output_name=output_name,
@@ -1287,6 +1377,7 @@ def load_batch_config(config_path: Path, default_sheet_name: str = DEFAULT_SHEET
         output_dir=output_dir,
         output_format=output_format,
         calculation_mode=calculation_mode,
+        sheet_name=sheet_name,
         jobs=tuple(jobs),
     )
 
@@ -1302,6 +1393,114 @@ def select_jobs(
     return selected_jobs
 
 
+def select_missing_customer_type_notices(
+    notices: tuple[MissingCustomerTypeNotice, ...],
+    job_filters: list[str],
+) -> tuple[MissingCustomerTypeNotice, ...]:
+    selected_notices = notices
+    if job_filters:
+        selected_job_names = set(job_filters)
+        selected_notices = tuple(
+            notice for notice in selected_notices if notice.customer_type_name in selected_job_names
+        )
+    return selected_notices
+
+
+def build_source_file_override_lookup(
+    source_file_overrides: tuple[SourceFileOverride, ...],
+) -> dict[str, str]:
+    return {
+        override.standard_file_name: override.actual_file_name
+        for override in source_file_overrides
+    }
+
+
+def collect_role_values(df: pd.DataFrame, role_column: str) -> set[str]:
+    role_index = excel_column_to_index(role_column)
+    if role_index >= len(df.columns):
+        raise ValueError(
+            f"来源数据缺少身份列 {role_column}，当前仅有 {len(df.columns)} 列。"
+        )
+
+    return {
+        text
+        for text in (str(value).strip() for value in df.iloc[:, role_index].dropna().tolist())
+        if text
+    }
+
+
+def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
+    if config.input_dir is None:
+        raise ValueError("仅目录模式配置支持自动发现 jobs。")
+
+    source_file_override_lookup = build_source_file_override_lookup(config.source_file_overrides)
+    jobs: list[JobConfig] = []
+    missing_customer_type_notices: list[MissingCustomerTypeNotice] = []
+    preprocess_notices: list[PreprocessNoticeRecord] = []
+    dataframe_cache: dict[Path, pd.DataFrame] = {}
+    role_values_cache: dict[tuple[Path, str], set[str]] = {}
+
+    for mapping in STANDARD_CUSTOMER_TYPE_MAPPINGS:
+        source_reference = source_file_override_lookup.get(
+            mapping.source_file_name,
+            mapping.source_file_name,
+        )
+        input_path = (config.input_dir / source_reference).resolve()
+        if not input_path.exists() or not input_path.is_file():
+            missing_customer_type_notices.append(
+                MissingCustomerTypeNotice(
+                    customer_type_name=mapping.template_role_name,
+                    source_reference=source_reference,
+                    sheet_name=config.sheet_name,
+                    reason=DIRECTORY_NOTICE_REASON_MISSING_SOURCE_FILE,
+                )
+            )
+            continue
+
+        if input_path not in dataframe_cache:
+            preprocess_notice = preprocess_phase_column_if_needed(input_path, config.sheet_name)
+            if preprocess_notice is not None:
+                preprocess_notices.append(
+                    PreprocessNoticeRecord(input_path=input_path, notice=preprocess_notice)
+                )
+            dataframe_cache[input_path] = pd.read_excel(input_path, sheet_name=config.sheet_name)
+
+        role_definition = resolve_role_definition(mapping.template_name, mapping.template_role_name)
+        role_cache_key = (input_path, role_definition.role_column)
+        role_values = role_values_cache.get(role_cache_key)
+        if role_values is None:
+            role_values = collect_role_values(dataframe_cache[input_path], role_definition.role_column)
+            role_values_cache[role_cache_key] = role_values
+
+        if role_definition.role_name not in role_values:
+            missing_customer_type_notices.append(
+                MissingCustomerTypeNotice(
+                    customer_type_name=role_definition.role_name,
+                    source_reference=source_reference,
+                    sheet_name=config.sheet_name,
+                    reason=DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA,
+                )
+            )
+            continue
+
+        jobs.append(
+            JobConfig(
+                name=role_definition.role_name,
+                path=input_path,
+                sheet_name=config.sheet_name,
+                template_name=mapping.template_name,
+                role_name=role_definition.role_name,
+                output_name=role_definition.role_name,
+            )
+        )
+
+    return DirectoryDiscoveryResult(
+        jobs=tuple(jobs),
+        missing_customer_type_notices=tuple(missing_customer_type_notices),
+        preprocess_notices=tuple(preprocess_notices),
+    )
+
+
 def generate_role_report_bundle(
     input_path: Path,
     role_definition: RoleDefinition,
@@ -1310,6 +1509,7 @@ def generate_role_report_bundle(
     sheet_title: str | None = None,
     calculation_mode: str = DEFAULT_CALCULATION_MODE,
     dry_run: bool = False,
+    save_empty_report: bool = True,
 ) -> GeneratedReport:
     effective_role_definition = get_effective_role_definition(role_definition, calculation_mode)
     survey_df, preprocess_notice = load_survey_dataframe(
@@ -1320,7 +1520,7 @@ def generate_role_report_bundle(
     stats = compute_role_stats(survey_df, effective_role_definition)
     result_df = build_result_dataframe(stats)
     final_sheet_title = sheet_title or role_definition.role_name
-    if not dry_run:
+    if not dry_run and (save_empty_report or stats.matched_row_count > 0):
         save_results(result_df, output_path, effective_role_definition, final_sheet_title)
     return GeneratedReport(
         result_df=result_df,
@@ -1363,6 +1563,43 @@ def build_missing_group_summary(notices: list[MissingGroupNotice]) -> str | None
 
 def print_missing_group_summary(notices: list[MissingGroupNotice]) -> None:
     summary = build_missing_group_summary(notices)
+    if summary is not None:
+        print(f"\n{summary}")
+
+
+def build_missing_customer_type_summary(notices: list[MissingCustomerTypeNotice]) -> str | None:
+    if not notices:
+        return None
+
+    missing_source_file_notices = [
+        notice
+        for notice in notices
+        if notice.reason == DIRECTORY_NOTICE_REASON_MISSING_SOURCE_FILE
+    ]
+    missing_role_data_notices = [
+        notice
+        for notice in notices
+        if notice.reason == DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA
+    ]
+
+    lines = ["以下客户类型因缺少来源数据被跳过，未生成统计结果："]
+    if missing_source_file_notices:
+        lines.append("[缺少来源文件]")
+        for notice in missing_source_file_notices:
+            lines.append(
+                f"- {notice.customer_type_name} [{notice.source_reference} / {notice.sheet_name}]"
+            )
+    if missing_role_data_notices:
+        lines.append("[来源文件存在但未找到匹配身份值]")
+        for notice in missing_role_data_notices:
+            lines.append(
+                f"- {notice.customer_type_name} [{notice.source_reference} / {notice.sheet_name}]"
+            )
+    return "\n".join(lines)
+
+
+def print_missing_customer_type_summary(notices: list[MissingCustomerTypeNotice]) -> None:
+    summary = build_missing_customer_type_summary(notices)
     if summary is not None:
         print(f"\n{summary}")
 
@@ -1465,14 +1702,33 @@ def run_legacy_batch_mode(args: argparse.Namespace) -> None:
 
 def run_config_mode(args: argparse.Namespace) -> None:
     config = load_batch_config(args.config, default_sheet_name=args.sheet_name)
-    selected_jobs = select_jobs(config.jobs, args.job)
-    if not selected_jobs:
-        raise ValueError("筛选后没有可运行的 jobs。")
-
     output_dir = normalize_output_dir(args.output_dir or config.output_dir)
     global_output_format = args.output_format or config.output_format
     calculation_mode = normalize_calculation_mode(args.calculation_mode or config.calculation_mode)
+    selected_jobs: tuple[JobConfig, ...]
     missing_group_notices: list[MissingGroupNotice] = []
+    missing_customer_type_notices: list[MissingCustomerTypeNotice] = []
+    preprocess_notice_lookup: dict[Path, str] = {}
+
+    if config.input_dir is None:
+        selected_jobs = select_jobs(config.jobs, args.job)
+        if not selected_jobs:
+            raise ValueError("筛选后没有可运行的 jobs。")
+    else:
+        discovery_result = discover_directory_jobs(config)
+        selected_jobs = select_jobs(discovery_result.jobs, args.job)
+        missing_customer_type_notices = list(
+            select_missing_customer_type_notices(
+                discovery_result.missing_customer_type_notices,
+                args.job,
+            )
+        )
+        preprocess_notice_lookup = {
+            record.input_path: record.notice for record in discovery_result.preprocess_notices
+        }
+        if not selected_jobs and not missing_customer_type_notices:
+            raise ValueError("筛选后没有可运行的 jobs。")
+
     total_jobs = len(selected_jobs)
 
     for index, job in enumerate(selected_jobs, start=1):
@@ -1488,8 +1744,20 @@ def run_config_mode(args: argparse.Namespace) -> None:
             sheet_title=job.name,
             calculation_mode=calculation_mode,
             dry_run=args.dry_run,
+            save_empty_report=config.input_dir is None,
         )
-        print_preprocess_notice(index, total_jobs, report.preprocess_notice)
+        preprocess_notice = report.preprocess_notice or preprocess_notice_lookup.pop(job.path, None)
+        print_preprocess_notice(index, total_jobs, preprocess_notice)
+        if config.input_dir is not None and report.stats.matched_row_count == 0:
+            missing_customer_type_notices.append(
+                MissingCustomerTypeNotice(
+                    customer_type_name=job.name,
+                    source_reference=job.path.name,
+                    sheet_name=job.sheet_name,
+                    reason=DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA,
+                )
+            )
+            continue
         print_file_progress_result(
             index,
             total_jobs,
@@ -1501,7 +1769,10 @@ def run_config_mode(args: argparse.Namespace) -> None:
         if report.stats.matched_row_count == 0:
             missing_group_notices.append(MissingGroupNotice(job.name, job.path, job.sheet_name))
 
-    print_missing_group_summary(missing_group_notices)
+    if config.input_dir is None:
+        print_missing_group_summary(missing_group_notices)
+    else:
+        print_missing_customer_type_summary(missing_customer_type_notices)
 
 
 def parse_args() -> argparse.Namespace:

@@ -1,6 +1,6 @@
 # 正式任务配置
-# 当前配置覆盖 /datas/1-2月 目录下实际存在记录的所有客户群体。
-# 后续新增来源文件、客户群体或输出任务，直接改这个文件。
+# 当前配置使用目录模式扫描 datas/1-2月 下标准来源文件。
+# 后续如果文件名不再是标准名，可改为增加 source_file_overrides。
 #
 # 运行方式：
 # uv run python survey_stats.py --config job.toml
@@ -15,80 +15,4 @@ output_format = "xlsx"
 # - template: 按 survey_stats.py 模板原样计算（默认）
 # - summary: 按汇总表灰格/非灰格重组二级指标后再计算
 calculation_mode = "template"
-
-[[jobs]]
-name = "展览主承办"
-path = "datas/1-2月/展览.xlsx"
-sheet = "问卷数据"
-template = "organizer"
-role_name = "展览主承办"
-
-[[jobs]]
-name = "参展商"
-path = "datas/1-2月/展览.xlsx"
-sheet = "问卷数据"
-template = "exhibitor"
-role_name = "参展商"
-
-[[jobs]]
-name = "专业观众"
-path = "datas/1-2月/展览.xlsx"
-sheet = "问卷数据"
-template = "visitor"
-role_name = "专业观众"
-
-[[jobs]]
-name = "会议主承办"
-path = "datas/1-2月/会议.xlsx"
-sheet = "问卷数据"
-template = "meeting_organizer"
-role_name = "会议主承办"
-
-[[jobs]]
-name = "参会人员"
-path = "datas/1-2月/会议.xlsx"
-sheet = "问卷数据"
-template = "meeting_attendee"
-role_name = "参会人员"
-
-[[jobs]]
-name = "住宿团队"
-path = "datas/1-2月/酒店.xlsx"
-sheet = "问卷数据"
-template = "hotel_group_guest"
-role_name = "住宿团队"
-
-[[jobs]]
-name = "商务简餐"
-path = "datas/1-2月/餐饮.xlsx"
-sheet = "问卷数据"
-template = "catering_business_meal"
-role_name = "商务简餐"
-
-[[jobs]]
-name = "宴会"
-path = "datas/1-2月/餐饮.xlsx"
-sheet = "问卷数据"
-template = "catering_banquet"
-role_name = "宴会"
-
-[[jobs]]
-name = "自助餐"
-path = "datas/1-2月/餐饮.xlsx"
-sheet = "问卷数据"
-template = "catering_buffet"
-role_name = "自助餐"
-
-[[jobs]]
-name = "酒店宴会"
-path = "datas/1-2月/餐饮.xlsx"
-sheet = "问卷数据"
-template = "catering_hotel_banquet"
-role_name = "酒店宴会"
-
-[[jobs]]
-name = "酒店自助餐"
-path = "datas/1-2月/餐饮.xlsx"
-sheet = "问卷数据"
-template = "catering_hotel_buffet"
-role_name = "酒店自助餐"
+input_dir = "datas/1-2月"

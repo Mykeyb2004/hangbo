@@ -1,6 +1,10 @@
 # 批量统计示例
 # 运行方式：
 # uv run python survey_stats.py --config report_jobs.example.toml
+#
+# 如需使用“统一指定目录”的目录模式，请参考：
+# - report_jobs.directory.example.toml
+# - docs/survey_stats目录模式.md
 
 output_dir = "输出结果"
 output_format = "xlsx"
