@@ -7,6 +7,8 @@ from typing import Literal
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from survey_stats import OVERALL_FILL, SECTION_FILL, excel_round, mean_ignore_empty, normalize_output_dir
@@ -23,21 +25,24 @@ SUMMARY_COLUMNS = (
     "餐饮服务",
 )
 
-SUMMARY_HEADER_FILL = PatternFill(fill_type="solid", start_color="8EA9DB", end_color="8EA9DB")
-SUMMARY_SIDE_FILL = PatternFill(fill_type="solid", start_color="D9E2F3", end_color="D9E2F3")
+SUMMARY_HEADER_FILL = PatternFill(fill_type="solid", start_color="B32046", end_color="B32046")
+SUMMARY_SIDE_FILL = PatternFill(fill_type="solid", start_color="B32046", end_color="B32046")
+SUMMARY_BODY_FILL = PatternFill(fill_type="solid", start_color="F4E8E8", end_color="F4E8E8")
 SUMMARY_NA_FILL = PatternFill(fill_type="solid", start_color="BFBFBF", end_color="BFBFBF")
-SUMMARY_WHITE_FILL = PatternFill(fill_type="solid", start_color="FFFFFF", end_color="FFFFFF")
 SUMMARY_NUMBER_FORMAT = "0.00"
+SUMMARY_CHINESE_FONT_NAME = "楷体"
+SUMMARY_LATIN_FONT_NAME = "Times New Roman"
 SUMMARY_BORDER = Border(
-    left=Side(style="thin", color="000000"),
-    right=Side(style="thin", color="000000"),
-    top=Side(style="thin", color="000000"),
-    bottom=Side(style="thin", color="000000"),
+    left=Side(style="thin", color="FFFFFF"),
+    right=Side(style="thin", color="FFFFFF"),
+    top=Side(style="thin", color="FFFFFF"),
+    bottom=Side(style="thin", color="FFFFFF"),
 )
-SUMMARY_CENTER_ALIGNMENT = Alignment(horizontal="center", vertical="center")
-SUMMARY_TITLE_FONT = Font(name="宋体", size=16, bold=True)
-SUMMARY_HEADER_FONT = Font(name="宋体", size=12, bold=True)
-SUMMARY_BODY_FONT = Font(name="宋体", size=11)
+SUMMARY_CENTER_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
+SUMMARY_TITLE_FONT = Font(name=SUMMARY_CHINESE_FONT_NAME, size=20, bold=True, color="FFFFFF")
+SUMMARY_HEADER_FONT = Font(name=SUMMARY_CHINESE_FONT_NAME, size=15, bold=True, color="FFFFFF")
+SUMMARY_SIDE_FONT = Font(name=SUMMARY_CHINESE_FONT_NAME, size=14, bold=True, color="FFFFFF")
+SUMMARY_BODY_FONT = Font(name=SUMMARY_LATIN_FONT_NAME, size=15, color="000000")
 
 REPORT_HEADER_NAMES = {"指标", "满意度"}
 
@@ -542,11 +547,63 @@ def apply_common_style(cell, *, fill: PatternFill | None = None, font: Font | No
         cell.font = font
 
 
+def build_inline_font(font: Font, *, font_name: str | None = None) -> InlineFont:
+    color = font.color.rgb if font.color is not None else None
+    return InlineFont(
+        rFont=font_name or font.name,
+        b=font.bold,
+        i=font.italic,
+        color=color,
+        sz=font.size,
+    )
+
+
+def is_ascii_alnum_character(character: str) -> bool:
+    return character.isascii() and character.isalnum()
+
+
+def build_styled_text(value: str, *, chinese_font: Font) -> str | CellRichText:
+    if not value or not any(is_ascii_alnum_character(character) for character in value):
+        return value
+
+    chinese_inline_font = build_inline_font(chinese_font)
+    latin_inline_font = build_inline_font(chinese_font, font_name=SUMMARY_LATIN_FONT_NAME)
+    segments: list[TextBlock] = []
+    current_font = None
+    current_text: list[str] = []
+
+    for character in value:
+        target_font = latin_inline_font if is_ascii_alnum_character(character) else chinese_inline_font
+        if current_font is not None and target_font == current_font:
+            current_text.append(character)
+            continue
+        if current_font is not None:
+            segments.append(TextBlock(current_font, "".join(current_text)))
+        current_font = target_font
+        current_text = [character]
+
+    if current_font is not None:
+        segments.append(TextBlock(current_font, "".join(current_text)))
+
+    if len(segments) == 1:
+        return value
+    return CellRichText(*segments)
+
+
+def set_text_cell(cell, value: str | None, *, fill: PatternFill, font: Font) -> None:
+    if value:
+        cell.value = build_styled_text(value, chinese_font=font)
+    else:
+        cell.value = None
+    apply_common_style(cell, fill=fill, font=font)
+
+
 def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> None:
     worksheet.merge_cells("A1:H1")
-    worksheet["A1"] = DEFAULT_SUMMARY_TITLE
-    worksheet.row_dimensions[1].height = 30
-    apply_common_style(worksheet["A1"], fill=SUMMARY_HEADER_FILL, font=SUMMARY_TITLE_FONT)
+    worksheet.sheet_view.showGridLines = False
+    worksheet.row_dimensions[1].height = 36
+    worksheet.row_dimensions[2].height = 28
+    set_text_cell(worksheet["A1"], DEFAULT_SUMMARY_TITLE, fill=SUMMARY_HEADER_FILL, font=SUMMARY_TITLE_FONT)
     for column_index in range(2, 9):
         apply_common_style(
             worksheet.cell(row=1, column=column_index),
@@ -555,13 +612,12 @@ def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> No
         )
 
     worksheet.merge_cells("A2:B2")
-    worksheet["A2"] = "样本类型"
-    apply_common_style(worksheet["A2"], fill=SUMMARY_HEADER_FILL, font=SUMMARY_HEADER_FONT)
+    set_text_cell(worksheet["A2"], "样本类型", fill=SUMMARY_HEADER_FILL, font=SUMMARY_HEADER_FONT)
     apply_common_style(worksheet["B2"], fill=SUMMARY_HEADER_FILL, font=SUMMARY_HEADER_FONT)
     for column_index, column_name in enumerate(SUMMARY_COLUMNS, start=3):
-        worksheet.cell(row=2, column=column_index, value=column_name)
-        apply_common_style(
+        set_text_cell(
             worksheet.cell(row=2, column=column_index),
+            column_name,
             fill=SUMMARY_HEADER_FILL,
             font=SUMMARY_HEADER_FONT,
         )
@@ -569,24 +625,25 @@ def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> No
     data_start_row = 3
     for row_offset, row in enumerate(rows):
         excel_row = data_start_row + row_offset
-        worksheet.cell(row=excel_row, column=1, value=row.category_label)
-        worksheet.cell(row=excel_row, column=2, value=row.display_name or None)
-        apply_common_style(
+        worksheet.row_dimensions[excel_row].height = 24
+        set_text_cell(
             worksheet.cell(row=excel_row, column=1),
+            row.category_label,
             fill=SUMMARY_SIDE_FILL,
-            font=SUMMARY_HEADER_FONT,
+            font=SUMMARY_SIDE_FONT,
         )
-        apply_common_style(
+        set_text_cell(
             worksheet.cell(row=excel_row, column=2),
+            row.display_name or None,
             fill=SUMMARY_SIDE_FILL,
-            font=SUMMARY_HEADER_FONT,
+            font=SUMMARY_SIDE_FONT,
         )
 
         for column_index, column_name in enumerate(SUMMARY_COLUMNS, start=3):
             value = row.values[column_name]
             if value is not None:
                 worksheet.cell(row=excel_row, column=column_index, value=value)
-            fill = SUMMARY_WHITE_FILL
+            fill = SUMMARY_BODY_FILL
             if column_name not in row.applicable_columns:
                 fill = SUMMARY_NA_FILL
             apply_common_style(
@@ -597,30 +654,40 @@ def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> No
             worksheet.cell(row=excel_row, column=column_index).number_format = SUMMARY_NUMBER_FORMAT
 
     total_row_index = data_start_row + len(rows)
+    worksheet.row_dimensions[total_row_index].height = 28
     worksheet.merge_cells(start_row=total_row_index, start_column=1, end_row=total_row_index, end_column=2)
-    worksheet.cell(row=total_row_index, column=1, value="总分")
+    set_text_cell(
+        worksheet.cell(row=total_row_index, column=1),
+        "总分",
+        fill=SUMMARY_HEADER_FILL,
+        font=SUMMARY_HEADER_FONT,
+    )
     total_values = build_total_values(rows)
-    for column_index in range(1, 9):
-        apply_common_style(
-            worksheet.cell(row=total_row_index, column=column_index),
-            fill=SUMMARY_HEADER_FILL,
-            font=SUMMARY_HEADER_FONT,
-        )
+    apply_common_style(
+        worksheet.cell(row=total_row_index, column=2),
+        fill=SUMMARY_HEADER_FILL,
+        font=SUMMARY_HEADER_FONT,
+    )
     for column_index, column_name in enumerate(SUMMARY_COLUMNS, start=3):
         value = total_values[column_name]
         if value is not None:
             worksheet.cell(row=total_row_index, column=column_index, value=value)
+        apply_common_style(
+            worksheet.cell(row=total_row_index, column=column_index),
+            fill=SUMMARY_BODY_FILL,
+            font=SUMMARY_BODY_FONT,
+        )
         worksheet.cell(row=total_row_index, column=column_index).number_format = SUMMARY_NUMBER_FORMAT
 
     merge_category_cells(worksheet, rows, data_start_row)
     worksheet.freeze_panes = "C3"
 
-    worksheet.column_dimensions["A"].width = 18
-    worksheet.column_dimensions["B"].width = 24
-    worksheet.column_dimensions["C"].width = 10
-    worksheet.column_dimensions["D"].width = 13
-    worksheet.column_dimensions["E"].width = 13
-    worksheet.column_dimensions["F"].width = 12
+    worksheet.column_dimensions["A"].width = 22
+    worksheet.column_dimensions["B"].width = 36
+    worksheet.column_dimensions["C"].width = 11
+    worksheet.column_dimensions["D"].width = 15
+    worksheet.column_dimensions["E"].width = 15
+    worksheet.column_dimensions["F"].width = 14
     worksheet.column_dimensions["G"].width = 16
     worksheet.column_dimensions["H"].width = 12
 

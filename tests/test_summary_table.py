@@ -6,9 +6,16 @@ from pathlib import Path
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.rich_text import CellRichText
 
 from summary_table import (
+    SUMMARY_CHINESE_FONT_NAME,
     DEFAULT_SUMMARY_TITLE,
+    SUMMARY_BODY_FILL,
+    SUMMARY_BORDER,
+    SUMMARY_HEADER_FILL,
+    SUMMARY_LATIN_FONT_NAME,
+    SUMMARY_NA_FILL,
     build_summary_dataframe,
     build_summary_rows,
     generate_summary_report,
@@ -216,12 +223,16 @@ class SummaryTableTest(unittest.TestCase):
 
             self.assertTrue(output_path.exists())
 
-            workbook = load_workbook(output_path)
+            workbook = load_workbook(output_path, rich_text=True)
             worksheet = workbook.active
 
             self.assertEqual(worksheet["A1"].value, DEFAULT_SUMMARY_TITLE)
             self.assertIn("A1:H1", {str(cell_range) for cell_range in worksheet.merged_cells.ranges})
             self.assertIn("A3:A8", {str(cell_range) for cell_range in worksheet.merged_cells.ranges})
+            self.assertEqual(worksheet["A1"].fill.start_color.rgb, SUMMARY_HEADER_FILL.start_color.rgb)
+            self.assertEqual(worksheet["A1"].font.color.rgb, "00FFFFFF")
+            self.assertEqual(worksheet["A1"].font.name, SUMMARY_CHINESE_FONT_NAME)
+            self.assertEqual(worksheet["A1"].border.left.color.rgb, SUMMARY_BORDER.left.color.rgb)
 
             business_meal_row = None
             for row_index in range(3, worksheet.max_row + 1):
@@ -231,9 +242,32 @@ class SummaryTableTest(unittest.TestCase):
 
             self.assertIsNotNone(business_meal_row)
             self.assertEqual(worksheet.cell(row=business_meal_row, column=3).value, 9.58)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=2).fill.start_color.rgb, SUMMARY_HEADER_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=2).font.color.rgb, "00FFFFFF")
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=2).font.name, SUMMARY_CHINESE_FONT_NAME)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=3).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=3).font.name, SUMMARY_LATIN_FONT_NAME)
             self.assertEqual(worksheet.cell(row=business_meal_row, column=3).number_format, "0.00")
-            self.assertEqual(worksheet.cell(row=business_meal_row, column=6).fill.start_color.rgb, "00BFBFBF")
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=6).fill.start_color.rgb, SUMMARY_NA_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=worksheet.max_row, column=3).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=worksheet.max_row, column=3).font.name, SUMMARY_LATIN_FONT_NAME)
             self.assertEqual(worksheet.cell(row=worksheet.max_row, column=3).number_format, "0.00")
+
+            g20_label_value = None
+            for row_index in range(3, worksheet.max_row + 1):
+                candidate = worksheet.cell(row=row_index, column=1).value
+                if candidate is not None and str(candidate) == "三、G20峰会体验馆":
+                    g20_label_value = candidate
+                    break
+
+            self.assertIsInstance(g20_label_value, CellRichText)
+            self.assertEqual(len(g20_label_value), 3)
+            self.assertEqual(g20_label_value[0].text, "三、")
+            self.assertEqual(g20_label_value[0].font.rFont, SUMMARY_CHINESE_FONT_NAME)
+            self.assertEqual(g20_label_value[1].text, "G20")
+            self.assertEqual(g20_label_value[1].font.rFont, SUMMARY_LATIN_FONT_NAME)
+            self.assertEqual(g20_label_value[2].text, "峰会体验馆")
+            self.assertEqual(g20_label_value[2].font.rFont, SUMMARY_CHINESE_FONT_NAME)
 
     def test_food_hall_support_cell_is_greyed_out(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -266,7 +300,7 @@ class SummaryTableTest(unittest.TestCase):
 
             self.assertIsNotNone(food_hall_row)
             self.assertIsNone(worksheet.cell(row=food_hall_row, column=6).value)
-            self.assertEqual(worksheet.cell(row=food_hall_row, column=6).fill.start_color.rgb, "00BFBFBF")
+            self.assertEqual(worksheet.cell(row=food_hall_row, column=6).fill.start_color.rgb, SUMMARY_NA_FILL.start_color.rgb)
 
 
 if __name__ == "__main__":
