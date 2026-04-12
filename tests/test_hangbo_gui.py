@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 import pandas as pd
+from pptx import Presentation
 
 from hangbo_gui import (
     CustomerTypePreviewRow,
@@ -14,11 +15,15 @@ from hangbo_gui import (
     MainWorkflowSelection,
     SavedBatchProfile,
     StatsPreviewSummary,
+    SurveyPlatformApp,
+    ThemePalette,
     WorkflowRunController,
     WorkflowRunStatus,
     WorkflowMode,
     batch_profile_storage_path,
+    build_ppt_thumbnail_cache_dir,
     build_gui_batch_config_text,
+    build_category_intro_slides_text,
     build_stats_preview_summary_text,
     build_survey_stats_command,
     build_workflow_status_text,
@@ -26,13 +31,17 @@ from hangbo_gui import (
     build_merge_command,
     build_ppt_config_text,
     build_stats_preview_summary,
+    build_task_commands,
     build_survey_stats_config_text,
     delete_batch_profile,
     default_selected_customer_types,
+    discover_ppt_slide_previews,
+    generate_ppt_slide_thumbnail_images,
     load_gui_batch_config,
     load_gui_session,
     load_saved_batch_profiles,
     ordered_selected_customer_types,
+    parse_category_intro_slides_text,
     save_batch_profile,
     save_gui_session,
 )
@@ -135,8 +144,209 @@ class GuiWorkflowTests(unittest.TestCase):
             ("phase_preprocess", "fill_year_month", "survey_stats", "summary_table", "generate_ppt"),
         )
 
+    def test_build_task_commands_use_clear_preprocess_titles(self) -> None:
+        config = GuiBatchConfig(
+            batch_name="2026年3月",
+            workflow_mode=WorkflowMode.SINGLE,
+            single_input_dir=Path("/tmp/datas/3月"),
+        )
+        selection = MainWorkflowSelection(
+            include_fill_year_month=True,
+            include_survey_stats=False,
+            include_summary=False,
+            include_ppt=False,
+        )
+
+        with mock.patch(
+            "hangbo_gui.build_phase_preprocess_command",
+            return_value=["python", "phase_column_preprocess.py"],
+        ):
+            with mock.patch(
+                "hangbo_gui.build_fill_year_month_command",
+                return_value=["python", "fill_year_month_columns.py"],
+            ):
+                tasks = build_task_commands(config, selection)
+
+        self.assertEqual(
+            [task.title for task in tasks],
+            [
+                "兼容新版调查问卷数据结构",
+                "在数据源中加入年份+月份",
+            ],
+        )
+
+
+class GuiPreprocessCopyTests(unittest.TestCase):
+    def test_build_preprocess_page_uses_business_friendly_copy(self) -> None:
+        app = object.__new__(SurveyPlatformApp)
+        app.palette = ThemePalette()
+        app.year_value_var = mock.Mock()
+        app.month_value_var = mock.Mock()
+        app.run_phase_preprocess_task = mock.Mock()
+        app.run_fill_year_month_task = mock.Mock()
+        app._register_start_button = mock.Mock()
+
+        label_texts: list[str] = []
+        frame_texts: list[str] = []
+        button_texts: list[str] = []
+
+        def fake_widget(*_: object, **__: object) -> mock.Mock:
+            widget = mock.Mock()
+            widget.grid = mock.Mock()
+            widget.pack = mock.Mock()
+            widget.columnconfigure = mock.Mock()
+            return widget
+
+        def fake_label(*_: object, **kwargs: object) -> mock.Mock:
+            text = kwargs.get("text")
+            if isinstance(text, str):
+                label_texts.append(text)
+            return fake_widget()
+
+        def fake_label_frame(*_: object, **kwargs: object) -> mock.Mock:
+            text = kwargs.get("text")
+            if isinstance(text, str):
+                frame_texts.append(text)
+            return fake_widget()
+
+        def fake_button(*_: object, **kwargs: object) -> mock.Mock:
+            text = kwargs.get("text")
+            if isinstance(text, str):
+                button_texts.append(text)
+            return fake_widget()
+
+        with mock.patch("hangbo_gui.ttk.Frame", side_effect=fake_widget):
+            with mock.patch("hangbo_gui.ttk.LabelFrame", side_effect=fake_label_frame):
+                with mock.patch("hangbo_gui.ttk.Label", side_effect=fake_label):
+                    with mock.patch("hangbo_gui.ttk.Entry", side_effect=fake_widget):
+                        with mock.patch("hangbo_gui.ttk.Button", side_effect=fake_button):
+                            SurveyPlatformApp._build_preprocess_page(app, mock.Mock())
+
+        self.assertIn("兼容新版调查问卷数据结构", frame_texts)
+        self.assertIn("在数据源中加入年份+月份", frame_texts)
+        self.assertIn(
+            "说明：如果新版调查问卷在第三列增加了“一期/二期”等期次字段，这一步会自动把该列移到最后，避免后续统计错位。",
+            label_texts,
+        )
+        self.assertIn(
+            "说明：给问卷数据补写“年份”“月份”两列，方便后续合并文件。",
+            label_texts,
+        )
+        self.assertIn(
+            "执行兼容新版结构（phase_column_preprocess.py）",
+            button_texts,
+        )
+        self.assertIn(
+            "执行补写年份+月份（fill_year_month_columns.py）",
+            button_texts,
+        )
+
 
 class GuiConfigRenderingTests(unittest.TestCase):
+    def test_build_ppt_thumbnail_cache_dir_uses_file_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ppt_path = Path(temp_dir) / "chapter sample.pptx"
+            ppt_path.write_bytes(b"fake-ppt-content")
+            thumbnail_root = Path(temp_dir) / "thumb-cache"
+            with mock.patch("hangbo_gui.GUI_THUMBNAIL_DIR", thumbnail_root):
+                cache_dir = build_ppt_thumbnail_cache_dir(ppt_path)
+
+        self.assertIn("chapter_sample", cache_dir.name)
+
+    def test_generate_ppt_slide_thumbnail_images_reuses_existing_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ppt_path = Path(temp_dir) / "chapter.pptx"
+            ppt_path.write_bytes(b"fake-ppt-content")
+            thumbnail_root = Path(temp_dir) / "thumb-cache"
+            with mock.patch("hangbo_gui.GUI_THUMBNAIL_DIR", thumbnail_root):
+                cache_dir = build_ppt_thumbnail_cache_dir(ppt_path)
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cached_thumbnail = cache_dir / "chapter-001.png"
+                cached_thumbnail.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+                with mock.patch("hangbo_gui.subprocess.run") as run_mock:
+                    thumbnails = generate_ppt_slide_thumbnail_images(ppt_path)
+
+        self.assertEqual(thumbnails, (cached_thumbnail,))
+        run_mock.assert_not_called()
+
+    def test_generate_ppt_slide_thumbnail_images_runs_conversion_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ppt_path = Path(temp_dir) / "chapter.pptx"
+            ppt_path.write_bytes(b"fake-ppt-content")
+            thumbnail_root = Path(temp_dir) / "thumb-cache"
+            with mock.patch("hangbo_gui.GUI_THUMBNAIL_DIR", thumbnail_root):
+                cache_dir = build_ppt_thumbnail_cache_dir(ppt_path)
+
+                def fake_run(command: list[str], **_: object) -> mock.Mock:
+                    if command[0] == "soffice":
+                        (cache_dir / "chapter.pdf").write_bytes(b"%PDF-1.4")
+                    elif command[0] == "gs":
+                        (cache_dir / "chapter-001.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+                        (cache_dir / "chapter-002.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+                    return mock.Mock(stdout="", stderr="")
+
+                with mock.patch(
+                    "hangbo_gui.subprocess.run",
+                    side_effect=fake_run,
+                ) as run_mock:
+                    thumbnails = generate_ppt_slide_thumbnail_images(ppt_path)
+
+        self.assertEqual(
+            thumbnails,
+            (
+                cache_dir / "chapter-001.png",
+                cache_dir / "chapter-002.png",
+            ),
+        )
+        self.assertEqual(run_mock.call_count, 2)
+
+    def test_discover_ppt_slide_previews_reads_slide_titles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ppt_path = Path(temp_dir) / "chapter.pptx"
+            presentation = Presentation()
+            first_slide = presentation.slides.add_slide(presentation.slide_layouts[0])
+            first_slide.shapes.title.text = "一、会展客户"
+            second_slide = presentation.slides.add_slide(presentation.slide_layouts[0])
+            second_slide.shapes.title.text = "五、酒店客户封面"
+            presentation.save(ppt_path)
+
+            previews = discover_ppt_slide_previews(ppt_path)
+
+        self.assertEqual(len(previews), 2)
+        self.assertEqual(previews[0].slide_number, 1)
+        self.assertEqual(previews[0].title, "一、会展客户")
+        self.assertEqual(previews[0].label, "1. 一、会展客户")
+        self.assertEqual(previews[1].label, "2. 五、酒店客户封面")
+
+    def test_discover_ppt_slide_previews_falls_back_when_no_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ppt_path = Path(temp_dir) / "blank.pptx"
+            presentation = Presentation()
+            presentation.slides.add_slide(presentation.slide_layouts[6])
+            presentation.save(ppt_path)
+
+            previews = discover_ppt_slide_previews(ppt_path)
+
+        self.assertEqual(len(previews), 1)
+        self.assertEqual(previews[0].label, "1. 未识别到文字")
+
+    def test_build_category_intro_slides_text_round_trip(self) -> None:
+        text = build_category_intro_slides_text(
+            [
+                ("一、会展客户", "templates/chapter.pptx", 3),
+                ("五、酒店客户", "templates/chapter.pptx", 5),
+            ]
+        )
+
+        self.assertEqual(
+            parse_category_intro_slides_text(text),
+            (
+                ("一、会展客户", "templates/chapter.pptx", 3),
+                ("五、酒店客户", "templates/chapter.pptx", 5),
+            ),
+        )
+
     def test_build_survey_stats_config_text_uses_effective_input_dir(self) -> None:
         config = GuiBatchConfig(
             batch_name="2026年Q1",
@@ -171,6 +381,62 @@ class GuiConfigRenderingTests(unittest.TestCase):
         self.assertIn('input_dir = "/tmp/output/3月"', text)
         self.assertIn('output_ppt = "/tmp/output/3月满意度报告.pptx"', text)
         self.assertIn('section_mode = "auto"', text)
+
+    def test_build_ppt_config_text_includes_advanced_sections(self) -> None:
+        config = GuiBatchConfig(
+            batch_name="2026年Q1",
+            workflow_mode=WorkflowMode.SINGLE,
+            single_input_dir=Path("/tmp/datas/Q1"),
+            stats_output_dir=Path("/tmp/output/Q1"),
+            ppt_template_path=Path("/tmp/templates/template.pptx"),
+            output_ppt_path=Path("/tmp/output/Q1报告.pptx"),
+            ppt_file_pattern="*.xlsm",
+            ppt_sheet_name_mode="named",
+            ppt_sheet_name="结果页",
+            ppt_title_suffix="（季度版）",
+            ppt_blank_display="-",
+            ppt_max_single_table_rows="20",
+            ppt_max_split_table_rows="22",
+            ppt_body_font_size_pt="11.5",
+            ppt_header_font_size_pt="12",
+            ppt_summary_font_size_pt="13",
+            ppt_template_slide_index="2",
+            ppt_chart_page_enabled=True,
+            ppt_chart_placeholder_text="图表说明文案",
+            ppt_chart_image_dpi="300",
+            ppt_llm_notes_enabled=True,
+            ppt_llm_env_path=".env.prod",
+            ppt_llm_system_role_path="roles/system_role.md",
+            ppt_llm_target_chars="360",
+            ppt_llm_temperature="0.6",
+            ppt_llm_max_tokens="700",
+            ppt_llm_checkpoint_chars="120",
+            ppt_category_intro_slides_text=(
+                "一、会展客户|templates/chapter.pptx|3\n"
+                "五、酒店客户|templates/chapter.pptx|5"
+            ),
+            ppt_layout_summary_table_left="0.9",
+            ppt_layout_chart_textbox_width="5.8",
+        )
+
+        text = build_ppt_config_text(config)
+
+        self.assertIn('file_pattern = "*.xlsm"', text)
+        self.assertIn('sheet_name_mode = "named"', text)
+        self.assertIn('sheet_name = "结果页"', text)
+        self.assertIn('title_suffix = "（季度版）"', text)
+        self.assertIn("max_single_table_rows = 20", text)
+        self.assertIn("template_slide_index = 2", text)
+        self.assertIn('[category_intro_slides."一、会展客户"]', text)
+        self.assertIn("[chart_page]", text)
+        self.assertIn("enabled = true", text)
+        self.assertIn('placeholder_text = "图表说明文案"', text)
+        self.assertIn("[llm_notes]", text)
+        self.assertIn('env_path = ".env.prod"', text)
+        self.assertIn("[layout.summary_table]", text)
+        self.assertIn("left = 0.9", text)
+        self.assertIn("[layout.chart_textbox]", text)
+        self.assertIn("width = 5.8", text)
 
     def test_build_survey_stats_command_appends_selected_jobs_in_order(self) -> None:
         config = GuiBatchConfig(
@@ -228,6 +494,99 @@ class GuiConfigRenderingTests(unittest.TestCase):
             (Path("/tmp/datas/1月").resolve(), Path("/tmp/datas/2月").resolve()),
         )
         self.assertEqual(loaded.output_ppt_path, Path("/tmp/output/Q1报告.pptx").resolve())
+        self.assertEqual(loaded.ppt_sheet_name_mode, "first")
+
+    def test_build_gui_batch_config_text_round_trip_preserves_ppt_advanced_fields(self) -> None:
+        config = GuiBatchConfig(
+            batch_name="2026年Q1",
+            ppt_file_pattern="*.xlsm",
+            ppt_sheet_name_mode="named",
+            ppt_sheet_name="结果页",
+            ppt_title_suffix="（季度版）",
+            ppt_chart_page_enabled=True,
+            ppt_chart_placeholder_text="图表说明\n第二行",
+            ppt_llm_notes_enabled=True,
+            ppt_llm_env_path=".env.prod",
+            ppt_category_intro_slides_text="一、会展客户|templates/chapter.pptx|3",
+            ppt_layout_chart_textbox_width="5.8",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_path = Path(temp_dir) / "batch.toml"
+            profile_path.write_text(
+                build_gui_batch_config_text(config),
+                encoding="utf-8",
+            )
+
+            loaded = load_gui_batch_config(profile_path)
+
+        self.assertEqual(loaded.ppt_file_pattern, "*.xlsm")
+        self.assertEqual(loaded.ppt_sheet_name_mode, "named")
+        self.assertEqual(loaded.ppt_sheet_name, "结果页")
+        self.assertEqual(loaded.ppt_title_suffix, "（季度版）")
+        self.assertTrue(loaded.ppt_chart_page_enabled)
+        self.assertEqual(loaded.ppt_chart_placeholder_text, "图表说明\n第二行")
+        self.assertTrue(loaded.ppt_llm_notes_enabled)
+        self.assertEqual(loaded.ppt_llm_env_path, ".env.prod")
+        self.assertEqual(
+            loaded.ppt_category_intro_slides_text,
+            "一、会展客户|templates/chapter.pptx|3",
+        )
+        self.assertEqual(loaded.ppt_layout_chart_textbox_width, "5.8")
+
+
+class GuiThemeTests(unittest.TestCase):
+    def test_apply_theme_uses_surface_background_for_radio_and_check_controls(self) -> None:
+        app = object.__new__(SurveyPlatformApp)
+        app.palette = ThemePalette()
+        app.configure = mock.Mock()
+
+        with mock.patch("hangbo_gui.ttk.Style") as style_factory:
+            SurveyPlatformApp._apply_theme(app)
+
+        style = style_factory.return_value
+        style.configure.assert_any_call(
+            "TRadiobutton",
+            background=app.palette.surface,
+            foreground=app.palette.text,
+            font=("PingFang SC", 10),
+        )
+        style.configure.assert_any_call(
+            "TCheckbutton",
+            background=app.palette.surface,
+            foreground=app.palette.text,
+            font=("PingFang SC", 10),
+        )
+        style.map.assert_any_call("TRadiobutton", background=[("active", app.palette.surface)])
+        style.map.assert_any_call("TCheckbutton", background=[("active", app.palette.surface)])
+
+    def test_apply_theme_defines_root_label_styles_for_background_sections(self) -> None:
+        app = object.__new__(SurveyPlatformApp)
+        app.palette = ThemePalette()
+        app.configure = mock.Mock()
+
+        with mock.patch("hangbo_gui.ttk.Style") as style_factory:
+            SurveyPlatformApp._apply_theme(app)
+
+        style = style_factory.return_value
+        style.configure.assert_any_call(
+            "Root.SubHeader.TLabel",
+            background=app.palette.background,
+            foreground=app.palette.text,
+            font=("PingFang SC", 12, "bold"),
+        )
+        style.configure.assert_any_call(
+            "Root.Body.TLabel",
+            background=app.palette.background,
+            foreground=app.palette.text,
+            font=("PingFang SC", 10),
+        )
+        style.configure.assert_any_call(
+            "Root.Muted.TLabel",
+            background=app.palette.background,
+            foreground=app.palette.muted_text,
+            font=("PingFang SC", 10),
+        )
 
 
 class GuiBatchPersistenceTests(unittest.TestCase):

@@ -54,6 +54,22 @@
 
 示例文件见 [ppt_job.example.toml](/Users/zhangqijin/PycharmProjects/hangbo/ppt_job.example.toml)。
 
+桌面 GUI 里的“高级 PPT 配置”折叠区现在也会生成同结构的运行时 TOML，
+所以通过 GUI 配置客户大类封面、图表页、备注页分析和布局参数时，实际调用口径与命令行 `--config` 一致。
+
+其中“客户大类封面”页签已经改成可视化表格编辑：
+
+- 一行对应一个客户大类封面配置
+- 可直接选择客户大类、浏览封面 PPT、填写页码
+- 不再要求手动输入 `客户大类|PPT路径|页码` 文本
+- 选择封面 PPT 后，可点击“读取页列表”自动列出页面预览，并直接选择页码
+- 也可点击“按缩略图选择”，按页面缩略图直接点选封面页
+
+缩略图生成说明：
+
+- GUI 会优先把封面 `pptx` 转成 PDF，再按页生成 PNG 缩略图并缓存到 `logs/gui_runtime/ppt_thumbnails`
+- 当前依赖本机可用的 `soffice` 与 `gs`
+
 常用参数：
 
 - `template_path`

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import math
 import queue
 import shlex
 import subprocess
 import sys
+import tempfile
 import threading
 import tomllib
 from dataclasses import dataclass, replace
@@ -13,6 +16,8 @@ from tkinter import filedialog, messagebox, scrolledtext
 import tkinter as tk
 from tkinter import ttk
 
+from pptx import Presentation
+from summary_table import SUMMARY_ROW_DEFINITIONS
 from survey_customer_mappings import STANDARD_CUSTOMER_TYPE_MAPPINGS
 from survey_stats import (
     BatchConfig,
@@ -24,10 +29,67 @@ from survey_stats import (
 PROJECT_ROOT = Path(__file__).resolve().parent
 LOG_DIR = PROJECT_ROOT / "logs"
 GUI_RUNTIME_DIR = LOG_DIR / "gui_runtime"
+GUI_THUMBNAIL_DIR = GUI_RUNTIME_DIR / "ppt_thumbnails"
 GUI_PROFILE_DIR = LOG_DIR / "gui_profiles"
 GUI_BATCH_DIR = GUI_PROFILE_DIR / "batches"
 GUI_SESSION_PATH = GUI_PROFILE_DIR / "last_session.toml"
 DEFAULT_SHEET_NAME = "问卷数据"
+PHASE_PREPROCESS_SECTION_TITLE = "兼容新版调查问卷数据结构"
+PHASE_PREPROCESS_DESCRIPTION = (
+    "说明：如果新版调查问卷在第三列增加了“一期/二期”等期次字段，"
+    "这一步会自动把该列移到最后，避免后续统计错位。"
+)
+PHASE_PREPROCESS_BUTTON_TEXT = "执行兼容新版结构（phase_column_preprocess.py）"
+PHASE_PREPROCESS_TASK_TITLE = "兼容新版调查问卷数据结构"
+PHASE_PREPROCESS_WORKFLOW_TEXT = f"预处理：{PHASE_PREPROCESS_TASK_TITLE}"
+FILL_YEAR_MONTH_SECTION_TITLE = "在数据源中加入年份+月份"
+FILL_YEAR_MONTH_DESCRIPTION = "说明：给问卷数据补写“年份”“月份”两列，方便后续合并文件。"
+FILL_YEAR_MONTH_BUTTON_TEXT = "执行补写年份+月份（fill_year_month_columns.py）"
+FILL_YEAR_MONTH_TASK_TITLE = "在数据源中加入年份+月份"
+FILL_YEAR_MONTH_WORKFLOW_TEXT = f"预处理：{FILL_YEAR_MONTH_TASK_TITLE}"
+PPT_DEFAULT_FILE_PATTERN = "*.xlsx"
+PPT_DEFAULT_SHEET_NAME_MODE = "first"
+PPT_DEFAULT_TITLE_SUFFIX = ""
+PPT_DEFAULT_MAX_SINGLE_TABLE_ROWS = "18"
+PPT_DEFAULT_MAX_SPLIT_TABLE_ROWS = "19"
+PPT_DEFAULT_BODY_FONT_SIZE_PT = "10.5"
+PPT_DEFAULT_HEADER_FONT_SIZE_PT = "11.0"
+PPT_DEFAULT_SUMMARY_FONT_SIZE_PT = "12.0"
+PPT_DEFAULT_TEMPLATE_SLIDE_INDEX = "0"
+PPT_DEFAULT_CHART_PLACEHOLDER_TEXT = (
+    "图表分析内容待补充。后续将在此处补充该客户分组二级指标的整体解读、优势项与待提升项。"
+)
+PPT_DEFAULT_CHART_IMAGE_DPI = "220"
+PPT_DEFAULT_LLM_ENV_PATH = ".env"
+PPT_DEFAULT_LLM_SYSTEM_ROLE_PATH = "system_role.md"
+PPT_DEFAULT_LLM_TARGET_CHARS = "300"
+PPT_DEFAULT_LLM_TEMPERATURE = "0.4"
+PPT_DEFAULT_LLM_MAX_TOKENS = "500"
+PPT_DEFAULT_LLM_CHECKPOINT_CHARS = "80"
+PPT_CATEGORY_LABEL_VALUES = tuple(
+    dict.fromkeys(definition.category_label for definition in SUMMARY_ROW_DEFINITIONS)
+)
+PPT_DEFAULT_CATEGORY_INTRO_SLIDE_NUMBER = "1"
+PPT_THUMBNAIL_DPI = 96
+PPT_THUMBNAIL_MAX_WIDTH = 240
+PPT_THUMBNAIL_MAX_HEIGHT = 135
+PPT_SHEET_NAME_MODE_VALUES = ("first", "named")
+PPT_LAYOUT_REGION_LABELS = (
+    ("summary_table", "摘要表"),
+    ("detail_single_table", "单列表"),
+    ("detail_left_table", "左侧明细表"),
+    ("detail_right_table", "右侧明细表"),
+    ("chart_image", "图表区"),
+    ("chart_textbox", "图表文字框"),
+)
+PPT_LAYOUT_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
+    "summary_table": ("0.73", "1.45", "11.87", "0.56"),
+    "detail_single_table": ("0.73", "2.10", "11.87", "4.95"),
+    "detail_left_table": ("0.73", "2.10", "5.78", "4.95"),
+    "detail_right_table": ("6.82", "2.10", "5.78", "4.95"),
+    "chart_image": ("0.78", "1.58", "5.55", "5.10"),
+    "chart_textbox": ("6.55", "1.58", "5.50", "5.10"),
+}
 
 
 class WorkflowMode(str, Enum):
@@ -68,8 +130,54 @@ class GuiBatchConfig:
     summary_output_name: str = "3月客户类型满意度汇总表.xlsx"
     ppt_template_path: Path = PROJECT_ROOT / "templates" / "template.pptx"
     output_ppt_path: Path = PROJECT_ROOT / "输出结果" / "3月满意度报告.pptx"
+    ppt_file_pattern: str = PPT_DEFAULT_FILE_PATTERN
+    ppt_sheet_name_mode: str = PPT_DEFAULT_SHEET_NAME_MODE
+    ppt_sheet_name: str = ""
     ppt_section_mode: str = "auto"
     ppt_blank_display: str = ""
+    ppt_title_suffix: str = PPT_DEFAULT_TITLE_SUFFIX
+    ppt_max_single_table_rows: str = PPT_DEFAULT_MAX_SINGLE_TABLE_ROWS
+    ppt_max_split_table_rows: str = PPT_DEFAULT_MAX_SPLIT_TABLE_ROWS
+    ppt_sort_files: bool = True
+    ppt_body_font_size_pt: str = PPT_DEFAULT_BODY_FONT_SIZE_PT
+    ppt_header_font_size_pt: str = PPT_DEFAULT_HEADER_FONT_SIZE_PT
+    ppt_summary_font_size_pt: str = PPT_DEFAULT_SUMMARY_FONT_SIZE_PT
+    ppt_template_slide_index: str = PPT_DEFAULT_TEMPLATE_SLIDE_INDEX
+    ppt_chart_page_enabled: bool = False
+    ppt_chart_placeholder_text: str = PPT_DEFAULT_CHART_PLACEHOLDER_TEXT
+    ppt_chart_image_dpi: str = PPT_DEFAULT_CHART_IMAGE_DPI
+    ppt_llm_notes_enabled: bool = False
+    ppt_llm_env_path: str = PPT_DEFAULT_LLM_ENV_PATH
+    ppt_llm_system_role_path: str = PPT_DEFAULT_LLM_SYSTEM_ROLE_PATH
+    ppt_llm_target_chars: str = PPT_DEFAULT_LLM_TARGET_CHARS
+    ppt_llm_temperature: str = PPT_DEFAULT_LLM_TEMPERATURE
+    ppt_llm_max_tokens: str = PPT_DEFAULT_LLM_MAX_TOKENS
+    ppt_llm_checkpoint_chars: str = PPT_DEFAULT_LLM_CHECKPOINT_CHARS
+    ppt_category_intro_slides_text: str = ""
+    ppt_layout_summary_table_left: str = PPT_LAYOUT_DEFAULTS["summary_table"][0]
+    ppt_layout_summary_table_top: str = PPT_LAYOUT_DEFAULTS["summary_table"][1]
+    ppt_layout_summary_table_width: str = PPT_LAYOUT_DEFAULTS["summary_table"][2]
+    ppt_layout_summary_table_height: str = PPT_LAYOUT_DEFAULTS["summary_table"][3]
+    ppt_layout_detail_single_table_left: str = PPT_LAYOUT_DEFAULTS["detail_single_table"][0]
+    ppt_layout_detail_single_table_top: str = PPT_LAYOUT_DEFAULTS["detail_single_table"][1]
+    ppt_layout_detail_single_table_width: str = PPT_LAYOUT_DEFAULTS["detail_single_table"][2]
+    ppt_layout_detail_single_table_height: str = PPT_LAYOUT_DEFAULTS["detail_single_table"][3]
+    ppt_layout_detail_left_table_left: str = PPT_LAYOUT_DEFAULTS["detail_left_table"][0]
+    ppt_layout_detail_left_table_top: str = PPT_LAYOUT_DEFAULTS["detail_left_table"][1]
+    ppt_layout_detail_left_table_width: str = PPT_LAYOUT_DEFAULTS["detail_left_table"][2]
+    ppt_layout_detail_left_table_height: str = PPT_LAYOUT_DEFAULTS["detail_left_table"][3]
+    ppt_layout_detail_right_table_left: str = PPT_LAYOUT_DEFAULTS["detail_right_table"][0]
+    ppt_layout_detail_right_table_top: str = PPT_LAYOUT_DEFAULTS["detail_right_table"][1]
+    ppt_layout_detail_right_table_width: str = PPT_LAYOUT_DEFAULTS["detail_right_table"][2]
+    ppt_layout_detail_right_table_height: str = PPT_LAYOUT_DEFAULTS["detail_right_table"][3]
+    ppt_layout_chart_image_left: str = PPT_LAYOUT_DEFAULTS["chart_image"][0]
+    ppt_layout_chart_image_top: str = PPT_LAYOUT_DEFAULTS["chart_image"][1]
+    ppt_layout_chart_image_width: str = PPT_LAYOUT_DEFAULTS["chart_image"][2]
+    ppt_layout_chart_image_height: str = PPT_LAYOUT_DEFAULTS["chart_image"][3]
+    ppt_layout_chart_textbox_left: str = PPT_LAYOUT_DEFAULTS["chart_textbox"][0]
+    ppt_layout_chart_textbox_top: str = PPT_LAYOUT_DEFAULTS["chart_textbox"][1]
+    ppt_layout_chart_textbox_width: str = PPT_LAYOUT_DEFAULTS["chart_textbox"][2]
+    ppt_layout_chart_textbox_height: str = PPT_LAYOUT_DEFAULTS["chart_textbox"][3]
 
     def effective_input_dir(self) -> Path:
         if self.workflow_mode == WorkflowMode.MERGED:
@@ -95,6 +203,13 @@ class TaskCommand:
     key: str
     title: str
     command: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PptSlidePreview:
+    slide_number: int
+    title: str
+    label: str
 
 
 @dataclass(frozen=True)
@@ -215,6 +330,25 @@ def build_workflow_status_text(
     return f"执行失败：{failed_title}"
 
 
+def bool_to_toml(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def layout_field_key(region_name: str, field_name: str) -> str:
+    return f"ppt_layout_{region_name}_{field_name}"
+
+
+def build_gui_ppt_layout_lines(config: GuiBatchConfig) -> list[str]:
+    lines: list[str] = []
+    for region_name, _ in PPT_LAYOUT_REGION_LABELS:
+        for field_name in ("left", "top", "width", "height"):
+            config_key = layout_field_key(region_name, field_name)
+            lines.append(
+                f"{config_key} = {toml_quote(getattr(config, config_key))}"
+            )
+    return lines
+
+
 def build_gui_batch_config_text(
     config: GuiBatchConfig,
     *,
@@ -235,9 +369,32 @@ def build_gui_batch_config_text(
         f"summary_output_name = {toml_quote(config.summary_output_name)}",
         f"ppt_template_path = {toml_quote(config.ppt_template_path)}",
         f"output_ppt_path = {toml_quote(config.output_ppt_path)}",
+        f"ppt_file_pattern = {toml_quote(config.ppt_file_pattern)}",
+        f'ppt_sheet_name_mode = "{config.ppt_sheet_name_mode}"',
+        f"ppt_sheet_name = {toml_quote(config.ppt_sheet_name)}",
         f'ppt_section_mode = "{config.ppt_section_mode}"',
         f"ppt_blank_display = {toml_quote(config.ppt_blank_display)}",
+        f"ppt_title_suffix = {toml_quote(config.ppt_title_suffix)}",
+        f"ppt_max_single_table_rows = {toml_quote(config.ppt_max_single_table_rows)}",
+        f"ppt_max_split_table_rows = {toml_quote(config.ppt_max_split_table_rows)}",
+        f"ppt_sort_files = {bool_to_toml(config.ppt_sort_files)}",
+        f"ppt_body_font_size_pt = {toml_quote(config.ppt_body_font_size_pt)}",
+        f"ppt_header_font_size_pt = {toml_quote(config.ppt_header_font_size_pt)}",
+        f"ppt_summary_font_size_pt = {toml_quote(config.ppt_summary_font_size_pt)}",
+        f"ppt_template_slide_index = {toml_quote(config.ppt_template_slide_index)}",
+        f"ppt_chart_page_enabled = {bool_to_toml(config.ppt_chart_page_enabled)}",
+        f"ppt_chart_placeholder_text = {toml_quote(config.ppt_chart_placeholder_text)}",
+        f"ppt_chart_image_dpi = {toml_quote(config.ppt_chart_image_dpi)}",
+        f"ppt_llm_notes_enabled = {bool_to_toml(config.ppt_llm_notes_enabled)}",
+        f"ppt_llm_env_path = {toml_quote(config.ppt_llm_env_path)}",
+        f"ppt_llm_system_role_path = {toml_quote(config.ppt_llm_system_role_path)}",
+        f"ppt_llm_target_chars = {toml_quote(config.ppt_llm_target_chars)}",
+        f"ppt_llm_temperature = {toml_quote(config.ppt_llm_temperature)}",
+        f"ppt_llm_max_tokens = {toml_quote(config.ppt_llm_max_tokens)}",
+        f"ppt_llm_checkpoint_chars = {toml_quote(config.ppt_llm_checkpoint_chars)}",
+        f"ppt_category_intro_slides_text = {toml_quote(config.ppt_category_intro_slides_text)}",
     ]
+    lines.extend(build_gui_ppt_layout_lines(config))
     if active_saved_batch_name is not None:
         lines.append(f"active_saved_batch_name = {toml_quote(active_saved_batch_name)}")
     if config.merge_input_dirs:
@@ -261,6 +418,15 @@ def _path_value(raw_data: dict[str, object], key: str, default: Path) -> Path:
     if value is None:
         return default
     return Path(str(value)).resolve()
+
+
+def _bool_value(raw_data: dict[str, object], key: str, default: bool) -> bool:
+    value = raw_data.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def parse_gui_batch_config(raw_data: dict[str, object]) -> GuiBatchConfig:
@@ -330,6 +496,23 @@ def parse_gui_batch_config(raw_data: dict[str, object]) -> GuiBatchConfig:
             "output_ppt_path",
             DEFAULT_GUI_BATCH_CONFIG.output_ppt_path,
         ),
+        ppt_file_pattern=_string_value(
+            raw_data,
+            "ppt_file_pattern",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_file_pattern,
+        )
+        or DEFAULT_GUI_BATCH_CONFIG.ppt_file_pattern,
+        ppt_sheet_name_mode=_string_value(
+            raw_data,
+            "ppt_sheet_name_mode",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_sheet_name_mode,
+        )
+        or DEFAULT_GUI_BATCH_CONFIG.ppt_sheet_name_mode,
+        ppt_sheet_name=_string_value(
+            raw_data,
+            "ppt_sheet_name",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_sheet_name,
+        ),
         ppt_section_mode=_string_value(
             raw_data,
             "ppt_section_mode",
@@ -340,6 +523,221 @@ def parse_gui_batch_config(raw_data: dict[str, object]) -> GuiBatchConfig:
             raw_data,
             "ppt_blank_display",
             DEFAULT_GUI_BATCH_CONFIG.ppt_blank_display,
+        ),
+        ppt_title_suffix=_string_value(
+            raw_data,
+            "ppt_title_suffix",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_title_suffix,
+        ),
+        ppt_max_single_table_rows=_string_value(
+            raw_data,
+            "ppt_max_single_table_rows",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_max_single_table_rows,
+        ),
+        ppt_max_split_table_rows=_string_value(
+            raw_data,
+            "ppt_max_split_table_rows",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_max_split_table_rows,
+        ),
+        ppt_sort_files=_bool_value(
+            raw_data,
+            "ppt_sort_files",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_sort_files,
+        ),
+        ppt_body_font_size_pt=_string_value(
+            raw_data,
+            "ppt_body_font_size_pt",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_body_font_size_pt,
+        ),
+        ppt_header_font_size_pt=_string_value(
+            raw_data,
+            "ppt_header_font_size_pt",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_header_font_size_pt,
+        ),
+        ppt_summary_font_size_pt=_string_value(
+            raw_data,
+            "ppt_summary_font_size_pt",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_summary_font_size_pt,
+        ),
+        ppt_template_slide_index=_string_value(
+            raw_data,
+            "ppt_template_slide_index",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_template_slide_index,
+        ),
+        ppt_chart_page_enabled=_bool_value(
+            raw_data,
+            "ppt_chart_page_enabled",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_chart_page_enabled,
+        ),
+        ppt_chart_placeholder_text=_string_value(
+            raw_data,
+            "ppt_chart_placeholder_text",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_chart_placeholder_text,
+        ),
+        ppt_chart_image_dpi=_string_value(
+            raw_data,
+            "ppt_chart_image_dpi",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_chart_image_dpi,
+        ),
+        ppt_llm_notes_enabled=_bool_value(
+            raw_data,
+            "ppt_llm_notes_enabled",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_notes_enabled,
+        ),
+        ppt_llm_env_path=_string_value(
+            raw_data,
+            "ppt_llm_env_path",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_env_path,
+        ),
+        ppt_llm_system_role_path=_string_value(
+            raw_data,
+            "ppt_llm_system_role_path",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_system_role_path,
+        ),
+        ppt_llm_target_chars=_string_value(
+            raw_data,
+            "ppt_llm_target_chars",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_target_chars,
+        ),
+        ppt_llm_temperature=_string_value(
+            raw_data,
+            "ppt_llm_temperature",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_temperature,
+        ),
+        ppt_llm_max_tokens=_string_value(
+            raw_data,
+            "ppt_llm_max_tokens",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_max_tokens,
+        ),
+        ppt_llm_checkpoint_chars=_string_value(
+            raw_data,
+            "ppt_llm_checkpoint_chars",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_checkpoint_chars,
+        ),
+        ppt_category_intro_slides_text=_string_value(
+            raw_data,
+            "ppt_category_intro_slides_text",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_category_intro_slides_text,
+        ),
+        ppt_layout_summary_table_left=_string_value(
+            raw_data,
+            "ppt_layout_summary_table_left",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_summary_table_left,
+        ),
+        ppt_layout_summary_table_top=_string_value(
+            raw_data,
+            "ppt_layout_summary_table_top",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_summary_table_top,
+        ),
+        ppt_layout_summary_table_width=_string_value(
+            raw_data,
+            "ppt_layout_summary_table_width",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_summary_table_width,
+        ),
+        ppt_layout_summary_table_height=_string_value(
+            raw_data,
+            "ppt_layout_summary_table_height",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_summary_table_height,
+        ),
+        ppt_layout_detail_single_table_left=_string_value(
+            raw_data,
+            "ppt_layout_detail_single_table_left",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_single_table_left,
+        ),
+        ppt_layout_detail_single_table_top=_string_value(
+            raw_data,
+            "ppt_layout_detail_single_table_top",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_single_table_top,
+        ),
+        ppt_layout_detail_single_table_width=_string_value(
+            raw_data,
+            "ppt_layout_detail_single_table_width",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_single_table_width,
+        ),
+        ppt_layout_detail_single_table_height=_string_value(
+            raw_data,
+            "ppt_layout_detail_single_table_height",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_single_table_height,
+        ),
+        ppt_layout_detail_left_table_left=_string_value(
+            raw_data,
+            "ppt_layout_detail_left_table_left",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_left_table_left,
+        ),
+        ppt_layout_detail_left_table_top=_string_value(
+            raw_data,
+            "ppt_layout_detail_left_table_top",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_left_table_top,
+        ),
+        ppt_layout_detail_left_table_width=_string_value(
+            raw_data,
+            "ppt_layout_detail_left_table_width",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_left_table_width,
+        ),
+        ppt_layout_detail_left_table_height=_string_value(
+            raw_data,
+            "ppt_layout_detail_left_table_height",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_left_table_height,
+        ),
+        ppt_layout_detail_right_table_left=_string_value(
+            raw_data,
+            "ppt_layout_detail_right_table_left",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_right_table_left,
+        ),
+        ppt_layout_detail_right_table_top=_string_value(
+            raw_data,
+            "ppt_layout_detail_right_table_top",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_right_table_top,
+        ),
+        ppt_layout_detail_right_table_width=_string_value(
+            raw_data,
+            "ppt_layout_detail_right_table_width",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_right_table_width,
+        ),
+        ppt_layout_detail_right_table_height=_string_value(
+            raw_data,
+            "ppt_layout_detail_right_table_height",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_right_table_height,
+        ),
+        ppt_layout_chart_image_left=_string_value(
+            raw_data,
+            "ppt_layout_chart_image_left",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_image_left,
+        ),
+        ppt_layout_chart_image_top=_string_value(
+            raw_data,
+            "ppt_layout_chart_image_top",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_image_top,
+        ),
+        ppt_layout_chart_image_width=_string_value(
+            raw_data,
+            "ppt_layout_chart_image_width",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_image_width,
+        ),
+        ppt_layout_chart_image_height=_string_value(
+            raw_data,
+            "ppt_layout_chart_image_height",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_image_height,
+        ),
+        ppt_layout_chart_textbox_left=_string_value(
+            raw_data,
+            "ppt_layout_chart_textbox_left",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_textbox_left,
+        ),
+        ppt_layout_chart_textbox_top=_string_value(
+            raw_data,
+            "ppt_layout_chart_textbox_top",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_textbox_top,
+        ),
+        ppt_layout_chart_textbox_width=_string_value(
+            raw_data,
+            "ppt_layout_chart_textbox_width",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_textbox_width,
+        ),
+        ppt_layout_chart_textbox_height=_string_value(
+            raw_data,
+            "ppt_layout_chart_textbox_height",
+            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_textbox_height,
         ),
     )
 
@@ -602,7 +1000,12 @@ def build_main_workflow_step_keys(
 
 def toml_quote(value: str | Path) -> str:
     text = str(value)
-    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    escaped = (
+        text.replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace("\t", "\\t")
+        .replace('"', '\\"')
+    )
     return f'"{escaped}"'
 
 
@@ -619,20 +1022,350 @@ def build_survey_stats_config_text(config: GuiBatchConfig) -> str:
     )
 
 
-def build_ppt_config_text(config: GuiBatchConfig) -> str:
-    return "\n".join(
+def normalize_ppt_sheet_name_mode(sheet_name_mode: str) -> str:
+    normalized = sheet_name_mode.strip().lower() or PPT_DEFAULT_SHEET_NAME_MODE
+    if normalized not in PPT_SHEET_NAME_MODE_VALUES:
+        raise ValueError(f"PPT sheet_name_mode 仅支持: {', '.join(PPT_SHEET_NAME_MODE_VALUES)}")
+    return normalized
+
+
+def parse_positive_int_text(value: str, field_label: str, *, minimum: int = 1) -> int:
+    text = value.strip()
+    if not text:
+        raise ValueError(f"请填写 {field_label}。")
+    try:
+        parsed = int(text)
+    except ValueError as exc:
+        raise ValueError(f"{field_label} 必须是整数。") from exc
+    if parsed < minimum:
+        raise ValueError(f"{field_label} 必须大于等于 {minimum}。")
+    return parsed
+
+
+def parse_non_negative_int_text(value: str, field_label: str) -> int:
+    return parse_positive_int_text(value, field_label, minimum=0)
+
+
+def parse_positive_float_text(value: str, field_label: str, *, allow_zero: bool = False) -> float:
+    text = value.strip()
+    if not text:
+        raise ValueError(f"请填写 {field_label}。")
+    try:
+        parsed = float(text)
+    except ValueError as exc:
+        raise ValueError(f"{field_label} 必须是数字。") from exc
+    if allow_zero:
+        if parsed < 0:
+            raise ValueError(f"{field_label} 必须大于等于 0。")
+    elif parsed <= 0:
+        raise ValueError(f"{field_label} 必须大于 0。")
+    return parsed
+
+
+def parse_category_intro_slides_text(
+    text: str,
+) -> tuple[tuple[str, str, int], ...]:
+    entries: list[tuple[str, str, int]] = []
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) != 3:
+            raise ValueError(
+                "章节页配置格式应为“客户大类|PPT路径|页码”，"
+                f"第 {line_number} 行格式不正确。"
+            )
+        category_label, ppt_path, slide_number_text = parts
+        if not category_label:
+            raise ValueError(f"章节页配置第 {line_number} 行缺少客户大类名称。")
+        if not ppt_path:
+            raise ValueError(f"章节页配置第 {line_number} 行缺少 PPT 路径。")
+        slide_number = parse_positive_int_text(
+            slide_number_text,
+            f"章节页配置第 {line_number} 行页码",
+        )
+        entries.append((category_label, ppt_path, slide_number))
+    return tuple(entries)
+
+
+def build_category_intro_slides_text(
+    entries: tuple[tuple[str, str, int], ...] | list[tuple[str, str, int]],
+) -> str:
+    lines: list[str] = []
+    for line_number, (category_label, ppt_path, slide_number) in enumerate(
+        entries,
+        start=1,
+    ):
+        normalized_category = category_label.strip()
+        normalized_ppt_path = ppt_path.strip()
+        if not normalized_category:
+            raise ValueError(f"章节页配置第 {line_number} 行缺少客户大类名称。")
+        if not normalized_ppt_path:
+            raise ValueError(f"章节页配置第 {line_number} 行缺少 PPT 路径。")
+        normalized_slide_number = parse_positive_int_text(
+            str(slide_number),
+            f"章节页配置第 {line_number} 行页码",
+        )
+        lines.append(
+            f"{normalized_category}|{normalized_ppt_path}|{normalized_slide_number}"
+        )
+    return "\n".join(lines)
+
+
+def summarize_ppt_slide_text(raw_text: str, *, max_length: int = 36) -> str:
+    condensed = " ".join(raw_text.split())
+    if not condensed:
+        return "未识别到文字"
+    if len(condensed) <= max_length:
+        return condensed
+    return condensed[: max_length - 1].rstrip() + "…"
+
+
+def discover_ppt_slide_previews(ppt_path: Path) -> tuple[PptSlidePreview, ...]:
+    presentation = Presentation(str(ppt_path))
+    previews: list[PptSlidePreview] = []
+    for slide_index, slide in enumerate(presentation.slides, start=1):
+        text_fragments: list[str] = []
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            text = shape.text.strip()
+            if text:
+                text_fragments.append(text)
+        title = summarize_ppt_slide_text(" ".join(text_fragments))
+        previews.append(
+            PptSlidePreview(
+                slide_number=slide_index,
+                title=title,
+                label=f"{slide_index}. {title}",
+            )
+        )
+    return tuple(previews)
+
+
+def build_ppt_thumbnail_cache_dir(ppt_path: Path) -> Path:
+    resolved_path = ppt_path.expanduser().resolve()
+    stat = resolved_path.stat()
+    cache_key_source = (
+        f"{resolved_path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")
+    )
+    cache_key = hashlib.sha1(cache_key_source).hexdigest()[:12]
+    safe_stem = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "_"
+        for character in resolved_path.stem
+    ).strip("_") or "ppt"
+    return GUI_THUMBNAIL_DIR / f"{safe_stem}_{cache_key}"
+
+
+def list_generated_ppt_thumbnail_images(
+    cache_dir: Path,
+    stem: str,
+) -> tuple[Path, ...]:
+    return tuple(sorted(cache_dir.glob(f"{stem}-*.png")))
+
+
+def generate_ppt_slide_thumbnail_images(
+    ppt_path: Path,
+) -> tuple[Path, ...]:
+    resolved_path = ppt_path.expanduser().resolve()
+    cache_dir = build_ppt_thumbnail_cache_dir(resolved_path)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    cached_images = list_generated_ppt_thumbnail_images(cache_dir, resolved_path.stem)
+    if cached_images:
+        return cached_images
+
+    pdf_path = cache_dir / f"{resolved_path.stem}.pdf"
+    output_pattern = cache_dir / f"{resolved_path.stem}-%03d.png"
+
+    with tempfile.TemporaryDirectory(
+        prefix="lo_profile_",
+        dir=str(cache_dir),
+    ) as profile_dir:
+        profile_uri = Path(profile_dir).resolve().as_uri()
+        subprocess.run(
+            [
+                "soffice",
+                f"-env:UserInstallation={profile_uri}",
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(cache_dir),
+                str(resolved_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    subprocess.run(
         [
-            f"template_path = {toml_quote(config.ppt_template_path)}",
-            f"input_dir = {toml_quote(config.stats_output_dir)}",
-            f"output_ppt = {toml_quote(config.output_ppt_path)}",
-            'file_pattern = "*.xlsx"',
-            'sheet_name_mode = "first"',
+            "gs",
+            "-dSAFER",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-sDEVICE=pngalpha",
+            f"-r{PPT_THUMBNAIL_DPI}",
+            "-o",
+            str(output_pattern),
+            str(pdf_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    generated_images = list_generated_ppt_thumbnail_images(cache_dir, resolved_path.stem)
+    if not generated_images:
+        raise RuntimeError("未能生成 PPT 页面缩略图。")
+    return generated_images
+
+
+def build_ppt_layout_lines(config: GuiBatchConfig) -> list[str]:
+    lines: list[str] = []
+    for region_name, region_label in PPT_LAYOUT_REGION_LABELS:
+        left = parse_positive_float_text(
+            getattr(config, layout_field_key(region_name, "left")),
+            f"{region_label} left",
+            allow_zero=True,
+        )
+        top = parse_positive_float_text(
+            getattr(config, layout_field_key(region_name, "top")),
+            f"{region_label} top",
+            allow_zero=True,
+        )
+        width = parse_positive_float_text(
+            getattr(config, layout_field_key(region_name, "width")),
+            f"{region_label} width",
+        )
+        height = parse_positive_float_text(
+            getattr(config, layout_field_key(region_name, "height")),
+            f"{region_label} height",
+        )
+        lines.extend(
+            [
+                f"[layout.{region_name}]",
+                f"left = {left}",
+                f"top = {top}",
+                f"width = {width}",
+                f"height = {height}",
+                "",
+            ]
+        )
+    return lines
+
+
+def build_ppt_config_text(config: GuiBatchConfig) -> str:
+    sheet_name_mode = normalize_ppt_sheet_name_mode(config.ppt_sheet_name_mode)
+    max_single_table_rows = parse_positive_int_text(
+        config.ppt_max_single_table_rows,
+        "PPT 单表最大行数",
+    )
+    max_split_table_rows = parse_positive_int_text(
+        config.ppt_max_split_table_rows,
+        "PPT 左右双表最大行数",
+    )
+    body_font_size_pt = parse_positive_float_text(
+        config.ppt_body_font_size_pt,
+        "PPT 正文字号",
+    )
+    header_font_size_pt = parse_positive_float_text(
+        config.ppt_header_font_size_pt,
+        "PPT 表头字号",
+    )
+    summary_font_size_pt = parse_positive_float_text(
+        config.ppt_summary_font_size_pt,
+        "PPT 摘要字号",
+    )
+    template_slide_index = parse_non_negative_int_text(
+        config.ppt_template_slide_index,
+        "PPT 模板页索引",
+    )
+    chart_image_dpi = parse_positive_int_text(
+        config.ppt_chart_image_dpi,
+        "PPT 图表 DPI",
+    )
+    llm_target_chars = parse_positive_int_text(
+        config.ppt_llm_target_chars,
+        "备注页目标字数",
+    )
+    llm_max_tokens = parse_positive_int_text(
+        config.ppt_llm_max_tokens,
+        "备注页 max_tokens",
+    )
+    llm_checkpoint_chars = parse_positive_int_text(
+        config.ppt_llm_checkpoint_chars,
+        "备注页检查点字符数",
+    )
+    llm_temperature = parse_positive_float_text(
+        config.ppt_llm_temperature,
+        "备注页 temperature",
+        allow_zero=True,
+    )
+
+    lines = [
+        f"template_path = {toml_quote(config.ppt_template_path)}",
+        f"input_dir = {toml_quote(config.stats_output_dir)}",
+        f"output_ppt = {toml_quote(config.output_ppt_path)}",
+        "",
+        f"file_pattern = {toml_quote(config.ppt_file_pattern.strip() or PPT_DEFAULT_FILE_PATTERN)}",
+        f'sheet_name_mode = "{sheet_name_mode}"',
+    ]
+    if sheet_name_mode == "named":
+        sheet_name = config.ppt_sheet_name.strip()
+        if not sheet_name:
+            raise ValueError("sheet_name_mode=named 时请填写 PPT sheet 名。")
+        lines.append(f"sheet_name = {toml_quote(sheet_name)}")
+    lines.extend(
+        [
             f'section_mode = "{config.ppt_section_mode}"',
-            f'blank_display = "{config.ppt_blank_display}"',
-            "sort_files = true",
+            f"blank_display = {toml_quote(config.ppt_blank_display)}",
+            f"title_suffix = {toml_quote(config.ppt_title_suffix)}",
+            f"max_single_table_rows = {max_single_table_rows}",
+            f"max_split_table_rows = {max_split_table_rows}",
+            f"sort_files = {bool_to_toml(config.ppt_sort_files)}",
+            f"body_font_size_pt = {body_font_size_pt}",
+            f"header_font_size_pt = {header_font_size_pt}",
+            f"summary_font_size_pt = {summary_font_size_pt}",
+            f"template_slide_index = {template_slide_index}",
             "",
         ]
     )
+
+    for category_label, ppt_path, slide_number in parse_category_intro_slides_text(
+        config.ppt_category_intro_slides_text
+    ):
+        lines.extend(
+            [
+                f'[category_intro_slides.{toml_quote(category_label)}]',
+                f"ppt_path = {toml_quote(ppt_path)}",
+                f"slide_number = {slide_number}",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "[chart_page]",
+            f"enabled = {bool_to_toml(config.ppt_chart_page_enabled)}",
+            f"placeholder_text = {toml_quote(config.ppt_chart_placeholder_text)}",
+            f"image_dpi = {chart_image_dpi}",
+            "",
+            "[llm_notes]",
+            f"enabled = {bool_to_toml(config.ppt_llm_notes_enabled)}",
+            f"env_path = {toml_quote(config.ppt_llm_env_path)}",
+            f"system_role_path = {toml_quote(config.ppt_llm_system_role_path)}",
+            f"target_chars = {llm_target_chars}",
+            f"temperature = {llm_temperature}",
+            f"max_tokens = {llm_max_tokens}",
+            f"checkpoint_chars = {llm_checkpoint_chars}",
+            "",
+        ]
+    )
+    lines.extend(build_ppt_layout_lines(config))
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def write_runtime_config(prefix: str, content: str) -> Path:
@@ -750,11 +1483,19 @@ def build_task_commands(
                 commands.append(TaskCommand(step_key, "合并多月问卷", tuple(merge_command)))
         elif step_key == "phase_preprocess":
             commands.append(
-                TaskCommand(step_key, "修正期次列", tuple(build_phase_preprocess_command(config)))
+                TaskCommand(
+                    step_key,
+                    PHASE_PREPROCESS_TASK_TITLE,
+                    tuple(build_phase_preprocess_command(config)),
+                )
             )
         elif step_key == "fill_year_month":
             commands.append(
-                TaskCommand(step_key, "补写年份月份", tuple(build_fill_year_month_command(config)))
+                TaskCommand(
+                    step_key,
+                    FILL_YEAR_MONTH_TASK_TITLE,
+                    tuple(build_fill_year_month_command(config)),
+                )
             )
         elif step_key == "survey_stats":
             commands.append(
@@ -913,6 +1654,16 @@ class SurveyPlatformApp(tk.Tk):
         self._workflow_progress_close_var = tk.StringVar(value="关闭")
         self._workflow_progress_item_ids: dict[str, str] = {}
         self._workflow_progress_last_page_key: str | None = None
+        self._ppt_advanced_frame: ttk.Frame | None = None
+        self._ppt_advanced_toggle_var = tk.StringVar(value="展开高级 PPT 配置")
+        self._ppt_advanced_visible = False
+        self.ppt_chart_placeholder_text_widget: scrolledtext.ScrolledText | None = None
+        self.ppt_category_intro_tree: ttk.Treeview | None = None
+        self.ppt_category_intro_entries: list[tuple[str, str, int]] = []
+        self.ppt_category_intro_slide_preview_combobox: ttk.Combobox | None = None
+        self.ppt_category_intro_slide_previews: tuple[PptSlidePreview, ...] = ()
+        self._ppt_thumbnail_dialog: tk.Toplevel | None = None
+        self._ppt_thumbnail_photo_refs: list[tk.PhotoImage] = []
         self._apply_theme()
         self._build_layout()
         self._restore_persistent_state()
@@ -936,8 +1687,49 @@ class SurveyPlatformApp(tk.Tk):
         self.summary_output_name_var = tk.StringVar(value="3月客户类型满意度汇总表.xlsx")
         self.ppt_template_path_var = tk.StringVar(value=str(PROJECT_ROOT / "templates" / "template.pptx"))
         self.output_ppt_path_var = tk.StringVar(value=str(PROJECT_ROOT / "输出结果" / "3月满意度报告.pptx"))
+        self.ppt_file_pattern_var = tk.StringVar(value=PPT_DEFAULT_FILE_PATTERN)
+        self.ppt_sheet_name_mode_var = tk.StringVar(value=PPT_DEFAULT_SHEET_NAME_MODE)
+        self.ppt_sheet_name_var = tk.StringVar(value="")
         self.ppt_section_mode_var = tk.StringVar(value="auto")
         self.ppt_blank_display_var = tk.StringVar(value="")
+        self.ppt_title_suffix_var = tk.StringVar(value=PPT_DEFAULT_TITLE_SUFFIX)
+        self.ppt_max_single_table_rows_var = tk.StringVar(value=PPT_DEFAULT_MAX_SINGLE_TABLE_ROWS)
+        self.ppt_max_split_table_rows_var = tk.StringVar(value=PPT_DEFAULT_MAX_SPLIT_TABLE_ROWS)
+        self.ppt_sort_files_var = tk.BooleanVar(value=True)
+        self.ppt_body_font_size_pt_var = tk.StringVar(value=PPT_DEFAULT_BODY_FONT_SIZE_PT)
+        self.ppt_header_font_size_pt_var = tk.StringVar(value=PPT_DEFAULT_HEADER_FONT_SIZE_PT)
+        self.ppt_summary_font_size_pt_var = tk.StringVar(value=PPT_DEFAULT_SUMMARY_FONT_SIZE_PT)
+        self.ppt_template_slide_index_var = tk.StringVar(value=PPT_DEFAULT_TEMPLATE_SLIDE_INDEX)
+        self.ppt_chart_page_enabled_var = tk.BooleanVar(value=False)
+        self.ppt_chart_placeholder_text_var = tk.StringVar(value=PPT_DEFAULT_CHART_PLACEHOLDER_TEXT)
+        self.ppt_chart_image_dpi_var = tk.StringVar(value=PPT_DEFAULT_CHART_IMAGE_DPI)
+        self.ppt_llm_notes_enabled_var = tk.BooleanVar(value=False)
+        self.ppt_llm_env_path_var = tk.StringVar(value=PPT_DEFAULT_LLM_ENV_PATH)
+        self.ppt_llm_system_role_path_var = tk.StringVar(value=PPT_DEFAULT_LLM_SYSTEM_ROLE_PATH)
+        self.ppt_llm_target_chars_var = tk.StringVar(value=PPT_DEFAULT_LLM_TARGET_CHARS)
+        self.ppt_llm_temperature_var = tk.StringVar(value=PPT_DEFAULT_LLM_TEMPERATURE)
+        self.ppt_llm_max_tokens_var = tk.StringVar(value=PPT_DEFAULT_LLM_MAX_TOKENS)
+        self.ppt_llm_checkpoint_chars_var = tk.StringVar(value=PPT_DEFAULT_LLM_CHECKPOINT_CHARS)
+        self.ppt_category_intro_slides_text_var = tk.StringVar(value="")
+        default_category_label = PPT_CATEGORY_LABEL_VALUES[0] if PPT_CATEGORY_LABEL_VALUES else ""
+        self.ppt_category_intro_category_var = tk.StringVar(value=default_category_label)
+        self.ppt_category_intro_ppt_path_var = tk.StringVar(value="")
+        self.ppt_category_intro_slide_number_var = tk.StringVar(
+            value=PPT_DEFAULT_CATEGORY_INTRO_SLIDE_NUMBER
+        )
+        self.ppt_category_intro_slide_preview_var = tk.StringVar(value="")
+        self.ppt_category_intro_slide_status_var = tk.StringVar(
+            value="选择封面 PPT 后可读取页面列表。"
+        )
+        self.ppt_layout_vars: dict[str, dict[str, tk.StringVar]] = {}
+        for region_name, _ in PPT_LAYOUT_REGION_LABELS:
+            defaults = PPT_LAYOUT_DEFAULTS[region_name]
+            self.ppt_layout_vars[region_name] = {
+                "left": tk.StringVar(value=defaults[0]),
+                "top": tk.StringVar(value=defaults[1]),
+                "width": tk.StringVar(value=defaults[2]),
+                "height": tk.StringVar(value=defaults[3]),
+            }
         self.saved_batch_var = tk.StringVar(value="")
         self.merge_input_list: list[str] = []
 
@@ -956,9 +1748,16 @@ class SurveyPlatformApp(tk.Tk):
             relief="solid",
         )
         style.configure("Header.TLabel", background=self.palette.background, foreground=self.palette.text, font=("PingFang SC", 18, "bold"))
+        style.configure("Root.SubHeader.TLabel", background=self.palette.background, foreground=self.palette.text, font=("PingFang SC", 12, "bold"))
+        style.configure("Root.Body.TLabel", background=self.palette.background, foreground=self.palette.text, font=("PingFang SC", 10))
+        style.configure("Root.Muted.TLabel", background=self.palette.background, foreground=self.palette.muted_text, font=("PingFang SC", 10))
         style.configure("SubHeader.TLabel", background=self.palette.surface, foreground=self.palette.text, font=("PingFang SC", 12, "bold"))
         style.configure("Body.TLabel", background=self.palette.surface, foreground=self.palette.text, font=("PingFang SC", 10))
         style.configure("Muted.TLabel", background=self.palette.surface, foreground=self.palette.muted_text, font=("PingFang SC", 10))
+        style.configure("TRadiobutton", background=self.palette.surface, foreground=self.palette.text, font=("PingFang SC", 10))
+        style.map("TRadiobutton", background=[("active", self.palette.surface)])
+        style.configure("TCheckbutton", background=self.palette.surface, foreground=self.palette.text, font=("PingFang SC", 10))
+        style.map("TCheckbutton", background=[("active", self.palette.surface)])
         style.configure("Sidebar.TButton", background=self.palette.surface_alt, foreground=self.palette.text, padding=(16, 10), anchor="w", relief="flat")
         style.map("Sidebar.TButton", background=[("active", self.palette.surface), ("pressed", self.palette.surface)])
         style.configure("Primary.TButton", background=self.palette.primary, foreground="#ffffff", padding=(14, 8), relief="flat")
@@ -992,14 +1791,14 @@ class SurveyPlatformApp(tk.Tk):
         batch_manager.grid(row=0, column=1, sticky="ew", padx=(20, 12))
         batch_manager.columnconfigure(1, weight=1)
         batch_manager.columnconfigure(3, weight=1)
-        ttk.Label(batch_manager, text="批次名称", style="Body.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(batch_manager, text="批次名称", style="Root.Body.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Entry(batch_manager, textvariable=self.batch_name_var, width=18).grid(
             row=0,
             column=1,
             sticky="ew",
             padx=(8, 12),
         )
-        ttk.Label(batch_manager, text="已保存批次", style="Body.TLabel").grid(row=0, column=2, sticky="w")
+        ttk.Label(batch_manager, text="已保存批次", style="Root.Body.TLabel").grid(row=0, column=2, sticky="w")
         self.saved_batch_combobox = ttk.Combobox(
             batch_manager,
             textvariable=self.saved_batch_var,
@@ -1037,8 +1836,8 @@ class SurveyPlatformApp(tk.Tk):
         page_header = ttk.Frame(content_wrap, style="Root.TFrame")
         page_header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         page_header.columnconfigure(0, weight=1)
-        ttk.Label(page_header, textvariable=self._current_page_title_var, style="SubHeader.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(page_header, textvariable=self._task_status_label_var, style="Muted.TLabel").grid(row=0, column=1, sticky="e")
+        ttk.Label(page_header, textvariable=self._current_page_title_var, style="Root.SubHeader.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(page_header, textvariable=self._task_status_label_var, style="Root.Muted.TLabel").grid(row=0, column=1, sticky="e")
 
         self.page_container = ttk.Frame(content_wrap, style="Surface.TFrame", padding=12)
         self.page_container.grid(row=1, column=0, sticky="nsew")
@@ -1249,28 +2048,29 @@ class SurveyPlatformApp(tk.Tk):
         frame = ttk.Frame(parent, style="Surface.TFrame")
         frame.columnconfigure(0, weight=1)
 
-        phase_box = ttk.LabelFrame(frame, text="期次列修正", padding=12)
+        phase_box = ttk.LabelFrame(frame, text=PHASE_PREPROCESS_SECTION_TITLE, padding=12)
         phase_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        ttk.Label(phase_box, text="说明：如果第三列存在“一期/二期”等期次值，则自动移动到最后一列。", style="Muted.TLabel").grid(row=0, column=0, sticky="w")
-        phase_button = ttk.Button(phase_box, text="执行 phase_column_preprocess.py", style="Primary.TButton", command=self.run_phase_preprocess_task)
+        ttk.Label(phase_box, text=PHASE_PREPROCESS_DESCRIPTION, style="Muted.TLabel", wraplength=900, justify="left").grid(row=0, column=0, sticky="w")
+        phase_button = ttk.Button(phase_box, text=PHASE_PREPROCESS_BUTTON_TEXT, style="Primary.TButton", command=self.run_phase_preprocess_task)
         phase_button.grid(row=1, column=0, sticky="w", pady=(10, 0))
         self._register_start_button(phase_button)
 
-        fill_box = ttk.LabelFrame(frame, text="补写年份月份", padding=12)
+        fill_box = ttk.LabelFrame(frame, text=FILL_YEAR_MONTH_SECTION_TITLE, padding=12)
         fill_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
-        ttk.Label(fill_box, text="年份", style="Body.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Entry(fill_box, textvariable=self.year_value_var, width=12).grid(row=1, column=0, sticky="w", pady=(4, 0))
-        ttk.Label(fill_box, text="月份", style="Body.TLabel").grid(row=0, column=1, sticky="w", padx=(12, 0))
-        ttk.Entry(fill_box, textvariable=self.month_value_var, width=12).grid(row=1, column=1, sticky="w", padx=(12, 0), pady=(4, 0))
-        fill_button = ttk.Button(fill_box, text="执行 fill_year_month_columns.py", style="Secondary.TButton", command=self.run_fill_year_month_task)
-        fill_button.grid(row=1, column=2, sticky="w", padx=(12, 0))
+        ttk.Label(fill_box, text=FILL_YEAR_MONTH_DESCRIPTION, style="Muted.TLabel", wraplength=900, justify="left").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        ttk.Label(fill_box, text="年份", style="Body.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Entry(fill_box, textvariable=self.year_value_var, width=12).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(fill_box, text="月份", style="Body.TLabel").grid(row=1, column=1, sticky="w", padx=(12, 0))
+        ttk.Entry(fill_box, textvariable=self.month_value_var, width=12).grid(row=2, column=1, sticky="w", padx=(12, 0), pady=(4, 0))
+        fill_button = ttk.Button(fill_box, text=FILL_YEAR_MONTH_BUTTON_TEXT, style="Secondary.TButton", command=self.run_fill_year_month_task)
+        fill_button.grid(row=2, column=2, sticky="w", padx=(12, 0))
         self._register_start_button(fill_button)
 
         note_box = ttk.LabelFrame(frame, text="说明", padding=12)
         note_box.grid(row=2, column=0, sticky="ew")
         note_text = (
             "月份检查脚本文档已存在，但当前仓库中缺少 check_start_time_month.py。"
-            " 第一版 GUI 先保留预处理主链：期次列修正、年份月份补写。"
+            f" 第一版 GUI 先保留预处理主链：{PHASE_PREPROCESS_TASK_TITLE}、{FILL_YEAR_MONTH_TASK_TITLE}。"
         )
         ttk.Label(note_box, text=note_text, style="Muted.TLabel", wraplength=900, justify="left").grid(row=0, column=0, sticky="w")
         return frame
@@ -1379,6 +2179,307 @@ class SurveyPlatformApp(tk.Tk):
         ttk.Label(result_box, textvariable=self.summary_status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
         return frame
 
+    def _toggle_ppt_advanced_config(self) -> None:
+        if self._ppt_advanced_frame is None:
+            return
+        self._ppt_advanced_visible = not self._ppt_advanced_visible
+        if self._ppt_advanced_visible:
+            self._ppt_advanced_frame.grid()
+            self._ppt_advanced_toggle_var.set("收起高级 PPT 配置")
+            return
+        self._ppt_advanced_frame.grid_remove()
+        self._ppt_advanced_toggle_var.set("展开高级 PPT 配置")
+
+    def _build_ppt_general_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook, style="Surface.TFrame", padding=12)
+        tab.columnconfigure(1, weight=1)
+        tab.columnconfigure(3, weight=1)
+        rows = (
+            ("文件匹配", self.ppt_file_pattern_var, 0, 0),
+            ("sheet_name_mode", self.ppt_sheet_name_mode_var, 0, 2),
+            ("sheet_name", self.ppt_sheet_name_var, 1, 0),
+            ("标题后缀", self.ppt_title_suffix_var, 1, 2),
+            ("单表最大行数", self.ppt_max_single_table_rows_var, 2, 0),
+            ("双表单侧最大行数", self.ppt_max_split_table_rows_var, 2, 2),
+            ("正文字号", self.ppt_body_font_size_pt_var, 3, 0),
+            ("表头字号", self.ppt_header_font_size_pt_var, 3, 2),
+            ("摘要字号", self.ppt_summary_font_size_pt_var, 4, 0),
+            ("模板页索引", self.ppt_template_slide_index_var, 4, 2),
+        )
+        for label, variable, row, column in rows:
+            ttk.Label(tab, text=label, style="Body.TLabel").grid(row=row, column=column, sticky="w", pady=4)
+            if label == "sheet_name_mode":
+                ttk.Combobox(
+                    tab,
+                    textvariable=variable,
+                    values=PPT_SHEET_NAME_MODE_VALUES,
+                    state="readonly",
+                    width=16,
+                ).grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
+            else:
+                ttk.Entry(tab, textvariable=variable).grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
+        ttk.Checkbutton(
+            tab,
+            text="按文件名排序后生成",
+            variable=self.ppt_sort_files_var,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        notebook.add(tab, text="基础高级")
+
+    def _build_ppt_chart_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook, style="Surface.TFrame", padding=12)
+        tab.columnconfigure(1, weight=1)
+        ttk.Checkbutton(
+            tab,
+            text="启用图表页（每个客户分组数据页后追加图表页）",
+            variable=self.ppt_chart_page_enabled_var,
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        ttk.Label(tab, text="图表 DPI", style="Body.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Entry(tab, textvariable=self.ppt_chart_image_dpi_var, width=14).grid(row=1, column=1, sticky="w", padx=8)
+        ttk.Label(
+            tab,
+            text="回退占位文案",
+            style="Body.TLabel",
+        ).grid(row=2, column=0, sticky="nw", pady=(10, 4))
+        self.ppt_chart_placeholder_text_widget = scrolledtext.ScrolledText(
+            tab,
+            height=5,
+            wrap="word",
+            font=("PingFang SC", 10),
+            bg="#fffdfb",
+            fg=self.palette.text,
+            relief="flat",
+        )
+        self.ppt_chart_placeholder_text_widget.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(10, 4))
+        self.ppt_chart_placeholder_text_widget.insert("1.0", self.ppt_chart_placeholder_text_var.get())
+        notebook.add(tab, text="图表页")
+
+    def _build_ppt_notes_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook, style="Surface.TFrame", padding=12)
+        tab.columnconfigure(1, weight=1)
+        ttk.Checkbutton(
+            tab,
+            text="启用备注页 LLM 分析",
+            variable=self.ppt_llm_notes_enabled_var,
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        ttk.Label(tab, text="env_path", style="Body.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Entry(tab, textvariable=self.ppt_llm_env_path_var).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Button(
+            tab,
+            text="浏览",
+            style="Secondary.TButton",
+            command=lambda: self.choose_file(
+                self.ppt_llm_env_path_var,
+                [("Env", ".env"), ("All Files", "*")],
+            ),
+        ).grid(row=1, column=2, sticky="w")
+        ttk.Label(tab, text="system_role_path", style="Body.TLabel").grid(row=2, column=0, sticky="w")
+        ttk.Entry(tab, textvariable=self.ppt_llm_system_role_path_var).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Button(
+            tab,
+            text="浏览",
+            style="Secondary.TButton",
+            command=lambda: self.choose_file(
+                self.ppt_llm_system_role_path_var,
+                [("Markdown", "*.md"), ("All Files", "*")],
+            ),
+        ).grid(row=2, column=2, sticky="w")
+        scalar_rows = (
+            ("目标字数", self.ppt_llm_target_chars_var, 3, 0),
+            ("temperature", self.ppt_llm_temperature_var, 3, 2),
+            ("max_tokens", self.ppt_llm_max_tokens_var, 4, 0),
+            ("checkpoint_chars", self.ppt_llm_checkpoint_chars_var, 4, 2),
+        )
+        tab.columnconfigure(3, weight=1)
+        for label, variable, row, column in scalar_rows:
+            ttk.Label(tab, text=label, style="Body.TLabel").grid(row=row, column=column, sticky="w", pady=4)
+            ttk.Entry(tab, textvariable=variable, width=14).grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
+        notebook.add(tab, text="备注页")
+
+    def _build_ppt_category_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook, style="Surface.TFrame", padding=12)
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(1, weight=1)
+        ttk.Label(
+            tab,
+            text=(
+                "按客户大类配置封面页。选中上方列表可修改；未配置的客户大类不会插入封面。"
+            ),
+            style="Muted.TLabel",
+            wraplength=860,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        tree_wrap = ttk.Frame(tab, style="Surface.TFrame")
+        tree_wrap.grid(row=1, column=0, sticky="nsew")
+        tree_wrap.columnconfigure(0, weight=1)
+        tree_wrap.rowconfigure(0, weight=1)
+        self.ppt_category_intro_tree = ttk.Treeview(
+            tree_wrap,
+            columns=("category", "ppt_path", "slide_number"),
+            show="headings",
+            height=6,
+        )
+        self.ppt_category_intro_tree.heading("category", text="客户大类")
+        self.ppt_category_intro_tree.heading("ppt_path", text="封面 PPT 路径")
+        self.ppt_category_intro_tree.heading("slide_number", text="页码")
+        self.ppt_category_intro_tree.column("category", width=180, anchor="w")
+        self.ppt_category_intro_tree.column("ppt_path", width=470, anchor="w")
+        self.ppt_category_intro_tree.column("slide_number", width=90, anchor="center")
+        self.ppt_category_intro_tree.grid(row=0, column=0, sticky="nsew")
+        self.ppt_category_intro_tree.bind(
+            "<<TreeviewSelect>>",
+            self._load_selected_ppt_category_intro_entry,
+        )
+        tree_scrollbar = ttk.Scrollbar(
+            tree_wrap,
+            orient="vertical",
+            command=self.ppt_category_intro_tree.yview,
+        )
+        tree_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.ppt_category_intro_tree.configure(yscrollcommand=tree_scrollbar.set)
+
+        form = ttk.LabelFrame(tab, text="封面配置", padding=12)
+        form.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        form.columnconfigure(1, weight=1)
+        ttk.Label(form, text="客户大类", style="Body.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Combobox(
+            form,
+            textvariable=self.ppt_category_intro_category_var,
+            values=PPT_CATEGORY_LABEL_VALUES,
+        ).grid(row=0, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Label(form, text="页码", style="Body.TLabel").grid(
+            row=0, column=2, sticky="w"
+        )
+        ttk.Entry(
+            form,
+            textvariable=self.ppt_category_intro_slide_number_var,
+            width=10,
+        ).grid(row=0, column=3, sticky="w", padx=8, pady=4)
+        ttk.Label(form, text="封面 PPT", style="Body.TLabel").grid(
+            row=1, column=0, sticky="w"
+        )
+        ttk.Entry(
+            form,
+            textvariable=self.ppt_category_intro_ppt_path_var,
+        ).grid(row=1, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
+        ttk.Button(
+            form,
+            text="浏览",
+            style="Secondary.TButton",
+            command=self.choose_ppt_category_intro_file,
+        ).grid(row=1, column=4, sticky="w")
+        ttk.Label(form, text="页面预览", style="Body.TLabel").grid(
+            row=2, column=0, sticky="w"
+        )
+        self.ppt_category_intro_slide_preview_combobox = ttk.Combobox(
+            form,
+            textvariable=self.ppt_category_intro_slide_preview_var,
+            state="readonly",
+        )
+        self.ppt_category_intro_slide_preview_combobox.grid(
+            row=2, column=1, columnspan=3, sticky="ew", padx=8, pady=4
+        )
+        self.ppt_category_intro_slide_preview_combobox.bind(
+            "<<ComboboxSelected>>",
+            self._on_ppt_category_intro_slide_preview_selected,
+        )
+        ttk.Button(
+            form,
+            text="读取页列表",
+            style="Secondary.TButton",
+            command=lambda: self._load_ppt_category_intro_slide_previews(
+                show_message=True
+            ),
+        ).grid(row=2, column=4, sticky="w")
+        ttk.Button(
+            form,
+            text="按缩略图选择",
+            style="Secondary.TButton",
+            command=self.open_ppt_category_intro_thumbnail_dialog,
+        ).grid(row=3, column=4, sticky="w", pady=(8, 0))
+        ttk.Label(
+            form,
+            textvariable=self.ppt_category_intro_slide_status_var,
+            style="Muted.TLabel",
+            wraplength=760,
+            justify="left",
+        ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
+        action_row = ttk.Frame(form, style="Surface.TFrame")
+        action_row.grid(row=4, column=0, columnspan=5, sticky="w", pady=(10, 0))
+        ttk.Button(
+            action_row,
+            text="新增",
+            style="Secondary.TButton",
+            command=self.add_ppt_category_intro_entry,
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(
+            action_row,
+            text="更新选中",
+            style="Secondary.TButton",
+            command=self.update_selected_ppt_category_intro_entry,
+        ).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(
+            action_row,
+            text="删除选中",
+            style="Secondary.TButton",
+            command=self.delete_selected_ppt_category_intro_entry,
+        ).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(
+            action_row,
+            text="上移",
+            style="Secondary.TButton",
+            command=lambda: self.move_selected_ppt_category_intro_entry(-1),
+        ).grid(row=0, column=3, padx=(0, 8))
+        ttk.Button(
+            action_row,
+            text="下移",
+            style="Secondary.TButton",
+            command=lambda: self.move_selected_ppt_category_intro_entry(1),
+        ).grid(row=0, column=4, padx=(0, 8))
+        ttk.Button(
+            action_row,
+            text="清空表单",
+            style="Secondary.TButton",
+            command=self.clear_ppt_category_intro_form,
+        ).grid(row=0, column=5)
+        ttk.Label(
+            form,
+            text="页码按 PowerPoint 可见页码填写，从 1 开始。",
+            style="Muted.TLabel",
+        ).grid(row=5, column=0, columnspan=5, sticky="w", pady=(8, 0))
+        notebook.add(tab, text="客户大类封面")
+
+    def _build_ppt_layout_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook, style="Surface.TFrame", padding=12)
+        for column in range(1, 5):
+            tab.columnconfigure(column, weight=1)
+        headers = ("区域", "left", "top", "width", "height")
+        for column, header in enumerate(headers):
+            ttk.Label(tab, text=header, style="SubHeader.TLabel").grid(row=0, column=column, sticky="w", pady=(0, 8))
+        for row_index, (region_name, region_label) in enumerate(PPT_LAYOUT_REGION_LABELS, start=1):
+            ttk.Label(tab, text=region_label, style="Body.TLabel").grid(row=row_index, column=0, sticky="w", pady=4)
+            for column_index, field_name in enumerate(("left", "top", "width", "height"), start=1):
+                ttk.Entry(
+                    tab,
+                    textvariable=self.ppt_layout_vars[region_name][field_name],
+                    width=10,
+                ).grid(row=row_index, column=column_index, sticky="ew", padx=6, pady=4)
+        notebook.add(tab, text="布局")
+
+    def _build_ppt_advanced_panel(self, parent: ttk.Frame) -> ttk.Frame:
+        frame = ttk.Frame(parent, style="Surface.TFrame")
+        frame.columnconfigure(0, weight=1)
+        notebook = ttk.Notebook(frame)
+        notebook.grid(row=0, column=0, sticky="ew")
+        self._build_ppt_general_tab(notebook)
+        self._build_ppt_chart_tab(notebook)
+        self._build_ppt_notes_tab(notebook)
+        self._build_ppt_category_tab(notebook)
+        self._build_ppt_layout_tab(notebook)
+        return frame
+
     def _build_ppt_page(self, parent: ttk.Frame) -> ttk.Frame:
         frame = ttk.Frame(parent, style="Surface.TFrame")
         frame.columnconfigure(0, weight=1)
@@ -1397,8 +2498,17 @@ class SurveyPlatformApp(tk.Tk):
         ttk.Combobox(box, textvariable=self.ppt_section_mode_var, values=("auto", "template", "summary"), state="readonly", width=12).grid(row=3, column=1, sticky="w", padx=8)
         ttk.Label(box, text="空值显示", style="Body.TLabel").grid(row=4, column=0, sticky="w")
         ttk.Entry(box, textvariable=self.ppt_blank_display_var, width=18).grid(row=4, column=1, sticky="w", padx=8, pady=6)
+        ttk.Button(
+            box,
+            textvariable=self._ppt_advanced_toggle_var,
+            style="Secondary.TButton",
+            command=self._toggle_ppt_advanced_config,
+        ).grid(row=5, column=0, sticky="w", pady=(10, 0))
+        self._ppt_advanced_frame = self._build_ppt_advanced_panel(box)
+        self._ppt_advanced_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        self._ppt_advanced_frame.grid_remove()
         button_row = ttk.Frame(box, style="Surface.TFrame")
-        button_row.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        button_row.grid(row=7, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ppt_dry_run_button = ttk.Button(button_row, text="dry-run 校验", style="Secondary.TButton", command=self.run_ppt_dry_run_task)
         ppt_dry_run_button.grid(row=0, column=0, padx=(0, 8))
         self._register_start_button(ppt_dry_run_button)
@@ -1438,6 +2548,440 @@ class SurveyPlatformApp(tk.Tk):
         self.merge_listbox.delete(0, "end")
         for item in self.merge_input_list:
             self.merge_listbox.insert("end", item)
+
+    def _read_text_widget_value(
+        self,
+        widget: scrolledtext.ScrolledText | None,
+        fallback_var: tk.StringVar,
+    ) -> str:
+        if widget is None:
+            return fallback_var.get()
+        return widget.get("1.0", "end-1c")
+
+    def _set_text_widget_value(
+        self,
+        widget: scrolledtext.ScrolledText | None,
+        value: str,
+        fallback_var: tk.StringVar,
+    ) -> None:
+        fallback_var.set(value)
+        if widget is None:
+            return
+        widget.delete("1.0", "end")
+        widget.insert("1.0", value)
+
+    def _selected_ppt_category_intro_index(self) -> int | None:
+        if self.ppt_category_intro_tree is None:
+            return None
+        selection = self.ppt_category_intro_tree.selection()
+        if not selection:
+            return None
+        try:
+            return int(selection[0])
+        except ValueError:
+            return None
+
+    def _refresh_ppt_category_intro_slide_preview_combobox(self) -> None:
+        values = tuple(preview.label for preview in self.ppt_category_intro_slide_previews)
+        if self.ppt_category_intro_slide_preview_combobox is not None:
+            self.ppt_category_intro_slide_preview_combobox.configure(values=values)
+        if not values:
+            self.ppt_category_intro_slide_preview_var.set("")
+
+    def _sync_ppt_category_intro_slide_preview_selection(
+        self,
+        *,
+        preferred_slide_number: int | None = None,
+    ) -> None:
+        if not self.ppt_category_intro_slide_previews:
+            self.ppt_category_intro_slide_preview_var.set("")
+            return
+        target_slide_number = preferred_slide_number
+        if target_slide_number is None:
+            try:
+                target_slide_number = int(self.ppt_category_intro_slide_number_var.get())
+            except ValueError:
+                target_slide_number = None
+        for preview in self.ppt_category_intro_slide_previews:
+            if preview.slide_number == target_slide_number:
+                self.ppt_category_intro_slide_preview_var.set(preview.label)
+                return
+        first_preview = self.ppt_category_intro_slide_previews[0]
+        self.ppt_category_intro_slide_preview_var.set(first_preview.label)
+        self.ppt_category_intro_slide_number_var.set(str(first_preview.slide_number))
+
+    def _load_ppt_category_intro_slide_previews(
+        self,
+        *,
+        preferred_slide_number: int | None = None,
+        show_message: bool = False,
+    ) -> bool:
+        ppt_path_text = self.ppt_category_intro_ppt_path_var.get().strip()
+        if not ppt_path_text:
+            self.ppt_category_intro_slide_previews = ()
+            self._refresh_ppt_category_intro_slide_preview_combobox()
+            self.ppt_category_intro_slide_status_var.set("请先选择封面 PPT。")
+            if show_message:
+                messagebox.showinfo("未选择文件", "请先选择封面 PPT 文件。")
+            return False
+        ppt_path = Path(ppt_path_text).expanduser()
+        if not ppt_path.is_absolute():
+            ppt_path = (PROJECT_ROOT / ppt_path).resolve()
+        if not ppt_path.exists():
+            self.ppt_category_intro_slide_previews = ()
+            self._refresh_ppt_category_intro_slide_preview_combobox()
+            self.ppt_category_intro_slide_status_var.set("封面 PPT 不存在，请检查路径。")
+            if show_message:
+                messagebox.showerror("文件不存在", f"未找到封面 PPT：\n{ppt_path}")
+            return False
+        try:
+            previews = discover_ppt_slide_previews(ppt_path)
+        except Exception as exc:
+            self.ppt_category_intro_slide_previews = ()
+            self._refresh_ppt_category_intro_slide_preview_combobox()
+            self.ppt_category_intro_slide_status_var.set("读取页面列表失败。")
+            if show_message:
+                messagebox.showerror("读取失败", f"封面 PPT 读取失败：\n{exc}")
+            return False
+        self.ppt_category_intro_slide_previews = previews
+        self._refresh_ppt_category_intro_slide_preview_combobox()
+        if previews:
+            self._sync_ppt_category_intro_slide_preview_selection(
+                preferred_slide_number=preferred_slide_number
+            )
+            self.ppt_category_intro_slide_status_var.set(
+                f"已读取 {len(previews)} 页，可直接从下拉框选择。"
+            )
+        else:
+            self.ppt_category_intro_slide_status_var.set("该 PPT 没有可读取的页面。")
+        return True
+
+    def _on_ppt_category_intro_slide_preview_selected(
+        self,
+        _event: object | None = None,
+    ) -> None:
+        selected_label = self.ppt_category_intro_slide_preview_var.get().strip()
+        for preview in self.ppt_category_intro_slide_previews:
+            if preview.label == selected_label:
+                self.ppt_category_intro_slide_number_var.set(str(preview.slide_number))
+                return
+
+    def choose_ppt_category_intro_file(self) -> None:
+        initial = self.ppt_category_intro_ppt_path_var.get().strip() or str(PROJECT_ROOT)
+        selected = filedialog.askopenfilename(
+            initialdir=str(Path(initial).expanduser().resolve().parent),
+            filetypes=[("PowerPoint", "*.pptx"), ("All Files", "*")],
+        )
+        if not selected:
+            return
+        self.ppt_category_intro_ppt_path_var.set(selected)
+        self._load_ppt_category_intro_slide_previews(show_message=True)
+        self.refresh_all_status_views()
+
+    def _thumbnail_select_slide(
+        self,
+        preview: PptSlidePreview,
+    ) -> None:
+        self.ppt_category_intro_slide_number_var.set(str(preview.slide_number))
+        self.ppt_category_intro_slide_preview_var.set(preview.label)
+        self._close_ppt_thumbnail_dialog()
+
+    def _close_ppt_thumbnail_dialog(self) -> None:
+        if self._ppt_thumbnail_dialog is not None:
+            dialog = self._ppt_thumbnail_dialog
+            self._ppt_thumbnail_dialog = None
+            dialog.destroy()
+        self._ppt_thumbnail_photo_refs = []
+
+    def open_ppt_category_intro_thumbnail_dialog(self) -> None:
+        if not self._load_ppt_category_intro_slide_previews(show_message=True):
+            return
+
+        ppt_path = Path(self.ppt_category_intro_ppt_path_var.get().strip()).expanduser()
+        if not ppt_path.is_absolute():
+            ppt_path = (PROJECT_ROOT / ppt_path).resolve()
+
+        try:
+            thumbnail_paths = generate_ppt_slide_thumbnail_images(ppt_path)
+        except FileNotFoundError as exc:
+            messagebox.showerror(
+                "缺少缩略图依赖",
+                f"无法生成缩略图，缺少命令：{exc.filename}",
+            )
+            return
+        except subprocess.CalledProcessError as exc:
+            error_message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+            messagebox.showerror(
+                "缩略图生成失败",
+                f"封面页缩略图生成失败：\n{error_message}",
+            )
+            return
+        except Exception as exc:
+            messagebox.showerror("缩略图生成失败", f"封面页缩略图生成失败：\n{exc}")
+            return
+
+        previews = self.ppt_category_intro_slide_previews
+        total_cards = min(len(previews), len(thumbnail_paths))
+        if total_cards == 0:
+            messagebox.showinfo("无可选页面", "当前封面 PPT 没有可供选择的页面。")
+            return
+
+        if self._ppt_thumbnail_dialog is not None:
+            self._close_ppt_thumbnail_dialog()
+
+        dialog = tk.Toplevel(self)
+        dialog.title("按缩略图选择封面页")
+        dialog.transient(self)
+        dialog.configure(bg=self.palette.background)
+        dialog.geometry("980x720")
+        dialog.minsize(860, 560)
+        dialog.protocol("WM_DELETE_WINDOW", self._close_ppt_thumbnail_dialog)
+
+        outer = ttk.Frame(dialog, style="Surface.TFrame", padding=16)
+        outer.pack(fill="both", expand=True)
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            outer,
+            text="点击缩略图即可选择封面页。首次打开会生成缓存，后续会更快。",
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w")
+
+        canvas = tk.Canvas(
+            outer,
+            bg=self.palette.surface,
+            highlightthickness=0,
+            bd=0,
+        )
+        canvas.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
+        scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        scrollbar.grid(row=1, column=1, sticky="ns", pady=(12, 0))
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        cards_frame = ttk.Frame(canvas, style="Surface.TFrame")
+        canvas_window = canvas.create_window((0, 0), window=cards_frame, anchor="nw")
+
+        def _sync_canvas_width(event: tk.Event) -> None:
+            canvas.itemconfigure(canvas_window, width=event.width)
+
+        def _sync_scroll_region(_event: tk.Event) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        canvas.bind("<Configure>", _sync_canvas_width)
+        cards_frame.bind("<Configure>", _sync_scroll_region)
+
+        photo_refs: list[tk.PhotoImage] = []
+        for card_index in range(total_cards):
+            preview = previews[card_index]
+            thumbnail_path = thumbnail_paths[card_index]
+            image = tk.PhotoImage(file=str(thumbnail_path))
+            scale_factor = max(
+                1,
+                math.ceil(image.width() / PPT_THUMBNAIL_MAX_WIDTH),
+                math.ceil(image.height() / PPT_THUMBNAIL_MAX_HEIGHT),
+            )
+            if scale_factor > 1:
+                image = image.subsample(scale_factor, scale_factor)
+            photo_refs.append(image)
+
+            card = ttk.Frame(cards_frame, style="Card.TFrame", padding=10)
+            row_index = card_index // 3
+            column_index = card_index % 3
+            card.grid(
+                row=row_index,
+                column=column_index,
+                sticky="n",
+                padx=8,
+                pady=8,
+            )
+
+            image_button = ttk.Button(
+                card,
+                image=image,
+                style="Secondary.TButton",
+                command=lambda selected_preview=preview: self._thumbnail_select_slide(
+                    selected_preview
+                ),
+            )
+            image_button.grid(row=0, column=0, sticky="nsew")
+            ttk.Label(
+                card,
+                text=preview.label,
+                style="Body.TLabel",
+                wraplength=240,
+                justify="center",
+            ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
+
+        footer = ttk.Frame(outer, style="Surface.TFrame")
+        footer.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        ttk.Button(
+            footer,
+            text="关闭",
+            style="Secondary.TButton",
+            command=self._close_ppt_thumbnail_dialog,
+        ).grid(row=0, column=0, sticky="e")
+
+        self._ppt_thumbnail_dialog = dialog
+        self._ppt_thumbnail_photo_refs = photo_refs
+
+    def _sync_ppt_category_intro_text_var(self) -> None:
+        self.ppt_category_intro_slides_text_var.set(
+            build_category_intro_slides_text(self.ppt_category_intro_entries)
+        )
+
+    def _refresh_ppt_category_intro_tree(
+        self,
+        *,
+        selected_index: int | None = None,
+    ) -> None:
+        self._sync_ppt_category_intro_text_var()
+        if self.ppt_category_intro_tree is None:
+            return
+        for item_id in self.ppt_category_intro_tree.get_children():
+            self.ppt_category_intro_tree.delete(item_id)
+        for index, (category_label, ppt_path, slide_number) in enumerate(
+            self.ppt_category_intro_entries
+        ):
+            self.ppt_category_intro_tree.insert(
+                "",
+                "end",
+                iid=str(index),
+                values=(category_label, ppt_path, slide_number),
+            )
+        if (
+            selected_index is not None
+            and 0 <= selected_index < len(self.ppt_category_intro_entries)
+        ):
+            selected_item = str(selected_index)
+            self.ppt_category_intro_tree.selection_set((selected_item,))
+            self.ppt_category_intro_tree.focus(selected_item)
+        else:
+            for item_id in self.ppt_category_intro_tree.selection():
+                self.ppt_category_intro_tree.selection_remove(item_id)
+
+    def _load_ppt_category_intro_entries_from_text(self, text: str) -> None:
+        self.ppt_category_intro_entries = list(parse_category_intro_slides_text(text))
+        self._refresh_ppt_category_intro_tree()
+        self.clear_ppt_category_intro_form()
+
+    def _load_selected_ppt_category_intro_entry(self, _event: object | None = None) -> None:
+        selected_index = self._selected_ppt_category_intro_index()
+        if selected_index is None:
+            return
+        category_label, ppt_path, slide_number = self.ppt_category_intro_entries[
+            selected_index
+        ]
+        self.ppt_category_intro_category_var.set(category_label)
+        self.ppt_category_intro_ppt_path_var.set(ppt_path)
+        self.ppt_category_intro_slide_number_var.set(str(slide_number))
+        self._load_ppt_category_intro_slide_previews(
+            preferred_slide_number=slide_number
+        )
+
+    def _read_ppt_category_intro_form_entry(self) -> tuple[str, str, int]:
+        category_label = self.ppt_category_intro_category_var.get().strip()
+        ppt_path = self.ppt_category_intro_ppt_path_var.get().strip()
+        if not category_label:
+            raise ValueError("请先选择或填写客户大类。")
+        if not ppt_path:
+            raise ValueError("请先选择封面 PPT 路径。")
+        slide_number = parse_positive_int_text(
+            self.ppt_category_intro_slide_number_var.get(),
+            "封面页码",
+        )
+        return (category_label, ppt_path, slide_number)
+
+    def _ensure_unique_ppt_category_intro_label(
+        self,
+        category_label: str,
+        *,
+        ignore_index: int | None = None,
+    ) -> None:
+        for index, (existing_label, _, _) in enumerate(self.ppt_category_intro_entries):
+            if ignore_index is not None and index == ignore_index:
+                continue
+            if existing_label == category_label:
+                raise ValueError(f"客户大类“{category_label}”已经配置过封面。")
+
+    def add_ppt_category_intro_entry(self) -> None:
+        try:
+            entry = self._read_ppt_category_intro_form_entry()
+            self._ensure_unique_ppt_category_intro_label(entry[0])
+        except ValueError as exc:
+            messagebox.showerror("新增封面失败", str(exc))
+            return
+        self.ppt_category_intro_entries.append(entry)
+        self._refresh_ppt_category_intro_tree(
+            selected_index=len(self.ppt_category_intro_entries) - 1
+        )
+        self.refresh_all_status_views()
+
+    def update_selected_ppt_category_intro_entry(self) -> None:
+        selected_index = self._selected_ppt_category_intro_index()
+        if selected_index is None:
+            messagebox.showinfo("未选择条目", "请先在上方列表中选择要更新的客户大类封面。")
+            return
+        try:
+            entry = self._read_ppt_category_intro_form_entry()
+            self._ensure_unique_ppt_category_intro_label(
+                entry[0],
+                ignore_index=selected_index,
+            )
+        except ValueError as exc:
+            messagebox.showerror("更新封面失败", str(exc))
+            return
+        self.ppt_category_intro_entries[selected_index] = entry
+        self._refresh_ppt_category_intro_tree(selected_index=selected_index)
+        self.refresh_all_status_views()
+
+    def delete_selected_ppt_category_intro_entry(self) -> None:
+        selected_index = self._selected_ppt_category_intro_index()
+        if selected_index is None:
+            messagebox.showinfo("未选择条目", "请先选择要删除的客户大类封面。")
+            return
+        del self.ppt_category_intro_entries[selected_index]
+        next_index = min(selected_index, len(self.ppt_category_intro_entries) - 1)
+        self._refresh_ppt_category_intro_tree(
+            selected_index=next_index if next_index >= 0 else None
+        )
+        if next_index >= 0:
+            self._load_selected_ppt_category_intro_entry()
+        else:
+            self.clear_ppt_category_intro_form()
+        self.refresh_all_status_views()
+
+    def move_selected_ppt_category_intro_entry(self, offset: int) -> None:
+        selected_index = self._selected_ppt_category_intro_index()
+        if selected_index is None:
+            messagebox.showinfo("未选择条目", "请先选择要移动的客户大类封面。")
+            return
+        target_index = selected_index + offset
+        if target_index < 0 or target_index >= len(self.ppt_category_intro_entries):
+            return
+        entry = self.ppt_category_intro_entries.pop(selected_index)
+        self.ppt_category_intro_entries.insert(target_index, entry)
+        self._refresh_ppt_category_intro_tree(selected_index=target_index)
+        self._load_selected_ppt_category_intro_entry()
+        self.refresh_all_status_views()
+
+    def clear_ppt_category_intro_form(self) -> None:
+        default_category_label = (
+            PPT_CATEGORY_LABEL_VALUES[0] if PPT_CATEGORY_LABEL_VALUES else ""
+        )
+        self.ppt_category_intro_category_var.set(default_category_label)
+        self.ppt_category_intro_ppt_path_var.set("")
+        self.ppt_category_intro_slide_number_var.set(
+            PPT_DEFAULT_CATEGORY_INTRO_SLIDE_NUMBER
+        )
+        self.ppt_category_intro_slide_previews = ()
+        self._refresh_ppt_category_intro_slide_preview_combobox()
+        self.ppt_category_intro_slide_status_var.set("选择封面 PPT 后可读取页面列表。")
+        if self.ppt_category_intro_tree is not None:
+            for item_id in self.ppt_category_intro_tree.selection():
+                self.ppt_category_intro_tree.selection_remove(item_id)
 
     def _reset_stats_preview_state(self) -> None:
         self.stats_preview_summary = None
@@ -1482,8 +3026,41 @@ class SurveyPlatformApp(tk.Tk):
         self.summary_output_name_var.set(config.summary_output_name)
         self.ppt_template_path_var.set(str(config.ppt_template_path))
         self.output_ppt_path_var.set(str(config.output_ppt_path))
+        self.ppt_file_pattern_var.set(config.ppt_file_pattern)
+        self.ppt_sheet_name_mode_var.set(config.ppt_sheet_name_mode)
+        self.ppt_sheet_name_var.set(config.ppt_sheet_name)
         self.ppt_section_mode_var.set(config.ppt_section_mode)
         self.ppt_blank_display_var.set(config.ppt_blank_display)
+        self.ppt_title_suffix_var.set(config.ppt_title_suffix)
+        self.ppt_max_single_table_rows_var.set(config.ppt_max_single_table_rows)
+        self.ppt_max_split_table_rows_var.set(config.ppt_max_split_table_rows)
+        self.ppt_sort_files_var.set(config.ppt_sort_files)
+        self.ppt_body_font_size_pt_var.set(config.ppt_body_font_size_pt)
+        self.ppt_header_font_size_pt_var.set(config.ppt_header_font_size_pt)
+        self.ppt_summary_font_size_pt_var.set(config.ppt_summary_font_size_pt)
+        self.ppt_template_slide_index_var.set(config.ppt_template_slide_index)
+        self.ppt_chart_page_enabled_var.set(config.ppt_chart_page_enabled)
+        self._set_text_widget_value(
+            self.ppt_chart_placeholder_text_widget,
+            config.ppt_chart_placeholder_text,
+            self.ppt_chart_placeholder_text_var,
+        )
+        self.ppt_chart_image_dpi_var.set(config.ppt_chart_image_dpi)
+        self.ppt_llm_notes_enabled_var.set(config.ppt_llm_notes_enabled)
+        self.ppt_llm_env_path_var.set(config.ppt_llm_env_path)
+        self.ppt_llm_system_role_path_var.set(config.ppt_llm_system_role_path)
+        self.ppt_llm_target_chars_var.set(config.ppt_llm_target_chars)
+        self.ppt_llm_temperature_var.set(config.ppt_llm_temperature)
+        self.ppt_llm_max_tokens_var.set(config.ppt_llm_max_tokens)
+        self.ppt_llm_checkpoint_chars_var.set(config.ppt_llm_checkpoint_chars)
+        self._load_ppt_category_intro_entries_from_text(
+            config.ppt_category_intro_slides_text
+        )
+        for region_name, _ in PPT_LAYOUT_REGION_LABELS:
+            for field_name in ("left", "top", "width", "height"):
+                self.ppt_layout_vars[region_name][field_name].set(
+                    getattr(config, layout_field_key(region_name, field_name))
+                )
         self._reset_stats_preview_state()
         self.refresh_all_status_views()
 
@@ -1598,8 +3175,95 @@ class SurveyPlatformApp(tk.Tk):
             summary_output_name=self.summary_output_name_var.get().strip() or "客户类型满意度汇总表.xlsx",
             ppt_template_path=Path(self.ppt_template_path_var.get().strip() or ".").resolve(),
             output_ppt_path=Path(self.output_ppt_path_var.get().strip() or ".").resolve(),
+            ppt_file_pattern=self.ppt_file_pattern_var.get().strip() or PPT_DEFAULT_FILE_PATTERN,
+            ppt_sheet_name_mode=self.ppt_sheet_name_mode_var.get().strip() or PPT_DEFAULT_SHEET_NAME_MODE,
+            ppt_sheet_name=self.ppt_sheet_name_var.get(),
             ppt_section_mode=self.ppt_section_mode_var.get().strip() or "auto",
             ppt_blank_display=self.ppt_blank_display_var.get(),
+            ppt_title_suffix=self.ppt_title_suffix_var.get(),
+            ppt_max_single_table_rows=self.ppt_max_single_table_rows_var.get().strip()
+            or PPT_DEFAULT_MAX_SINGLE_TABLE_ROWS,
+            ppt_max_split_table_rows=self.ppt_max_split_table_rows_var.get().strip()
+            or PPT_DEFAULT_MAX_SPLIT_TABLE_ROWS,
+            ppt_sort_files=self.ppt_sort_files_var.get(),
+            ppt_body_font_size_pt=self.ppt_body_font_size_pt_var.get().strip()
+            or PPT_DEFAULT_BODY_FONT_SIZE_PT,
+            ppt_header_font_size_pt=self.ppt_header_font_size_pt_var.get().strip()
+            or PPT_DEFAULT_HEADER_FONT_SIZE_PT,
+            ppt_summary_font_size_pt=self.ppt_summary_font_size_pt_var.get().strip()
+            or PPT_DEFAULT_SUMMARY_FONT_SIZE_PT,
+            ppt_template_slide_index=self.ppt_template_slide_index_var.get().strip()
+            or PPT_DEFAULT_TEMPLATE_SLIDE_INDEX,
+            ppt_chart_page_enabled=self.ppt_chart_page_enabled_var.get(),
+            ppt_chart_placeholder_text=self._read_text_widget_value(
+                self.ppt_chart_placeholder_text_widget,
+                self.ppt_chart_placeholder_text_var,
+            ),
+            ppt_chart_image_dpi=self.ppt_chart_image_dpi_var.get().strip()
+            or PPT_DEFAULT_CHART_IMAGE_DPI,
+            ppt_llm_notes_enabled=self.ppt_llm_notes_enabled_var.get(),
+            ppt_llm_env_path=self.ppt_llm_env_path_var.get().strip() or PPT_DEFAULT_LLM_ENV_PATH,
+            ppt_llm_system_role_path=self.ppt_llm_system_role_path_var.get().strip()
+            or PPT_DEFAULT_LLM_SYSTEM_ROLE_PATH,
+            ppt_llm_target_chars=self.ppt_llm_target_chars_var.get().strip()
+            or PPT_DEFAULT_LLM_TARGET_CHARS,
+            ppt_llm_temperature=self.ppt_llm_temperature_var.get().strip()
+            or PPT_DEFAULT_LLM_TEMPERATURE,
+            ppt_llm_max_tokens=self.ppt_llm_max_tokens_var.get().strip()
+            or PPT_DEFAULT_LLM_MAX_TOKENS,
+            ppt_llm_checkpoint_chars=self.ppt_llm_checkpoint_chars_var.get().strip()
+            or PPT_DEFAULT_LLM_CHECKPOINT_CHARS,
+            ppt_category_intro_slides_text=build_category_intro_slides_text(
+                self.ppt_category_intro_entries
+            ),
+            ppt_layout_summary_table_left=self.ppt_layout_vars["summary_table"]["left"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["summary_table"][0],
+            ppt_layout_summary_table_top=self.ppt_layout_vars["summary_table"]["top"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["summary_table"][1],
+            ppt_layout_summary_table_width=self.ppt_layout_vars["summary_table"]["width"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["summary_table"][2],
+            ppt_layout_summary_table_height=self.ppt_layout_vars["summary_table"]["height"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["summary_table"][3],
+            ppt_layout_detail_single_table_left=self.ppt_layout_vars["detail_single_table"]["left"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_single_table"][0],
+            ppt_layout_detail_single_table_top=self.ppt_layout_vars["detail_single_table"]["top"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_single_table"][1],
+            ppt_layout_detail_single_table_width=self.ppt_layout_vars["detail_single_table"]["width"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_single_table"][2],
+            ppt_layout_detail_single_table_height=self.ppt_layout_vars["detail_single_table"]["height"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_single_table"][3],
+            ppt_layout_detail_left_table_left=self.ppt_layout_vars["detail_left_table"]["left"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_left_table"][0],
+            ppt_layout_detail_left_table_top=self.ppt_layout_vars["detail_left_table"]["top"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_left_table"][1],
+            ppt_layout_detail_left_table_width=self.ppt_layout_vars["detail_left_table"]["width"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_left_table"][2],
+            ppt_layout_detail_left_table_height=self.ppt_layout_vars["detail_left_table"]["height"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_left_table"][3],
+            ppt_layout_detail_right_table_left=self.ppt_layout_vars["detail_right_table"]["left"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_right_table"][0],
+            ppt_layout_detail_right_table_top=self.ppt_layout_vars["detail_right_table"]["top"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_right_table"][1],
+            ppt_layout_detail_right_table_width=self.ppt_layout_vars["detail_right_table"]["width"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_right_table"][2],
+            ppt_layout_detail_right_table_height=self.ppt_layout_vars["detail_right_table"]["height"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["detail_right_table"][3],
+            ppt_layout_chart_image_left=self.ppt_layout_vars["chart_image"]["left"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["chart_image"][0],
+            ppt_layout_chart_image_top=self.ppt_layout_vars["chart_image"]["top"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["chart_image"][1],
+            ppt_layout_chart_image_width=self.ppt_layout_vars["chart_image"]["width"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["chart_image"][2],
+            ppt_layout_chart_image_height=self.ppt_layout_vars["chart_image"]["height"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["chart_image"][3],
+            ppt_layout_chart_textbox_left=self.ppt_layout_vars["chart_textbox"]["left"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["chart_textbox"][0],
+            ppt_layout_chart_textbox_top=self.ppt_layout_vars["chart_textbox"]["top"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["chart_textbox"][1],
+            ppt_layout_chart_textbox_width=self.ppt_layout_vars["chart_textbox"]["width"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["chart_textbox"][2],
+            ppt_layout_chart_textbox_height=self.ppt_layout_vars["chart_textbox"]["height"].get().strip()
+            or PPT_LAYOUT_DEFAULTS["chart_textbox"][3],
         )
 
     def choose_directory(self, variable: tk.StringVar) -> None:
@@ -2025,10 +3689,10 @@ class SurveyPlatformApp(tk.Tk):
             messagebox.showerror("参数不完整", str(exc))
 
     def run_phase_preprocess_task(self) -> None:
-        self._run_single_builder_task("phase_preprocess", "修正期次列", build_phase_preprocess_command)
+        self._run_single_builder_task("phase_preprocess", PHASE_PREPROCESS_TASK_TITLE, build_phase_preprocess_command)
 
     def run_fill_year_month_task(self) -> None:
-        self._run_single_builder_task("fill_year_month", "补写年份月份", build_fill_year_month_command)
+        self._run_single_builder_task("fill_year_month", FILL_YEAR_MONTH_TASK_TITLE, build_fill_year_month_command)
 
     def run_survey_stats_task(self) -> None:
         selected_job_names = self._selected_stats_job_names()
@@ -2201,8 +3865,8 @@ class SurveyPlatformApp(tk.Tk):
         options.pack(fill="x")
         if config.workflow_mode == WorkflowMode.MERGED:
             ttk.Checkbutton(options, text="先合并多月问卷", variable=include_merge_var).pack(anchor="w")
-        ttk.Checkbutton(options, text="预处理：修正期次列", variable=include_phase_var).pack(anchor="w")
-        ttk.Checkbutton(options, text="预处理：补写年份月份", variable=include_fill_var).pack(anchor="w")
+        ttk.Checkbutton(options, text=PHASE_PREPROCESS_WORKFLOW_TEXT, variable=include_phase_var).pack(anchor="w")
+        ttk.Checkbutton(options, text=FILL_YEAR_MONTH_WORKFLOW_TEXT, variable=include_fill_var).pack(anchor="w")
         ttk.Checkbutton(options, text="生成分项统计", variable=include_stats_var).pack(anchor="w")
         ttk.Checkbutton(options, text="生成汇总表", variable=include_summary_var).pack(anchor="w")
         ttk.Checkbutton(options, text="生成PPT", variable=include_ppt_var).pack(anchor="w")
