@@ -18,6 +18,7 @@ from generate_ppt import (
     BORDER_COLOR,
     CategoryIntroSlideConfig,
     ChartPageConfig,
+    CHART_TEXTBOX_FIRST_LINE_INDENT_PT,
     CHART_TEXTBOX_FONT_SIZE_PT,
     CHART_TEXTBOX_FONT_NAME,
     CHART_TEXTBOX_LINE_SPACING,
@@ -595,6 +596,10 @@ class GeneratePptTest(unittest.TestCase):
             self.assertEqual(textbox_run.font.name, CHART_TEXTBOX_FONT_NAME)
             self.assertEqual(textbox_run.font.size, Pt(CHART_TEXTBOX_FONT_SIZE_PT))
             self.assertEqual(textbox_shape.text_frame.paragraphs[0].line_spacing, CHART_TEXTBOX_LINE_SPACING)
+            self.assertEqual(
+                textbox_shape.text_frame.paragraphs[0]._p.pPr.get("indent"),
+                str(Pt(CHART_TEXTBOX_FIRST_LINE_INDENT_PT)),
+            )
 
     def test_generate_presentation_reuses_llm_notes_in_chart_slide_textbox(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
