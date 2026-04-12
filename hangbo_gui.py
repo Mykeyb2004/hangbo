@@ -900,6 +900,130 @@ class ThemePalette:
     warning: str = "#b06a1c"
 
 
+class HoverTooltipManager:
+    def __init__(
+        self,
+        root: tk.Misc,
+        palette: ThemePalette,
+        *,
+        delay_ms: int = 450,
+        wraplength: int = 320,
+    ) -> None:
+        self.root = root
+        self.palette = palette
+        self.delay_ms = delay_ms
+        self.wraplength = wraplength
+        self._after_id: str | None = None
+        self._tooltip_window: tk.Toplevel | None = None
+        self._active_widget: tk.Misc | None = None
+
+    def bind(self, widget: tk.Misc, text: str) -> tk.Misc:
+        normalized_text = text.strip()
+        if not normalized_text:
+            return widget
+        widget.bind(
+            "<Enter>",
+            lambda _event, target=widget, tooltip_text=normalized_text: self.schedule(
+                target,
+                tooltip_text,
+            ),
+            add="+",
+        )
+        widget.bind("<Leave>", lambda _event: self.hide(), add="+")
+        widget.bind("<ButtonPress>", lambda _event: self.hide(), add="+")
+        widget.bind("<FocusOut>", lambda _event: self.hide(), add="+")
+        widget.bind(
+            "<Destroy>",
+            lambda _event, target=widget: self._handle_destroy(target),
+            add="+",
+        )
+        return widget
+
+    def schedule(self, widget: tk.Misc, text: str) -> None:
+        self._cancel_scheduled_show()
+        self._destroy_tooltip_window()
+        if not self._widget_exists(widget):
+            return
+        self._active_widget = widget
+        self._after_id = self.root.after(
+            self.delay_ms,
+            lambda target=widget, tooltip_text=text: self.show(target, tooltip_text),
+        )
+
+    def show(self, widget: tk.Misc, text: str) -> None:
+        self._after_id = None
+        if not self._widget_exists(widget):
+            return
+        self._destroy_tooltip_window()
+
+        tooltip_window = tk.Toplevel(widget)
+        tooltip_window.wm_overrideredirect(True)
+        try:
+            tooltip_window.wm_attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        tooltip_window.configure(bg=self.palette.primary)
+
+        label = tk.Label(
+            tooltip_window,
+            text=text,
+            justify="left",
+            wraplength=self.wraplength,
+            bg=self.palette.primary,
+            fg="#ffffff",
+            relief="solid",
+            borderwidth=1,
+            padx=10,
+            pady=6,
+            font=("PingFang SC", 10),
+        )
+        label.pack()
+        tooltip_window.update_idletasks()
+
+        screen_width = widget.winfo_screenwidth()
+        screen_height = widget.winfo_screenheight()
+        tooltip_width = tooltip_window.winfo_reqwidth()
+        tooltip_height = tooltip_window.winfo_reqheight()
+        x_position = min(
+            widget.winfo_rootx() + 18,
+            max(12, screen_width - tooltip_width - 12),
+        )
+        y_position = widget.winfo_rooty() + widget.winfo_height() + 10
+        if y_position + tooltip_height > screen_height - 12:
+            y_position = max(12, widget.winfo_rooty() - tooltip_height - 10)
+        tooltip_window.wm_geometry(f"+{x_position}+{y_position}")
+
+        self._tooltip_window = tooltip_window
+        self._active_widget = widget
+
+    def hide(self) -> None:
+        self._cancel_scheduled_show()
+        self._destroy_tooltip_window()
+        self._active_widget = None
+
+    def _handle_destroy(self, widget: tk.Misc) -> None:
+        if self._active_widget is widget:
+            self.hide()
+
+    def _cancel_scheduled_show(self) -> None:
+        if self._after_id is None:
+            return
+        self.root.after_cancel(self._after_id)
+        self._after_id = None
+
+    def _destroy_tooltip_window(self) -> None:
+        if self._tooltip_window is None:
+            return
+        self._tooltip_window.destroy()
+        self._tooltip_window = None
+
+    def _widget_exists(self, widget: tk.Misc) -> bool:
+        try:
+            return bool(widget.winfo_exists())
+        except tk.TclError:
+            return False
+
+
 def build_directory_batch_config(config: GuiBatchConfig) -> BatchConfig:
     return BatchConfig(
         config_path=(PROJECT_ROOT / "hangbo_gui.py").resolve(),
@@ -1665,6 +1789,7 @@ class SurveyPlatformApp(tk.Tk):
         self._ppt_thumbnail_dialog: tk.Toplevel | None = None
         self._ppt_thumbnail_photo_refs: list[tk.PhotoImage] = []
         self._apply_theme()
+        self.tooltip_manager = HoverTooltipManager(self, self.palette)
         self._build_layout()
         self._restore_persistent_state()
         self.runner = BackgroundTaskRunner(self, self)
@@ -1791,14 +1916,22 @@ class SurveyPlatformApp(tk.Tk):
         batch_manager.grid(row=0, column=1, sticky="ew", padx=(20, 12))
         batch_manager.columnconfigure(1, weight=1)
         batch_manager.columnconfigure(3, weight=1)
-        ttk.Label(batch_manager, text="批次名称", style="Root.Body.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Entry(batch_manager, textvariable=self.batch_name_var, width=18).grid(
+        batch_name_label = ttk.Label(batch_manager, text="批次名称", style="Root.Body.TLabel")
+        batch_name_label.grid(row=0, column=0, sticky="w")
+        batch_name_entry = ttk.Entry(batch_manager, textvariable=self.batch_name_var, width=18)
+        batch_name_entry.grid(
             row=0,
             column=1,
             sticky="ew",
             padx=(8, 12),
         )
-        ttk.Label(batch_manager, text="已保存批次", style="Root.Body.TLabel").grid(row=0, column=2, sticky="w")
+        self._add_tooltip(
+            "用于保存和区分当前窗口配置，建议按月份或季度命名，例如 2026年3月、2026年Q1。",
+            batch_name_label,
+            batch_name_entry,
+        )
+        saved_batch_label = ttk.Label(batch_manager, text="已保存批次", style="Root.Body.TLabel")
+        saved_batch_label.grid(row=0, column=2, sticky="w")
         self.saved_batch_combobox = ttk.Combobox(
             batch_manager,
             textvariable=self.saved_batch_var,
@@ -1807,19 +1940,57 @@ class SurveyPlatformApp(tk.Tk):
             width=22,
         )
         self.saved_batch_combobox.grid(row=0, column=3, sticky="ew", padx=(8, 8))
-        ttk.Button(batch_manager, text="加载", style="Secondary.TButton", command=self.load_selected_batch).grid(row=0, column=4, padx=(0, 8))
-        ttk.Button(batch_manager, text="新建", style="Secondary.TButton", command=self.create_new_batch).grid(row=0, column=5)
+        self._add_tooltip(
+            "显示当前已保存的批次配置；加载后会用该配置覆盖当前表单。",
+            saved_batch_label,
+            self.saved_batch_combobox,
+        )
+        load_batch_button = ttk.Button(
+            batch_manager,
+            text="加载",
+            style="Secondary.TButton",
+            command=self.load_selected_batch,
+        )
+        load_batch_button.grid(row=0, column=4, padx=(0, 8))
+        self._add_tooltip("把下拉框中选中的批次配置回填到当前页面。", load_batch_button)
+        new_batch_button = ttk.Button(
+            batch_manager,
+            text="新建",
+            style="Secondary.TButton",
+            command=self.create_new_batch,
+        )
+        new_batch_button.grid(row=0, column=5)
+        self._add_tooltip("基于当前配置新建一个未命名批次，方便另存为新方案。", new_batch_button)
 
         header_meta = ttk.Frame(header, style="Root.TFrame")
         header_meta.grid(row=0, column=2, sticky="e")
-        ttk.Button(header_meta, text="保存批次", style="Secondary.TButton", command=self.save_current_batch).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(header_meta, text="删除批次", style="Secondary.TButton", command=self.delete_selected_batch).grid(row=0, column=1, padx=(0, 8))
+        save_batch_button = ttk.Button(
+            header_meta,
+            text="保存批次",
+            style="Secondary.TButton",
+            command=self.save_current_batch,
+        )
+        save_batch_button.grid(row=0, column=0, padx=(0, 8))
+        self._add_tooltip("将当前所有表单配置保存为批次，便于重复执行。", save_batch_button)
+        delete_batch_button = ttk.Button(
+            header_meta,
+            text="删除批次",
+            style="Secondary.TButton",
+            command=self.delete_selected_batch,
+        )
+        delete_batch_button.grid(row=0, column=1, padx=(0, 8))
+        self._add_tooltip("删除当前选中的已保存批次，不会删除已经生成的文件。", delete_batch_button)
         terminate_button = ttk.Button(header_meta, text="终止当前任务", style="Secondary.TButton", command=self.terminate_current_task)
         terminate_button.grid(row=0, column=2, padx=(0, 8))
         self._register_terminate_button(terminate_button)
+        self._add_tooltip("向当前脚本发送终止请求，仅在任务执行中可用。", terminate_button)
         main_workflow_button = ttk.Button(header_meta, text="一键执行主流程", style="Primary.TButton", command=self.open_main_workflow_dialog)
         main_workflow_button.grid(row=0, column=3)
         self._register_start_button(main_workflow_button)
+        self._add_tooltip(
+            "按业务顺序串行执行主流程：预处理、分项统计、汇总表、PPT。",
+            main_workflow_button,
+        )
 
         sidebar = ttk.Frame(root, style="Sidebar.TFrame", padding=12)
         sidebar.grid(row=1, column=0, sticky="nsw")
@@ -1884,7 +2055,15 @@ class SurveyPlatformApp(tk.Tk):
         )
         self.log_text.grid(row=1, column=0, sticky="nsew")
         self.log_text.configure(state="disabled")
-        ttk.Button(parent, text="清空日志", style="Secondary.TButton", command=self.clear_log).grid(row=2, column=0, sticky="e", pady=(8, 0))
+        self._add_tooltip("实时显示脚本标准输出和错误信息。", self.log_text)
+        clear_log_button = ttk.Button(
+            parent,
+            text="清空日志",
+            style="Secondary.TButton",
+            command=self.clear_log,
+        )
+        clear_log_button.grid(row=2, column=0, sticky="e", pady=(8, 0))
+        self._add_tooltip("清空右侧日志面板中的当前显示内容，不影响日志文件。", clear_log_button)
 
     def _build_pages(self) -> None:
         self.pages: dict[str, ttk.Frame] = {}
@@ -1909,6 +2088,15 @@ class SurveyPlatformApp(tk.Tk):
     def _register_terminate_button(self, button: ttk.Button) -> ttk.Button:
         self._terminate_action_buttons.append(button)
         return button
+
+    def _add_tooltip(self, text: str, *widgets: tk.Misc | None) -> None:
+        manager = self.__dict__.get("tooltip_manager")
+        if manager is None:
+            return
+        for widget in widgets:
+            if widget is None:
+                continue
+            manager.bind(widget, text)
 
     def _sync_action_button_states(self) -> None:
         start_state = "normal" if self.workflow_controller.start_enabled else "disabled"
@@ -1988,7 +2176,9 @@ class SurveyPlatformApp(tk.Tk):
         button_row.grid(row=2, column=0, sticky="ew")
         for index, (label, callback) in enumerate(action_buttons):
             style_name = "Primary.TButton" if label == "生成分项统计" else "Secondary.TButton"
-            ttk.Button(button_row, text=label, style=style_name, command=callback).grid(row=0, column=index, padx=(0, 8))
+            button = ttk.Button(button_row, text=label, style=style_name, command=callback)
+            button.grid(row=0, column=index, padx=(0, 8))
+            self._add_tooltip(f"跳转到“{label}”对应页面继续处理。", button)
         return frame
 
     def _build_metric_card(self, parent: ttk.Frame, column: int, title: str, variable: tk.StringVar) -> None:
@@ -2003,45 +2193,120 @@ class SurveyPlatformApp(tk.Tk):
 
         mode_box = ttk.LabelFrame(frame, text="处理方式", padding=12)
         mode_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        ttk.Radiobutton(mode_box, text="单个月份 / 单个批次", value=WorkflowMode.SINGLE.value, variable=self.workflow_mode_var, command=self.refresh_all_status_views).grid(row=0, column=0, sticky="w", pady=2)
-        ttk.Radiobutton(mode_box, text="合并多个月份后处理", value=WorkflowMode.MERGED.value, variable=self.workflow_mode_var, command=self.refresh_all_status_views).grid(row=1, column=0, sticky="w", pady=2)
+        single_mode_radio = ttk.Radiobutton(
+            mode_box,
+            text="单个月份 / 单个批次",
+            value=WorkflowMode.SINGLE.value,
+            variable=self.workflow_mode_var,
+            command=self.refresh_all_status_views,
+        )
+        single_mode_radio.grid(row=0, column=0, sticky="w", pady=2)
+        self._add_tooltip("适合处理单个月份或单次批次，后续统计直接读取该目录。", single_mode_radio)
+        merged_mode_radio = ttk.Radiobutton(
+            mode_box,
+            text="合并多个月份后处理",
+            value=WorkflowMode.MERGED.value,
+            variable=self.workflow_mode_var,
+            command=self.refresh_all_status_views,
+        )
+        merged_mode_radio.grid(row=1, column=0, sticky="w", pady=2)
+        self._add_tooltip("适合季度等跨月场景，先合并多个目录，再继续预处理和统计。", merged_mode_radio)
 
         single_box = ttk.LabelFrame(frame, text="单月处理配置", padding=12)
         single_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         single_box.columnconfigure(1, weight=1)
-        ttk.Label(single_box, text="原始数据目录", style="Body.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Entry(single_box, textvariable=self.single_input_dir_var).grid(row=0, column=1, sticky="ew", padx=8)
-        ttk.Button(single_box, text="浏览", style="Secondary.TButton", command=lambda: self.choose_directory(self.single_input_dir_var)).grid(row=0, column=2)
+        single_input_label = ttk.Label(single_box, text="原始数据目录", style="Body.TLabel")
+        single_input_label.grid(row=0, column=0, sticky="w")
+        single_input_entry = ttk.Entry(single_box, textvariable=self.single_input_dir_var)
+        single_input_entry.grid(row=0, column=1, sticky="ew", padx=8)
+        self._add_tooltip("选择当前批次原始问卷 Excel 所在目录。", single_input_label, single_input_entry)
+        single_input_browse_button = ttk.Button(
+            single_box,
+            text="浏览",
+            style="Secondary.TButton",
+            command=lambda: self.choose_directory(self.single_input_dir_var),
+        )
+        single_input_browse_button.grid(row=0, column=2)
+        self._add_tooltip("从文件夹选择器中指定单月输入目录。", single_input_browse_button)
 
         merge_box = ttk.LabelFrame(frame, text="多月合并配置", padding=12)
         merge_box.grid(row=2, column=0, sticky="ew", pady=(0, 12))
         merge_box.columnconfigure(0, weight=1)
         self.merge_listbox = tk.Listbox(merge_box, height=5, relief="flat", bg="#fffdfb", fg=self.palette.text, selectbackground=self.palette.surface_alt)
         self.merge_listbox.grid(row=0, column=0, columnspan=3, sticky="ew")
+        self._add_tooltip("这里维护需要合并的多个输入目录，顺序会保留到当前批次配置。", self.merge_listbox)
         list_actions = ttk.Frame(merge_box, style="Surface.TFrame")
         list_actions.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 8))
-        ttk.Button(list_actions, text="添加目录", style="Secondary.TButton", command=self.add_merge_input_dir).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(list_actions, text="删除所选", style="Secondary.TButton", command=self.remove_selected_merge_dir).grid(row=0, column=1)
-        ttk.Label(merge_box, text="合并输出目录", style="Body.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Entry(merge_box, textvariable=self.merge_output_dir_var).grid(row=3, column=0, sticky="ew", pady=(4, 0))
-        ttk.Button(merge_box, text="浏览", style="Secondary.TButton", command=lambda: self.choose_directory(self.merge_output_dir_var)).grid(row=3, column=1, padx=8, sticky="w")
+        add_merge_dir_button = ttk.Button(
+            list_actions,
+            text="添加目录",
+            style="Secondary.TButton",
+            command=self.add_merge_input_dir,
+        )
+        add_merge_dir_button.grid(row=0, column=0, padx=(0, 8))
+        self._add_tooltip("把一个月份目录加入待合并列表。", add_merge_dir_button)
+        remove_merge_dir_button = ttk.Button(
+            list_actions,
+            text="删除所选",
+            style="Secondary.TButton",
+            command=self.remove_selected_merge_dir,
+        )
+        remove_merge_dir_button.grid(row=0, column=1)
+        self._add_tooltip("从待合并列表中移除当前选中的目录。", remove_merge_dir_button)
+        merge_output_label = ttk.Label(merge_box, text="合并输出目录", style="Body.TLabel")
+        merge_output_label.grid(row=2, column=0, sticky="w")
+        merge_output_entry = ttk.Entry(merge_box, textvariable=self.merge_output_dir_var)
+        merge_output_entry.grid(row=3, column=0, sticky="ew", pady=(4, 0))
+        self._add_tooltip(
+            "merge_questionnaire_workbooks.py 的输出目录，也会成为后续统计的输入目录。",
+            merge_output_label,
+            merge_output_entry,
+        )
+        merge_output_browse_button = ttk.Button(
+            merge_box,
+            text="浏览",
+            style="Secondary.TButton",
+            command=lambda: self.choose_directory(self.merge_output_dir_var),
+        )
+        merge_output_browse_button.grid(row=3, column=1, padx=8, sticky="w")
+        self._add_tooltip("从文件夹选择器中指定多月合并输出目录。", merge_output_browse_button)
         merge_button = ttk.Button(merge_box, text="执行合并", style="Primary.TButton", command=self.run_merge_task)
         merge_button.grid(row=3, column=2, sticky="e")
         self._register_start_button(merge_button)
+        self._add_tooltip("执行多月问卷合并。仅在多月模式下需要先做这一步。", merge_button)
 
         scan_box = ttk.LabelFrame(frame, text="当前输入目录与扫描结果", padding=12)
         scan_box.grid(row=3, column=0, sticky="nsew")
         scan_box.columnconfigure(0, weight=1)
-        ttk.Label(scan_box, text="当前生效输入目录", style="Body.TLabel").grid(row=0, column=0, sticky="w")
+        effective_input_label = ttk.Label(scan_box, text="当前生效输入目录", style="Body.TLabel")
+        effective_input_label.grid(row=0, column=0, sticky="w")
         self.effective_input_var = tk.StringVar()
-        ttk.Label(scan_box, textvariable=self.effective_input_var, style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 8))
-        ttk.Button(scan_box, text="刷新扫描结果", style="Secondary.TButton", command=self.refresh_all_status_views).grid(row=2, column=0, sticky="w", pady=(0, 8))
+        effective_input_value = ttk.Label(
+            scan_box,
+            textvariable=self.effective_input_var,
+            style="Muted.TLabel",
+        )
+        effective_input_value.grid(row=1, column=0, sticky="w", pady=(2, 8))
+        self._add_tooltip(
+            "当前真正会被脚本读取的输入目录。多月模式下这里显示合并输出目录。",
+            effective_input_label,
+            effective_input_value,
+        )
+        refresh_scan_button = ttk.Button(
+            scan_box,
+            text="刷新扫描结果",
+            style="Secondary.TButton",
+            command=self.refresh_all_status_views,
+        )
+        refresh_scan_button.grid(row=2, column=0, sticky="w", pady=(0, 8))
+        self._add_tooltip("重新扫描当前生效目录中的 Excel 文件和状态。", refresh_scan_button)
         self.data_source_tree = ttk.Treeview(scan_box, columns=("path", "exists"), show="headings", height=8)
         self.data_source_tree.heading("path", text="路径")
         self.data_source_tree.heading("exists", text="状态")
         self.data_source_tree.column("path", width=620)
         self.data_source_tree.column("exists", width=120, anchor="center")
         self.data_source_tree.grid(row=3, column=0, sticky="nsew")
+        self._add_tooltip("显示扫描到的输入文件路径和当前状态。", self.data_source_tree)
         return frame
 
     def _build_preprocess_page(self, parent: ttk.Frame) -> ttk.Frame:
@@ -2050,21 +2315,48 @@ class SurveyPlatformApp(tk.Tk):
 
         phase_box = ttk.LabelFrame(frame, text=PHASE_PREPROCESS_SECTION_TITLE, padding=12)
         phase_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        ttk.Label(phase_box, text=PHASE_PREPROCESS_DESCRIPTION, style="Muted.TLabel", wraplength=900, justify="left").grid(row=0, column=0, sticky="w")
+        phase_description_label = ttk.Label(
+            phase_box,
+            text=PHASE_PREPROCESS_DESCRIPTION,
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        )
+        phase_description_label.grid(row=0, column=0, sticky="w")
+        self._add_tooltip(
+            "适合新版问卷新增期次列的场景，会把第三列的期次字段移动到最后，避免统计错位。",
+            phase_description_label,
+        )
         phase_button = ttk.Button(phase_box, text=PHASE_PREPROCESS_BUTTON_TEXT, style="Primary.TButton", command=self.run_phase_preprocess_task)
         phase_button.grid(row=1, column=0, sticky="w", pady=(10, 0))
         self._register_start_button(phase_button)
+        self._add_tooltip("执行 phase_column_preprocess.py，直接处理当前生效输入目录下的 Excel。", phase_button)
 
         fill_box = ttk.LabelFrame(frame, text=FILL_YEAR_MONTH_SECTION_TITLE, padding=12)
         fill_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
-        ttk.Label(fill_box, text=FILL_YEAR_MONTH_DESCRIPTION, style="Muted.TLabel", wraplength=900, justify="left").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
-        ttk.Label(fill_box, text="年份", style="Body.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Entry(fill_box, textvariable=self.year_value_var, width=12).grid(row=2, column=0, sticky="w", pady=(4, 0))
-        ttk.Label(fill_box, text="月份", style="Body.TLabel").grid(row=1, column=1, sticky="w", padx=(12, 0))
-        ttk.Entry(fill_box, textvariable=self.month_value_var, width=12).grid(row=2, column=1, sticky="w", padx=(12, 0), pady=(4, 0))
+        fill_description_label = ttk.Label(
+            fill_box,
+            text=FILL_YEAR_MONTH_DESCRIPTION,
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        )
+        fill_description_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        self._add_tooltip("给原始问卷补写年份和月份列，方便后续跨月合并。", fill_description_label)
+        year_label = ttk.Label(fill_box, text="年份", style="Body.TLabel")
+        year_label.grid(row=1, column=0, sticky="w")
+        year_entry = ttk.Entry(fill_box, textvariable=self.year_value_var, width=12)
+        year_entry.grid(row=2, column=0, sticky="w", pady=(4, 0))
+        self._add_tooltip("填写写回 Excel 的年份值，例如 2026。", year_label, year_entry)
+        month_label = ttk.Label(fill_box, text="月份", style="Body.TLabel")
+        month_label.grid(row=1, column=1, sticky="w", padx=(12, 0))
+        month_entry = ttk.Entry(fill_box, textvariable=self.month_value_var, width=12)
+        month_entry.grid(row=2, column=1, sticky="w", padx=(12, 0), pady=(4, 0))
+        self._add_tooltip("填写写回 Excel 的月份值，建议使用两位格式，例如 03。", month_label, month_entry)
         fill_button = ttk.Button(fill_box, text=FILL_YEAR_MONTH_BUTTON_TEXT, style="Secondary.TButton", command=self.run_fill_year_month_task)
         fill_button.grid(row=2, column=2, sticky="w", padx=(12, 0))
         self._register_start_button(fill_button)
+        self._add_tooltip("执行 fill_year_month_columns.py，把年份和月份写入当前数据源。", fill_button)
 
         note_box = ttk.LabelFrame(frame, text="说明", padding=12)
         note_box.grid(row=2, column=0, sticky="ew")
@@ -2072,7 +2364,15 @@ class SurveyPlatformApp(tk.Tk):
             "月份检查脚本文档已存在，但当前仓库中缺少 check_start_time_month.py。"
             f" 第一版 GUI 先保留预处理主链：{PHASE_PREPROCESS_TASK_TITLE}、{FILL_YEAR_MONTH_TASK_TITLE}。"
         )
-        ttk.Label(note_box, text=note_text, style="Muted.TLabel", wraplength=900, justify="left").grid(row=0, column=0, sticky="w")
+        note_label = ttk.Label(
+            note_box,
+            text=note_text,
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        )
+        note_label.grid(row=0, column=0, sticky="w")
+        self._add_tooltip("用于说明当前 GUI 预处理范围和暂未接入的脚本。", note_label)
         return frame
 
     def _build_stats_page(self, parent: ttk.Frame) -> ttk.Frame:
@@ -2082,28 +2382,79 @@ class SurveyPlatformApp(tk.Tk):
         config_box = ttk.LabelFrame(frame, text="分项统计配置", padding=12)
         config_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         config_box.columnconfigure(1, weight=1)
-        ttk.Label(config_box, text="输入目录", style="Body.TLabel").grid(row=0, column=0, sticky="w")
+        stats_input_label = ttk.Label(config_box, text="输入目录", style="Body.TLabel")
+        stats_input_label.grid(row=0, column=0, sticky="w")
         self.stats_effective_input_var = tk.StringVar()
-        ttk.Label(config_box, textvariable=self.stats_effective_input_var, style="Muted.TLabel").grid(row=0, column=1, sticky="w", padx=8)
-        ttk.Label(config_box, text="输出目录", style="Body.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Entry(config_box, textvariable=self.stats_output_dir_var).grid(row=1, column=1, sticky="ew", padx=8, pady=6)
-        ttk.Button(config_box, text="浏览", style="Secondary.TButton", command=lambda: self.choose_directory(self.stats_output_dir_var)).grid(row=1, column=2, sticky="w")
-        ttk.Label(config_box, text="sheet", style="Body.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Entry(config_box, textvariable=self.sheet_name_var, width=16).grid(row=2, column=1, sticky="w", padx=8)
-        ttk.Label(config_box, text="计算口径", style="Body.TLabel").grid(row=2, column=2, sticky="w")
-        ttk.Combobox(config_box, textvariable=self.calculation_mode_var, values=("template", "summary"), width=12, state="readonly").grid(row=2, column=3, sticky="w", padx=8)
+        stats_input_value = ttk.Label(
+            config_box,
+            textvariable=self.stats_effective_input_var,
+            style="Muted.TLabel",
+        )
+        stats_input_value.grid(row=0, column=1, sticky="w", padx=8)
+        self._add_tooltip(
+            "当前会被 survey_stats.py 读取的目录，多月模式下会自动切到合并输出目录。",
+            stats_input_label,
+            stats_input_value,
+        )
+        stats_output_label = ttk.Label(config_box, text="输出目录", style="Body.TLabel")
+        stats_output_label.grid(row=1, column=0, sticky="w")
+        stats_output_entry = ttk.Entry(config_box, textvariable=self.stats_output_dir_var)
+        stats_output_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=6)
+        self._add_tooltip(
+            "survey_stats.py 的输出目录，每个客群会在这里生成一份结果文件。",
+            stats_output_label,
+            stats_output_entry,
+        )
+        stats_output_browse_button = ttk.Button(
+            config_box,
+            text="浏览",
+            style="Secondary.TButton",
+            command=lambda: self.choose_directory(self.stats_output_dir_var),
+        )
+        stats_output_browse_button.grid(row=1, column=2, sticky="w")
+        self._add_tooltip("从文件夹选择器中指定分项统计输出目录。", stats_output_browse_button)
+        sheet_name_label = ttk.Label(config_box, text="sheet", style="Body.TLabel")
+        sheet_name_label.grid(row=2, column=0, sticky="w")
+        sheet_name_entry = ttk.Entry(config_box, textvariable=self.sheet_name_var, width=16)
+        sheet_name_entry.grid(row=2, column=1, sticky="w", padx=8)
+        self._add_tooltip("读取原始问卷时使用的工作表名称，默认是“问卷数据”。", sheet_name_label, sheet_name_entry)
+        calculation_mode_label = ttk.Label(config_box, text="计算口径", style="Body.TLabel")
+        calculation_mode_label.grid(row=2, column=2, sticky="w")
+        calculation_mode_combobox = ttk.Combobox(
+            config_box,
+            textvariable=self.calculation_mode_var,
+            values=("template", "summary"),
+            width=12,
+            state="readonly",
+        )
+        calculation_mode_combobox.grid(row=2, column=3, sticky="w", padx=8)
+        self._add_tooltip(
+            "template 按模板规则统计；summary 用于汇总口径场景。",
+            calculation_mode_label,
+            calculation_mode_combobox,
+        )
         button_row = ttk.Frame(config_box, style="Surface.TFrame")
         button_row.grid(row=3, column=0, columnspan=4, sticky="w", pady=(10, 0))
         scan_button = ttk.Button(button_row, text="扫描可统计客群", style="Secondary.TButton", command=self.scan_stats_preview)
         scan_button.grid(row=0, column=0, padx=(0, 8))
         self._register_start_button(scan_button)
+        self._add_tooltip("扫描当前输入目录，识别哪些客群可生成。", scan_button)
         dry_run_button = ttk.Button(button_row, text="dry-run 校验", style="Secondary.TButton", command=self.run_survey_stats_dry_run_task)
         dry_run_button.grid(row=0, column=1, padx=(0, 8))
         self._register_start_button(dry_run_button)
+        self._add_tooltip("只做配置和输入校验，不写出分项统计文件。", dry_run_button)
         stats_button = ttk.Button(button_row, text="开始生成分项统计", style="Primary.TButton", command=self.run_survey_stats_task)
         stats_button.grid(row=0, column=2, padx=(0, 8))
         self._register_start_button(stats_button)
-        ttk.Button(button_row, text="保存当前批次", style="Secondary.TButton", command=self.save_current_batch).grid(row=0, column=3)
+        self._add_tooltip("按当前勾选的客群正式执行 survey_stats.py。", stats_button)
+        save_batch_button = ttk.Button(
+            button_row,
+            text="保存当前批次",
+            style="Secondary.TButton",
+            command=self.save_current_batch,
+        )
+        save_batch_button.grid(row=0, column=3)
+        self._add_tooltip("先保存当前统计配置，便于后续复用。", save_batch_button)
 
         summary_box = ttk.LabelFrame(frame, text="当前状态", padding=12)
         summary_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
@@ -2121,9 +2472,30 @@ class SurveyPlatformApp(tk.Tk):
         ).grid(row=1, column=0, sticky="w", pady=(0, 8))
         preview_actions = ttk.Frame(preview_box, style="Surface.TFrame")
         preview_actions.grid(row=2, column=0, sticky="w", pady=(0, 8))
-        ttk.Button(preview_actions, text="全选", style="Secondary.TButton", command=self.select_all_customer_types).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(preview_actions, text="清空", style="Secondary.TButton", command=self.clear_selected_customer_types).grid(row=0, column=1, padx=(0, 8))
-        ttk.Button(preview_actions, text="仅选可生成", style="Secondary.TButton", command=self.select_ready_customer_types).grid(row=0, column=2)
+        select_all_button = ttk.Button(
+            preview_actions,
+            text="全选",
+            style="Secondary.TButton",
+            command=self.select_all_customer_types,
+        )
+        select_all_button.grid(row=0, column=0, padx=(0, 8))
+        self._add_tooltip("勾选当前列表中的全部客群。", select_all_button)
+        clear_selection_button = ttk.Button(
+            preview_actions,
+            text="清空",
+            style="Secondary.TButton",
+            command=self.clear_selected_customer_types,
+        )
+        clear_selection_button.grid(row=0, column=1, padx=(0, 8))
+        self._add_tooltip("取消勾选当前列表中的全部客群。", clear_selection_button)
+        select_ready_button = ttk.Button(
+            preview_actions,
+            text="仅选可生成",
+            style="Secondary.TButton",
+            command=self.select_ready_customer_types,
+        )
+        select_ready_button.grid(row=0, column=2)
+        self._add_tooltip("只保留状态为“可生成”的客群勾选。", select_ready_button)
         self.stats_preview_tree = ttk.Treeview(
             preview_box,
             columns=("selected", "customer_type", "source_file", "status", "output_name", "detail"),
@@ -2144,6 +2516,7 @@ class SurveyPlatformApp(tk.Tk):
         self.stats_preview_tree.column("detail", width=420)
         self.stats_preview_tree.grid(row=3, column=0, sticky="nsew")
         self.stats_preview_tree.bind("<Double-1>", self.on_stats_preview_row_double_click)
+        self._add_tooltip("双击某一行可切换勾选；正式执行和 dry-run 都只处理当前已勾选客群。", self.stats_preview_tree)
 
         result_box = ttk.LabelFrame(frame, text="输出目录文件预览", padding=12)
         result_box.grid(row=3, column=0, sticky="nsew")
@@ -2154,6 +2527,7 @@ class SurveyPlatformApp(tk.Tk):
         self.stats_tree.column("name", width=220)
         self.stats_tree.column("path", width=650)
         self.stats_tree.grid(row=0, column=0, sticky="nsew")
+        self._add_tooltip("展示输出目录中已经生成的分项统计文件。", self.stats_tree)
         return frame
 
     def _build_summary_page(self, parent: ttk.Frame) -> ttk.Frame:
@@ -2162,16 +2536,33 @@ class SurveyPlatformApp(tk.Tk):
         box = ttk.LabelFrame(frame, text="汇总统计配置", padding=12)
         box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         box.columnconfigure(1, weight=1)
-        ttk.Label(box, text="分项结果目录", style="Body.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(box, textvariable=self.stats_output_dir_var, style="Muted.TLabel").grid(row=0, column=1, sticky="w", padx=8)
-        ttk.Label(box, text="汇总输出目录", style="Body.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Entry(box, textvariable=self.summary_output_dir_var).grid(row=1, column=1, sticky="ew", padx=8, pady=6)
-        ttk.Button(box, text="浏览", style="Secondary.TButton", command=lambda: self.choose_directory(self.summary_output_dir_var)).grid(row=1, column=2, sticky="w")
-        ttk.Label(box, text="输出文件名", style="Body.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Entry(box, textvariable=self.summary_output_name_var).grid(row=2, column=1, sticky="ew", padx=8)
+        stats_output_label = ttk.Label(box, text="分项结果目录", style="Body.TLabel")
+        stats_output_label.grid(row=0, column=0, sticky="w")
+        stats_output_value = ttk.Label(box, textvariable=self.stats_output_dir_var, style="Muted.TLabel")
+        stats_output_value.grid(row=0, column=1, sticky="w", padx=8)
+        self._add_tooltip("summary_table.py 会从这里读取分项统计结果。", stats_output_label, stats_output_value)
+        summary_output_label = ttk.Label(box, text="汇总输出目录", style="Body.TLabel")
+        summary_output_label.grid(row=1, column=0, sticky="w")
+        summary_output_entry = ttk.Entry(box, textvariable=self.summary_output_dir_var)
+        summary_output_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=6)
+        self._add_tooltip("summary_table.py 的输出目录。", summary_output_label, summary_output_entry)
+        summary_output_browse_button = ttk.Button(
+            box,
+            text="浏览",
+            style="Secondary.TButton",
+            command=lambda: self.choose_directory(self.summary_output_dir_var),
+        )
+        summary_output_browse_button.grid(row=1, column=2, sticky="w")
+        self._add_tooltip("从文件夹选择器中指定汇总表输出目录。", summary_output_browse_button)
+        summary_name_label = ttk.Label(box, text="输出文件名", style="Body.TLabel")
+        summary_name_label.grid(row=2, column=0, sticky="w")
+        summary_name_entry = ttk.Entry(box, textvariable=self.summary_output_name_var)
+        summary_name_entry.grid(row=2, column=1, sticky="ew", padx=8)
+        self._add_tooltip("生成的客户类型满意度汇总表文件名。", summary_name_label, summary_name_entry)
         summary_button = ttk.Button(box, text="生成汇总表", style="Primary.TButton", command=self.run_summary_task)
         summary_button.grid(row=3, column=0, sticky="w", pady=(10, 0))
         self._register_start_button(summary_button)
+        self._add_tooltip("根据分项统计结果生成客户类型满意度汇总表。", summary_button)
 
         result_box = ttk.LabelFrame(frame, text="结果状态", padding=12)
         result_box.grid(row=1, column=0, sticky="ew")
@@ -2206,40 +2597,64 @@ class SurveyPlatformApp(tk.Tk):
             ("摘要字号", self.ppt_summary_font_size_pt_var, 4, 0),
             ("模板页索引", self.ppt_template_slide_index_var, 4, 2),
         )
+        tooltip_texts = {
+            "文件匹配": "匹配参与生成 PPT 的分项统计文件，例如 *.xlsx。",
+            "sheet_name_mode": "first 表示读取第一个工作表；named 表示读取指定 sheet 名。",
+            "sheet_name": "当 sheet_name_mode=named 时，这里填写要读取的工作表名称。",
+            "标题后缀": "为每页标题追加统一后缀，例如“（季度版）”。",
+            "单表最大行数": "单列表布局允许的最大行数，超过后会触发双列表或分页。",
+            "双表单侧最大行数": "双列表布局下，每一侧明细表允许的最大行数。",
+            "正文字号": "明细内容的字号。",
+            "表头字号": "表格表头的字号。",
+            "摘要字号": "摘要区域的字号。",
+            "模板页索引": "作为复制基准的模板页索引，从 0 开始。",
+        }
         for label, variable, row, column in rows:
-            ttk.Label(tab, text=label, style="Body.TLabel").grid(row=row, column=column, sticky="w", pady=4)
+            label_widget = ttk.Label(tab, text=label, style="Body.TLabel")
+            label_widget.grid(row=row, column=column, sticky="w", pady=4)
             if label == "sheet_name_mode":
-                ttk.Combobox(
+                field_widget = ttk.Combobox(
                     tab,
                     textvariable=variable,
                     values=PPT_SHEET_NAME_MODE_VALUES,
                     state="readonly",
                     width=16,
-                ).grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
+                )
+                field_widget.grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
             else:
-                ttk.Entry(tab, textvariable=variable).grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
-        ttk.Checkbutton(
+                field_widget = ttk.Entry(tab, textvariable=variable)
+                field_widget.grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
+            self._add_tooltip(tooltip_texts[label], label_widget, field_widget)
+        sort_files_checkbutton = ttk.Checkbutton(
             tab,
             text="按文件名排序后生成",
             variable=self.ppt_sort_files_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        )
+        sort_files_checkbutton.grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self._add_tooltip("勾选后会先按文件名排序，再按顺序生成 PPT 页面。", sort_files_checkbutton)
         notebook.add(tab, text="基础高级")
 
     def _build_ppt_chart_tab(self, notebook: ttk.Notebook) -> None:
         tab = ttk.Frame(notebook, style="Surface.TFrame", padding=12)
         tab.columnconfigure(1, weight=1)
-        ttk.Checkbutton(
+        chart_page_checkbutton = ttk.Checkbutton(
             tab,
             text="启用图表页（每个客户分组数据页后追加图表页）",
             variable=self.ppt_chart_page_enabled_var,
-        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-        ttk.Label(tab, text="图表 DPI", style="Body.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Entry(tab, textvariable=self.ppt_chart_image_dpi_var, width=14).grid(row=1, column=1, sticky="w", padx=8)
-        ttk.Label(
+        )
+        chart_page_checkbutton.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        self._add_tooltip("勾选后会在每个客户分组数据页后追加图表页。", chart_page_checkbutton)
+        chart_dpi_label = ttk.Label(tab, text="图表 DPI", style="Body.TLabel")
+        chart_dpi_label.grid(row=1, column=0, sticky="w")
+        chart_dpi_entry = ttk.Entry(tab, textvariable=self.ppt_chart_image_dpi_var, width=14)
+        chart_dpi_entry.grid(row=1, column=1, sticky="w", padx=8)
+        self._add_tooltip("控制图表导出清晰度，数值越大图片越清晰。", chart_dpi_label, chart_dpi_entry)
+        chart_placeholder_label = ttk.Label(
             tab,
             text="回退占位文案",
             style="Body.TLabel",
-        ).grid(row=2, column=0, sticky="nw", pady=(10, 4))
+        )
+        chart_placeholder_label.grid(row=2, column=0, sticky="nw", pady=(10, 4))
         self.ppt_chart_placeholder_text_widget = scrolledtext.ScrolledText(
             tab,
             height=5,
@@ -2251,19 +2666,29 @@ class SurveyPlatformApp(tk.Tk):
         )
         self.ppt_chart_placeholder_text_widget.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(10, 4))
         self.ppt_chart_placeholder_text_widget.insert("1.0", self.ppt_chart_placeholder_text_var.get())
+        self._add_tooltip(
+            "当图表说明暂时无法生成时，使用这里的占位文案填充图表文字框。",
+            chart_placeholder_label,
+            self.ppt_chart_placeholder_text_widget,
+        )
         notebook.add(tab, text="图表页")
 
     def _build_ppt_notes_tab(self, notebook: ttk.Notebook) -> None:
         tab = ttk.Frame(notebook, style="Surface.TFrame", padding=12)
         tab.columnconfigure(1, weight=1)
-        ttk.Checkbutton(
+        notes_enabled_checkbutton = ttk.Checkbutton(
             tab,
             text="启用备注页 LLM 分析",
             variable=self.ppt_llm_notes_enabled_var,
-        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-        ttk.Label(tab, text="env_path", style="Body.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Entry(tab, textvariable=self.ppt_llm_env_path_var).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
-        ttk.Button(
+        )
+        notes_enabled_checkbutton.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        self._add_tooltip("勾选后会为 PPT 备注页生成 LLM 分析内容。", notes_enabled_checkbutton)
+        env_path_label = ttk.Label(tab, text="env_path", style="Body.TLabel")
+        env_path_label.grid(row=1, column=0, sticky="w")
+        env_path_entry = ttk.Entry(tab, textvariable=self.ppt_llm_env_path_var)
+        env_path_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=4)
+        self._add_tooltip("存放模型 API 配置的 .env 文件路径。", env_path_label, env_path_entry)
+        env_browse_button = ttk.Button(
             tab,
             text="浏览",
             style="Secondary.TButton",
@@ -2271,10 +2696,15 @@ class SurveyPlatformApp(tk.Tk):
                 self.ppt_llm_env_path_var,
                 [("Env", ".env"), ("All Files", "*")],
             ),
-        ).grid(row=1, column=2, sticky="w")
-        ttk.Label(tab, text="system_role_path", style="Body.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Entry(tab, textvariable=self.ppt_llm_system_role_path_var).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
-        ttk.Button(
+        )
+        env_browse_button.grid(row=1, column=2, sticky="w")
+        self._add_tooltip("选择备注页 LLM 分析使用的 .env 文件。", env_browse_button)
+        system_role_label = ttk.Label(tab, text="system_role_path", style="Body.TLabel")
+        system_role_label.grid(row=2, column=0, sticky="w")
+        system_role_entry = ttk.Entry(tab, textvariable=self.ppt_llm_system_role_path_var)
+        system_role_entry.grid(row=2, column=1, sticky="ew", padx=8, pady=4)
+        self._add_tooltip("系统角色提示词文件路径。", system_role_label, system_role_entry)
+        system_role_browse_button = ttk.Button(
             tab,
             text="浏览",
             style="Secondary.TButton",
@@ -2282,7 +2712,9 @@ class SurveyPlatformApp(tk.Tk):
                 self.ppt_llm_system_role_path_var,
                 [("Markdown", "*.md"), ("All Files", "*")],
             ),
-        ).grid(row=2, column=2, sticky="w")
+        )
+        system_role_browse_button.grid(row=2, column=2, sticky="w")
+        self._add_tooltip("选择备注页分析使用的 system role 文档。", system_role_browse_button)
         scalar_rows = (
             ("目标字数", self.ppt_llm_target_chars_var, 3, 0),
             ("temperature", self.ppt_llm_temperature_var, 3, 2),
@@ -2290,9 +2722,18 @@ class SurveyPlatformApp(tk.Tk):
             ("checkpoint_chars", self.ppt_llm_checkpoint_chars_var, 4, 2),
         )
         tab.columnconfigure(3, weight=1)
+        scalar_tooltips = {
+            "目标字数": "期望每条备注分析的大致字数。",
+            "temperature": "控制生成的发散程度，越大越灵活。",
+            "max_tokens": "单次生成允许使用的最大 token 数。",
+            "checkpoint_chars": "分析过程中的检查点字符数阈值，用于分段控制。",
+        }
         for label, variable, row, column in scalar_rows:
-            ttk.Label(tab, text=label, style="Body.TLabel").grid(row=row, column=column, sticky="w", pady=4)
-            ttk.Entry(tab, textvariable=variable, width=14).grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
+            label_widget = ttk.Label(tab, text=label, style="Body.TLabel")
+            label_widget.grid(row=row, column=column, sticky="w", pady=4)
+            entry_widget = ttk.Entry(tab, textvariable=variable, width=14)
+            entry_widget.grid(row=row, column=column + 1, sticky="ew", padx=8, pady=4)
+            self._add_tooltip(scalar_tooltips[label], label_widget, entry_widget)
         notebook.add(tab, text="备注页")
 
     def _build_ppt_category_tab(self, notebook: ttk.Notebook) -> None:
@@ -2329,6 +2770,7 @@ class SurveyPlatformApp(tk.Tk):
             "<<TreeviewSelect>>",
             self._load_selected_ppt_category_intro_entry,
         )
+        self._add_tooltip("显示已配置的客户大类封面页，选中后可在下方表单中编辑。", self.ppt_category_intro_tree)
         tree_scrollbar = ttk.Scrollbar(
             tree_wrap,
             orient="vertical",
@@ -2340,38 +2782,42 @@ class SurveyPlatformApp(tk.Tk):
         form = ttk.LabelFrame(tab, text="封面配置", padding=12)
         form.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         form.columnconfigure(1, weight=1)
-        ttk.Label(form, text="客户大类", style="Body.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
-        ttk.Combobox(
+        category_label = ttk.Label(form, text="客户大类", style="Body.TLabel")
+        category_label.grid(row=0, column=0, sticky="w")
+        category_combobox = ttk.Combobox(
             form,
             textvariable=self.ppt_category_intro_category_var,
             values=PPT_CATEGORY_LABEL_VALUES,
-        ).grid(row=0, column=1, sticky="ew", padx=8, pady=4)
-        ttk.Label(form, text="页码", style="Body.TLabel").grid(
-            row=0, column=2, sticky="w"
         )
-        ttk.Entry(
+        category_combobox.grid(row=0, column=1, sticky="ew", padx=8, pady=4)
+        self._add_tooltip("选择要插入封面的客户大类。", category_label, category_combobox)
+        slide_number_label = ttk.Label(form, text="页码", style="Body.TLabel")
+        slide_number_label.grid(row=0, column=2, sticky="w")
+        slide_number_entry = ttk.Entry(
             form,
             textvariable=self.ppt_category_intro_slide_number_var,
             width=10,
-        ).grid(row=0, column=3, sticky="w", padx=8, pady=4)
-        ttk.Label(form, text="封面 PPT", style="Body.TLabel").grid(
-            row=1, column=0, sticky="w"
         )
-        ttk.Entry(
+        slide_number_entry.grid(row=0, column=3, sticky="w", padx=8, pady=4)
+        self._add_tooltip("填写 PowerPoint 中可见的页码，从 1 开始。", slide_number_label, slide_number_entry)
+        intro_ppt_label = ttk.Label(form, text="封面 PPT", style="Body.TLabel")
+        intro_ppt_label.grid(row=1, column=0, sticky="w")
+        intro_ppt_entry = ttk.Entry(
             form,
             textvariable=self.ppt_category_intro_ppt_path_var,
-        ).grid(row=1, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
-        ttk.Button(
+        )
+        intro_ppt_entry.grid(row=1, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
+        self._add_tooltip("选择包含封面页的 PPT 文件。", intro_ppt_label, intro_ppt_entry)
+        intro_ppt_browse_button = ttk.Button(
             form,
             text="浏览",
             style="Secondary.TButton",
             command=self.choose_ppt_category_intro_file,
-        ).grid(row=1, column=4, sticky="w")
-        ttk.Label(form, text="页面预览", style="Body.TLabel").grid(
-            row=2, column=0, sticky="w"
         )
+        intro_ppt_browse_button.grid(row=1, column=4, sticky="w")
+        self._add_tooltip("选择封面 PPT，并尝试读取页面列表。", intro_ppt_browse_button)
+        slide_preview_label = ttk.Label(form, text="页面预览", style="Body.TLabel")
+        slide_preview_label.grid(row=2, column=0, sticky="w")
         self.ppt_category_intro_slide_preview_combobox = ttk.Combobox(
             form,
             textvariable=self.ppt_category_intro_slide_preview_var,
@@ -2384,20 +2830,25 @@ class SurveyPlatformApp(tk.Tk):
             "<<ComboboxSelected>>",
             self._on_ppt_category_intro_slide_preview_selected,
         )
-        ttk.Button(
+        self._add_tooltip("先读取封面 PPT 的页面列表，再从下拉框快速选择页码。", slide_preview_label, self.ppt_category_intro_slide_preview_combobox)
+        read_slide_list_button = ttk.Button(
             form,
             text="读取页列表",
             style="Secondary.TButton",
             command=lambda: self._load_ppt_category_intro_slide_previews(
                 show_message=True
             ),
-        ).grid(row=2, column=4, sticky="w")
-        ttk.Button(
+        )
+        read_slide_list_button.grid(row=2, column=4, sticky="w")
+        self._add_tooltip("读取当前封面 PPT 的页面标题，填充页面预览下拉框。", read_slide_list_button)
+        thumbnail_select_button = ttk.Button(
             form,
             text="按缩略图选择",
             style="Secondary.TButton",
             command=self.open_ppt_category_intro_thumbnail_dialog,
-        ).grid(row=3, column=4, sticky="w", pady=(8, 0))
+        )
+        thumbnail_select_button.grid(row=3, column=4, sticky="w", pady=(8, 0))
+        self._add_tooltip("打开缩略图选择窗口，通过页面缩略图挑选封面页。", thumbnail_select_button)
         ttk.Label(
             form,
             textvariable=self.ppt_category_intro_slide_status_var,
@@ -2408,42 +2859,54 @@ class SurveyPlatformApp(tk.Tk):
 
         action_row = ttk.Frame(form, style="Surface.TFrame")
         action_row.grid(row=4, column=0, columnspan=5, sticky="w", pady=(10, 0))
-        ttk.Button(
+        add_intro_button = ttk.Button(
             action_row,
             text="新增",
             style="Secondary.TButton",
             command=self.add_ppt_category_intro_entry,
-        ).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(
+        )
+        add_intro_button.grid(row=0, column=0, padx=(0, 8))
+        self._add_tooltip("把当前表单内容新增为一个客户大类封面配置。", add_intro_button)
+        update_intro_button = ttk.Button(
             action_row,
             text="更新选中",
             style="Secondary.TButton",
             command=self.update_selected_ppt_category_intro_entry,
-        ).grid(row=0, column=1, padx=(0, 8))
-        ttk.Button(
+        )
+        update_intro_button.grid(row=0, column=1, padx=(0, 8))
+        self._add_tooltip("用当前表单内容覆盖上方列表中选中的封面配置。", update_intro_button)
+        delete_intro_button = ttk.Button(
             action_row,
             text="删除选中",
             style="Secondary.TButton",
             command=self.delete_selected_ppt_category_intro_entry,
-        ).grid(row=0, column=2, padx=(0, 8))
-        ttk.Button(
+        )
+        delete_intro_button.grid(row=0, column=2, padx=(0, 8))
+        self._add_tooltip("删除上方列表中当前选中的封面配置。", delete_intro_button)
+        move_up_button = ttk.Button(
             action_row,
             text="上移",
             style="Secondary.TButton",
             command=lambda: self.move_selected_ppt_category_intro_entry(-1),
-        ).grid(row=0, column=3, padx=(0, 8))
-        ttk.Button(
+        )
+        move_up_button.grid(row=0, column=3, padx=(0, 8))
+        self._add_tooltip("把当前选中的封面配置向上移动一位。", move_up_button)
+        move_down_button = ttk.Button(
             action_row,
             text="下移",
             style="Secondary.TButton",
             command=lambda: self.move_selected_ppt_category_intro_entry(1),
-        ).grid(row=0, column=4, padx=(0, 8))
-        ttk.Button(
+        )
+        move_down_button.grid(row=0, column=4, padx=(0, 8))
+        self._add_tooltip("把当前选中的封面配置向下移动一位。", move_down_button)
+        clear_intro_form_button = ttk.Button(
             action_row,
             text="清空表单",
             style="Secondary.TButton",
             command=self.clear_ppt_category_intro_form,
-        ).grid(row=0, column=5)
+        )
+        clear_intro_form_button.grid(row=0, column=5)
+        self._add_tooltip("清空下方表单并取消列表选中。", clear_intro_form_button)
         ttk.Label(
             form,
             text="页码按 PowerPoint 可见页码填写，从 1 开始。",
@@ -2459,13 +2922,20 @@ class SurveyPlatformApp(tk.Tk):
         for column, header in enumerate(headers):
             ttk.Label(tab, text=header, style="SubHeader.TLabel").grid(row=0, column=column, sticky="w", pady=(0, 8))
         for row_index, (region_name, region_label) in enumerate(PPT_LAYOUT_REGION_LABELS, start=1):
-            ttk.Label(tab, text=region_label, style="Body.TLabel").grid(row=row_index, column=0, sticky="w", pady=4)
+            region_label_widget = ttk.Label(tab, text=region_label, style="Body.TLabel")
+            region_label_widget.grid(row=row_index, column=0, sticky="w", pady=4)
             for column_index, field_name in enumerate(("left", "top", "width", "height"), start=1):
-                ttk.Entry(
+                layout_entry = ttk.Entry(
                     tab,
                     textvariable=self.ppt_layout_vars[region_name][field_name],
                     width=10,
-                ).grid(row=row_index, column=column_index, sticky="ew", padx=6, pady=4)
+                )
+                layout_entry.grid(row=row_index, column=column_index, sticky="ew", padx=6, pady=4)
+                self._add_tooltip(
+                    f"配置“{region_label}”的 {field_name} 值，单位为英寸。",
+                    region_label_widget,
+                    layout_entry,
+                )
         notebook.add(tab, text="布局")
 
     def _build_ppt_advanced_panel(self, parent: ttk.Frame) -> ttk.Frame:
@@ -2486,24 +2956,65 @@ class SurveyPlatformApp(tk.Tk):
         box = ttk.LabelFrame(frame, text="PPT生成配置", padding=12)
         box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         box.columnconfigure(1, weight=1)
-        ttk.Label(box, text="统计结果目录", style="Body.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(box, textvariable=self.stats_output_dir_var, style="Muted.TLabel").grid(row=0, column=1, sticky="w", padx=8)
-        ttk.Label(box, text="模板PPT", style="Body.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Entry(box, textvariable=self.ppt_template_path_var).grid(row=1, column=1, sticky="ew", padx=8, pady=6)
-        ttk.Button(box, text="浏览", style="Secondary.TButton", command=lambda: self.choose_file(self.ppt_template_path_var, [("PowerPoint", "*.pptx")])).grid(row=1, column=2)
-        ttk.Label(box, text="输出PPT", style="Body.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Entry(box, textvariable=self.output_ppt_path_var).grid(row=2, column=1, sticky="ew", padx=8, pady=6)
-        ttk.Button(box, text="浏览", style="Secondary.TButton", command=lambda: self.choose_save_file(self.output_ppt_path_var, ".pptx", [("PowerPoint", "*.pptx")])).grid(row=2, column=2)
-        ttk.Label(box, text="section_mode", style="Body.TLabel").grid(row=3, column=0, sticky="w")
-        ttk.Combobox(box, textvariable=self.ppt_section_mode_var, values=("auto", "template", "summary"), state="readonly", width=12).grid(row=3, column=1, sticky="w", padx=8)
-        ttk.Label(box, text="空值显示", style="Body.TLabel").grid(row=4, column=0, sticky="w")
-        ttk.Entry(box, textvariable=self.ppt_blank_display_var, width=18).grid(row=4, column=1, sticky="w", padx=8, pady=6)
-        ttk.Button(
+        ppt_input_label = ttk.Label(box, text="统计结果目录", style="Body.TLabel")
+        ppt_input_label.grid(row=0, column=0, sticky="w")
+        ppt_input_value = ttk.Label(box, textvariable=self.stats_output_dir_var, style="Muted.TLabel")
+        ppt_input_value.grid(row=0, column=1, sticky="w", padx=8)
+        self._add_tooltip("generate_ppt.py 会从这里读取分项统计结果。", ppt_input_label, ppt_input_value)
+        template_label = ttk.Label(box, text="模板PPT", style="Body.TLabel")
+        template_label.grid(row=1, column=0, sticky="w")
+        template_entry = ttk.Entry(box, textvariable=self.ppt_template_path_var)
+        template_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=6)
+        self._add_tooltip("PPT 模板文件，页面布局和占位区域会按这个模板生成。", template_label, template_entry)
+        template_browse_button = ttk.Button(
+            box,
+            text="浏览",
+            style="Secondary.TButton",
+            command=lambda: self.choose_file(self.ppt_template_path_var, [("PowerPoint", "*.pptx")]),
+        )
+        template_browse_button.grid(row=1, column=2)
+        self._add_tooltip("选择用于生成报告的 PPT 模板文件。", template_browse_button)
+        output_ppt_label = ttk.Label(box, text="输出PPT", style="Body.TLabel")
+        output_ppt_label.grid(row=2, column=0, sticky="w")
+        output_ppt_entry = ttk.Entry(box, textvariable=self.output_ppt_path_var)
+        output_ppt_entry.grid(row=2, column=1, sticky="ew", padx=8, pady=6)
+        self._add_tooltip("最终生成的报告 PPT 文件路径。", output_ppt_label, output_ppt_entry)
+        output_ppt_browse_button = ttk.Button(
+            box,
+            text="浏览",
+            style="Secondary.TButton",
+            command=lambda: self.choose_save_file(
+                self.output_ppt_path_var,
+                ".pptx",
+                [("PowerPoint", "*.pptx")],
+            ),
+        )
+        output_ppt_browse_button.grid(row=2, column=2)
+        self._add_tooltip("选择生成后的 PPT 保存位置。", output_ppt_browse_button)
+        section_mode_label = ttk.Label(box, text="section_mode", style="Body.TLabel")
+        section_mode_label.grid(row=3, column=0, sticky="w")
+        section_mode_combobox = ttk.Combobox(
+            box,
+            textvariable=self.ppt_section_mode_var,
+            values=("auto", "template", "summary"),
+            state="readonly",
+            width=12,
+        )
+        section_mode_combobox.grid(row=3, column=1, sticky="w", padx=8)
+        self._add_tooltip("控制章节划分方式，通常保持 auto 即可。", section_mode_label, section_mode_combobox)
+        blank_display_label = ttk.Label(box, text="空值显示", style="Body.TLabel")
+        blank_display_label.grid(row=4, column=0, sticky="w")
+        blank_display_entry = ttk.Entry(box, textvariable=self.ppt_blank_display_var, width=18)
+        blank_display_entry.grid(row=4, column=1, sticky="w", padx=8, pady=6)
+        self._add_tooltip("设置明细表中空值的替代显示文本；留空则按默认处理。", blank_display_label, blank_display_entry)
+        toggle_advanced_button = ttk.Button(
             box,
             textvariable=self._ppt_advanced_toggle_var,
             style="Secondary.TButton",
             command=self._toggle_ppt_advanced_config,
-        ).grid(row=5, column=0, sticky="w", pady=(10, 0))
+        )
+        toggle_advanced_button.grid(row=5, column=0, sticky="w", pady=(10, 0))
+        self._add_tooltip("展开图表页、备注页、客户大类封面和布局等高级配置。", toggle_advanced_button)
         self._ppt_advanced_frame = self._build_ppt_advanced_panel(box)
         self._ppt_advanced_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self._ppt_advanced_frame.grid_remove()
@@ -2512,9 +3023,11 @@ class SurveyPlatformApp(tk.Tk):
         ppt_dry_run_button = ttk.Button(button_row, text="dry-run 校验", style="Secondary.TButton", command=self.run_ppt_dry_run_task)
         ppt_dry_run_button.grid(row=0, column=0, padx=(0, 8))
         self._register_start_button(ppt_dry_run_button)
+        self._add_tooltip("只校验配置、模板和输入数据，不实际写出 PPT。", ppt_dry_run_button)
         ppt_button = ttk.Button(button_row, text="生成PPT", style="Primary.TButton", command=self.run_ppt_task)
         ppt_button.grid(row=0, column=1)
         self._register_start_button(ppt_button)
+        self._add_tooltip("按当前配置生成正式报告 PPT。", ppt_button)
 
         status_box = ttk.LabelFrame(frame, text="结果状态", padding=12)
         status_box.grid(row=1, column=0, sticky="ew")

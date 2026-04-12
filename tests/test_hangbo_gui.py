@@ -12,6 +12,7 @@ from hangbo_gui import (
     CustomerTypePreviewRow,
     CustomerTypePreviewStatus,
     GuiBatchConfig,
+    HoverTooltipManager,
     MainWorkflowSelection,
     SavedBatchProfile,
     StatsPreviewSummary,
@@ -586,6 +587,61 @@ class GuiThemeTests(unittest.TestCase):
             background=app.palette.background,
             foreground=app.palette.muted_text,
             font=("PingFang SC", 10),
+        )
+
+
+class GuiTooltipTests(unittest.TestCase):
+    def test_hover_tooltip_manager_binds_hover_related_events(self) -> None:
+        root = mock.Mock()
+        widget = mock.Mock()
+        manager = HoverTooltipManager(root, ThemePalette())
+
+        returned = manager.bind(widget, "批次说明")
+
+        self.assertIs(returned, widget)
+        bound_events = {call.args[0] for call in widget.bind.call_args_list}
+        self.assertEqual(
+            bound_events,
+            {"<Enter>", "<Leave>", "<ButtonPress>", "<FocusOut>", "<Destroy>"},
+        )
+        for call in widget.bind.call_args_list:
+            self.assertEqual(call.kwargs["add"], "+")
+
+    def test_hover_tooltip_manager_schedule_and_hide_manage_after_token(self) -> None:
+        root = mock.Mock()
+        root.after.return_value = "after-1"
+        widget = mock.Mock()
+        widget.winfo_exists.return_value = True
+        manager = HoverTooltipManager(root, ThemePalette())
+
+        manager.schedule(widget, "分项统计说明")
+
+        root.after.assert_called_once()
+        self.assertEqual(manager._after_id, "after-1")
+
+        manager.hide()
+
+        root.after_cancel.assert_called_once_with("after-1")
+        self.assertIsNone(manager._after_id)
+
+    def test_add_tooltip_noops_when_manager_missing(self) -> None:
+        app = object.__new__(SurveyPlatformApp)
+
+        SurveyPlatformApp._add_tooltip(app, "说明", mock.Mock(), None)
+
+    def test_add_tooltip_delegates_to_manager_for_each_widget(self) -> None:
+        app = object.__new__(SurveyPlatformApp)
+        app.tooltip_manager = mock.Mock()
+        widget_a = mock.Mock()
+        widget_b = mock.Mock()
+
+        SurveyPlatformApp._add_tooltip(app, "说明", widget_a, None, widget_b)
+
+        app.tooltip_manager.bind.assert_has_calls(
+            [
+                mock.call(widget_a, "说明"),
+                mock.call(widget_b, "说明"),
+            ]
         )
 
 
