@@ -45,6 +45,10 @@ from survey_stats import (
     SERVICE_PROVIDER_ROLE_NAME,
     SERVICE_PROVIDER_TEMPLATE,
     TEMPLATE_DEFINITIONS,
+    TOURIST_ROLE_NAME,
+    TOURIST_TEMPLATE,
+    TRAVEL_STAFF_ROLE_NAME,
+    TRAVEL_STAFF_TEMPLATE,
     VISITOR_ROLE_NAME,
     VISITOR_TEMPLATE,
     build_missing_customer_type_summary,
@@ -162,6 +166,39 @@ def build_shifted_dataframe_with_phase_column(
 ) -> pd.DataFrame:
     df = build_mock_dataframe(role_name, role_column=role_column)
     df.insert(2, "phase_marker", list(phase_values))
+    return df
+
+
+def build_meeting_category_split_dataframe(role_name: str) -> pd.DataFrame:
+    df = build_mock_dataframe(role_name)
+    category_index = excel_column_to_index("C")
+    role_index = excel_column_to_index("E")
+    df.iloc[0, category_index] = "会议"
+    df.iloc[1, category_index] = "酒店会议"
+    df.iloc[1, role_index] = role_name
+    return df
+
+
+def build_directory_mode_meeting_dataframe() -> pd.DataFrame:
+    organizer_df = build_meeting_category_split_dataframe(MEETING_ORGANIZER_ROLE_NAME)
+    attendee_df = build_meeting_category_split_dataframe(MEETING_ATTENDEE_ROLE_NAME)
+    return pd.concat([organizer_df, attendee_df], ignore_index=True)
+
+
+def build_directory_mode_tourism_dataframe() -> pd.DataFrame:
+    tourist_df = build_mock_dataframe(TOURIST_ROLE_NAME, role_column="C")
+    travel_staff_df = build_mock_dataframe(TRAVEL_STAFF_ROLE_NAME, role_column="C")
+    return pd.concat([tourist_df, travel_staff_df], ignore_index=True)
+
+
+def build_template_matching_dataframe(role_definition) -> pd.DataFrame:
+    df = build_mock_dataframe(
+        role_definition.role_match_value or role_definition.role_name,
+        role_column=role_definition.role_column,
+    )
+    for row_condition in role_definition.row_conditions:
+        df.iloc[0, excel_column_to_index(row_condition.column)] = row_condition.expected_value
+        df.iloc[1, excel_column_to_index(row_condition.column)] = f"其他{row_condition.expected_value}"
     return df
 
 
@@ -383,7 +420,7 @@ class SurveyStatsTest(unittest.TestCase):
             (MEETING_ORGANIZER_ROLE_NAME, MEETING_ORGANIZER_TEMPLATE),
             (HOTEL_MEETING_ORGANIZER_ROLE_NAME, HOTEL_MEETING_ORGANIZER_TEMPLATE),
         ):
-            df = build_mock_dataframe(role_name)
+            df = build_template_matching_dataframe(template)
             df.iloc[0, excel_column_to_index("AG")] = 4
             df.iloc[0, excel_column_to_index("AH")] = 3
             df.iloc[0, excel_column_to_index("AI")] = 8
@@ -409,7 +446,7 @@ class SurveyStatsTest(unittest.TestCase):
             (HOTEL_MEETING_ATTENDEE_ROLE_NAME, HOTEL_MEETING_ATTENDEE_TEMPLATE),
             (MEETING_ATTENDEE_ROLE_NAME, MEETING_ATTENDEE_TEMPLATE),
         ):
-            df = build_mock_dataframe(role_name)
+            df = build_template_matching_dataframe(template)
             df.iloc[0, excel_column_to_index("AG")] = 5
             df.iloc[0, excel_column_to_index("AH")] = 4
             df.iloc[0, excel_column_to_index("AI")] = 9
@@ -429,6 +466,50 @@ class SurveyStatsTest(unittest.TestCase):
             self.assertEqual(skill_row["重要性"], 4.0)
             self.assertEqual(parking_row["满意度"], 3.0)
             self.assertEqual(parking_row["重要性"], 2.0)
+
+    def test_meeting_attendee_templates_split_rows_by_category_column(self) -> None:
+        df = build_meeting_category_split_dataframe(MEETING_ATTENDEE_ROLE_NAME)
+        df.iloc[0, excel_column_to_index("Q")] = 3
+        df.iloc[0, excel_column_to_index("R")] = 2
+        df.iloc[1, excel_column_to_index("Q")] = 8
+        df.iloc[1, excel_column_to_index("R")] = 7
+
+        meeting_stats = compute_role_stats(df, MEETING_ATTENDEE_TEMPLATE)
+        hotel_stats = compute_role_stats(df, HOTEL_MEETING_ATTENDEE_TEMPLATE)
+
+        meeting_df = build_result_dataframe(meeting_stats)
+        hotel_df = build_result_dataframe(hotel_stats)
+        meeting_parking_row = meeting_df[meeting_df["指标"] == "园区停车方便"].iloc[0]
+        hotel_parking_row = hotel_df[hotel_df["指标"] == "园区停车方便"].iloc[0]
+
+        self.assertEqual(meeting_stats.matched_row_count, 1)
+        self.assertEqual(hotel_stats.matched_row_count, 1)
+        self.assertEqual(meeting_parking_row["满意度"], 3.0)
+        self.assertEqual(meeting_parking_row["重要性"], 2.0)
+        self.assertEqual(hotel_parking_row["满意度"], 8.0)
+        self.assertEqual(hotel_parking_row["重要性"], 7.0)
+
+    def test_meeting_organizer_templates_split_rows_by_category_column(self) -> None:
+        df = build_meeting_category_split_dataframe(MEETING_ORGANIZER_ROLE_NAME)
+        df.iloc[0, excel_column_to_index("Q")] = 4
+        df.iloc[0, excel_column_to_index("R")] = 3
+        df.iloc[1, excel_column_to_index("Q")] = 9
+        df.iloc[1, excel_column_to_index("R")] = 8
+
+        meeting_stats = compute_role_stats(df, MEETING_ORGANIZER_TEMPLATE)
+        hotel_stats = compute_role_stats(df, HOTEL_MEETING_ORGANIZER_TEMPLATE)
+
+        meeting_df = build_result_dataframe(meeting_stats)
+        hotel_df = build_result_dataframe(hotel_stats)
+        meeting_parking_row = meeting_df[meeting_df["指标"] == "园区停车方便"].iloc[0]
+        hotel_parking_row = hotel_df[hotel_df["指标"] == "园区停车方便"].iloc[0]
+
+        self.assertEqual(meeting_stats.matched_row_count, 1)
+        self.assertEqual(hotel_stats.matched_row_count, 1)
+        self.assertEqual(meeting_parking_row["满意度"], 4.0)
+        self.assertEqual(meeting_parking_row["重要性"], 3.0)
+        self.assertEqual(hotel_parking_row["满意度"], 9.0)
+        self.assertEqual(hotel_parking_row["重要性"], 8.0)
 
     def test_hotel_guest_templates_use_role_column_c_and_fixed_importance_columns(self) -> None:
         for role_name, template in (
@@ -459,6 +540,39 @@ class SurveyStatsTest(unittest.TestCase):
             self.assertEqual(checkin_row["重要性"], 5.0)
             self.assertEqual(appearance_row["满意度"], 2.0)
             self.assertEqual(appearance_row["重要性"], 1.0)
+
+    def test_tourism_templates_use_role_column_c_and_expected_sections(self) -> None:
+        for role_name, template in (
+            (TRAVEL_STAFF_ROLE_NAME, TRAVEL_STAFF_TEMPLATE),
+            (TOURIST_ROLE_NAME, TOURIST_TEMPLATE),
+        ):
+            df = build_mock_dataframe(role_name, role_column="C")
+            df.iloc[0, excel_column_to_index("T")] = 2
+            df.iloc[0, excel_column_to_index("U")] = 1
+            df.iloc[0, excel_column_to_index("P")] = 4
+            df.iloc[0, excel_column_to_index("Q")] = 3
+            df.iloc[0, excel_column_to_index("AI")] = 6
+            df.iloc[0, excel_column_to_index("AJ")] = 5
+            df.iloc[0, excel_column_to_index("AR")] = 8
+            df.iloc[0, excel_column_to_index("AS")] = 7
+
+            stats = compute_role_stats(df, template)
+            result_df = build_result_dataframe(stats)
+
+            ticket_row = result_df[result_df["指标"] == "售票/销售服务"].iloc[0]
+            parking_row = result_df[result_df["指标"] == "园区停车方便"].iloc[0]
+            voice_row = result_df[result_df["指标"] == "语音导览"].iloc[0]
+            mall_row = result_df[result_df["指标"] == "线上商城"].iloc[0]
+
+            self.assertEqual(stats.matched_row_count, 1)
+            self.assertEqual(ticket_row["满意度"], 2.0)
+            self.assertEqual(ticket_row["重要性"], 1.0)
+            self.assertEqual(parking_row["满意度"], 4.0)
+            self.assertEqual(parking_row["重要性"], 3.0)
+            self.assertEqual(voice_row["满意度"], 6.0)
+            self.assertEqual(voice_row["重要性"], 5.0)
+            self.assertEqual(mall_row["满意度"], 8.0)
+            self.assertEqual(mall_row["重要性"], 7.0)
 
     def test_missing_group_outputs_blank_statistics_without_error(self) -> None:
         df = build_mock_dataframe("不存在的餐饮群体", role_column="D")
@@ -888,6 +1002,84 @@ input_dir = "datas"
             self.assertTrue((temp_path / "exports" / "展览主承办.xlsx").exists())
             self.assertFalse((temp_path / "exports" / "参展商.xlsx").exists())
             self.assertFalse((temp_path / "exports" / "专业观众.xlsx").exists())
+
+    def test_run_config_mode_directory_mode_discovers_hotel_meeting_customer_types(self) -> None:
+        df = build_directory_mode_meeting_dataframe()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            data_dir = temp_path / "datas"
+            data_dir.mkdir()
+            source_file = data_dir / "会议.xlsx"
+            config_path = temp_path / "jobs.toml"
+
+            with pd.ExcelWriter(source_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+input_dir = "datas"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with redirect_stdout(io.StringIO()):
+                run_config_mode(
+                    argparse.Namespace(
+                        config=config_path,
+                        job=[],
+                        dry_run=False,
+                        sheet_name=DEFAULT_SHEET_NAME,
+                        output_format=None,
+                        calculation_mode=None,
+                        output_dir=None,
+                    )
+                )
+
+            self.assertTrue((temp_path / "exports" / "会议主承办.xlsx").exists())
+            self.assertTrue((temp_path / "exports" / "酒店会议主承办.xlsx").exists())
+            self.assertTrue((temp_path / "exports" / "参会人员.xlsx").exists())
+            self.assertTrue((temp_path / "exports" / "酒店参会客户.xlsx").exists())
+
+    def test_run_config_mode_directory_mode_discovers_tourism_customer_types(self) -> None:
+        df = build_directory_mode_tourism_dataframe()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            data_dir = temp_path / "datas"
+            data_dir.mkdir()
+            source_file = data_dir / "旅游.xlsx"
+            config_path = temp_path / "jobs.toml"
+
+            with pd.ExcelWriter(source_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+input_dir = "datas"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with redirect_stdout(io.StringIO()):
+                run_config_mode(
+                    argparse.Namespace(
+                        config=config_path,
+                        job=[],
+                        dry_run=False,
+                        sheet_name=DEFAULT_SHEET_NAME,
+                        output_format=None,
+                        calculation_mode=None,
+                        output_dir=None,
+                    )
+                )
+
+            self.assertTrue((temp_path / "exports" / "旅行社工作人员.xlsx").exists())
+            self.assertTrue((temp_path / "exports" / "游客.xlsx").exists())
 
 
 if __name__ == "__main__":

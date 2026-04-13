@@ -153,6 +153,10 @@ checkpoint_chars = 80
   - `.env` 文件路径
 - `system_role_path`
   - system role 提示词文件路径
+- CLI 手写 `generate_ppt.py --config ...` 配置时
+  - 相对路径继续按配置文件所在目录解析
+- 通过桌面 GUI 运行时
+  - GUI 写入 `logs/gui_runtime/*.toml` 时，会把 `env_path` 和 `system_role_path` 转成相对于项目根目录解析后的绝对路径，避免运行时 TOML 位于 `logs/gui_runtime` 时发生错位
 - `target_chars`
   - 目标字数，默认约 300 字
 - `temperature`

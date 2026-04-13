@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+import sys
 from unittest import mock
 
 import pandas as pd
@@ -14,6 +15,7 @@ from hangbo_gui import (
     GuiBatchConfig,
     HoverTooltipManager,
     MainWorkflowSelection,
+    PROJECT_ROOT,
     SavedBatchProfile,
     StatsPreviewSummary,
     SurveyPlatformApp,
@@ -25,6 +27,7 @@ from hangbo_gui import (
     build_ppt_thumbnail_cache_dir,
     build_gui_batch_config_text,
     build_category_intro_slides_text,
+    build_ppt_command,
     build_stats_preview_summary_text,
     build_survey_stats_command,
     build_workflow_status_text,
@@ -433,11 +436,77 @@ class GuiConfigRenderingTests(unittest.TestCase):
         self.assertIn("enabled = true", text)
         self.assertIn('placeholder_text = "图表说明文案"', text)
         self.assertIn("[llm_notes]", text)
-        self.assertIn('env_path = ".env.prod"', text)
+        self.assertIn(
+            f'env_path = "{(PROJECT_ROOT / ".env.prod").resolve()}"',
+            text,
+        )
+        self.assertIn(
+            f'system_role_path = "{(PROJECT_ROOT / "roles/system_role.md").resolve()}"',
+            text,
+        )
         self.assertIn("[layout.summary_table]", text)
         self.assertIn("left = 0.9", text)
         self.assertIn("[layout.chart_textbox]", text)
         self.assertIn("width = 5.8", text)
+
+    def test_build_ppt_config_text_preserves_absolute_llm_paths(self) -> None:
+        config = GuiBatchConfig(
+            batch_name="2026年Q1",
+            workflow_mode=WorkflowMode.SINGLE,
+            single_input_dir=Path("/tmp/datas/Q1"),
+            stats_output_dir=Path("/tmp/output/Q1"),
+            ppt_template_path=Path("/tmp/templates/template.pptx"),
+            output_ppt_path=Path("/tmp/output/Q1报告.pptx"),
+            ppt_llm_notes_enabled=True,
+            ppt_llm_env_path="/tmp/secrets/.env.prod",
+            ppt_llm_system_role_path="/tmp/prompts/system_role.md",
+        )
+
+        text = build_ppt_config_text(config)
+
+        self.assertIn('env_path = "/tmp/secrets/.env.prod"', text)
+        self.assertIn('system_role_path = "/tmp/prompts/system_role.md"', text)
+
+    def test_build_ppt_command_writes_runtime_config_with_absolute_llm_paths(self) -> None:
+        config = GuiBatchConfig(
+            batch_name="2026年3月",
+            workflow_mode=WorkflowMode.SINGLE,
+            single_input_dir=Path("/tmp/datas/3月"),
+            stats_output_dir=Path("/tmp/output/3月"),
+            ppt_template_path=Path("/tmp/templates/template.pptx"),
+            output_ppt_path=Path("/tmp/output/3月满意度报告.pptx"),
+            ppt_llm_notes_enabled=True,
+            ppt_llm_env_path=".env.prod",
+            ppt_llm_system_role_path="roles/system_role.md",
+        )
+
+        with mock.patch(
+            "hangbo_gui.write_runtime_config",
+            return_value=Path("/tmp/gui_runtime/generate_ppt_001.toml"),
+        ) as write_mock:
+            command = build_ppt_command(config, dry_run=True)
+
+        self.assertEqual(
+            command,
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "generate_ppt.py"),
+                "--config",
+                "/tmp/gui_runtime/generate_ppt_001.toml",
+                "--dry-run",
+            ],
+        )
+        write_mock.assert_called_once()
+        self.assertEqual(write_mock.call_args.args[0], "generate_ppt")
+        written_text = write_mock.call_args.args[1]
+        self.assertIn(
+            f'env_path = "{(PROJECT_ROOT / ".env.prod").resolve()}"',
+            written_text,
+        )
+        self.assertIn(
+            f'system_role_path = "{(PROJECT_ROOT / "roles/system_role.md").resolve()}"',
+            written_text,
+        )
 
     def test_build_survey_stats_command_appends_selected_jobs_in_order(self) -> None:
         config = GuiBatchConfig(
@@ -508,6 +577,7 @@ class GuiConfigRenderingTests(unittest.TestCase):
             ppt_chart_placeholder_text="图表说明\n第二行",
             ppt_llm_notes_enabled=True,
             ppt_llm_env_path=".env.prod",
+            ppt_llm_system_role_path="roles/system_role.md",
             ppt_category_intro_slides_text="一、会展客户|templates/chapter.pptx|3",
             ppt_layout_chart_textbox_width="5.8",
         )
@@ -529,6 +599,7 @@ class GuiConfigRenderingTests(unittest.TestCase):
         self.assertEqual(loaded.ppt_chart_placeholder_text, "图表说明\n第二行")
         self.assertTrue(loaded.ppt_llm_notes_enabled)
         self.assertEqual(loaded.ppt_llm_env_path, ".env.prod")
+        self.assertEqual(loaded.ppt_llm_system_role_path, "roles/system_role.md")
         self.assertEqual(
             loaded.ppt_category_intro_slides_text,
             "一、会展客户|templates/chapter.pptx|3",

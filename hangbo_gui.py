@@ -1133,6 +1133,14 @@ def toml_quote(value: str | Path) -> str:
     return f'"{escaped}"'
 
 
+def resolve_ppt_runtime_llm_path(raw_path: str) -> str:
+    path_text = raw_path.strip()
+    path = Path(path_text)
+    if path.is_absolute():
+        return path_text
+    return str((PROJECT_ROOT / path).resolve())
+
+
 def build_survey_stats_config_text(config: GuiBatchConfig) -> str:
     return "\n".join(
         [
@@ -1428,6 +1436,8 @@ def build_ppt_config_text(config: GuiBatchConfig) -> str:
         "备注页 temperature",
         allow_zero=True,
     )
+    llm_env_path = resolve_ppt_runtime_llm_path(config.ppt_llm_env_path)
+    llm_system_role_path = resolve_ppt_runtime_llm_path(config.ppt_llm_system_role_path)
 
     lines = [
         f"template_path = {toml_quote(config.ppt_template_path)}",
@@ -1479,8 +1489,8 @@ def build_ppt_config_text(config: GuiBatchConfig) -> str:
             "",
             "[llm_notes]",
             f"enabled = {bool_to_toml(config.ppt_llm_notes_enabled)}",
-            f"env_path = {toml_quote(config.ppt_llm_env_path)}",
-            f"system_role_path = {toml_quote(config.ppt_llm_system_role_path)}",
+            f"env_path = {toml_quote(llm_env_path)}",
+            f"system_role_path = {toml_quote(llm_system_role_path)}",
             f"target_chars = {llm_target_chars}",
             f"temperature = {llm_temperature}",
             f"max_tokens = {llm_max_tokens}",

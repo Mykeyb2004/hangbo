@@ -27,6 +27,8 @@ STANDARD_CUSTOMER_TYPE_MAPPINGS: tuple[CustomerTypeMapping, ...] = (
     ),
     CustomerTypeMapping("hotel_meeting_attendee", "酒店参会客户", "酒店参会客户", "会议.xlsx"),
     CustomerTypeMapping("meeting_attendee", "参会人员", "参会客户", "会议.xlsx"),
+    CustomerTypeMapping("travel_staff", "旅行社工作人员", "旅行社工作人员", "旅游.xlsx"),
+    CustomerTypeMapping("tourist", "游客", "游客", "旅游.xlsx"),
     CustomerTypeMapping("hotel_individual_guest", "散客", "散客", "酒店.xlsx"),
     CustomerTypeMapping("hotel_group_guest", "住宿团队", "住宿团队", "酒店.xlsx"),
     CustomerTypeMapping("catering_food_hall", "特色美食廊", "特色美食廊", "餐饮.xlsx"),

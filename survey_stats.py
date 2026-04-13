@@ -30,6 +30,11 @@ MEETING_ORGANIZER_ROLE_NAME = "会议主承办"
 HOTEL_MEETING_ORGANIZER_ROLE_NAME = "酒店会议主承办"
 HOTEL_MEETING_ATTENDEE_ROLE_NAME = "酒店参会客户"
 MEETING_ATTENDEE_ROLE_NAME = "参会人员"
+MEETING_CATEGORY_COLUMN = "C"
+MEETING_CATEGORY_NAME = "会议"
+HOTEL_MEETING_CATEGORY_NAME = "酒店会议"
+TRAVEL_STAFF_ROLE_NAME = "旅行社工作人员"
+TOURIST_ROLE_NAME = "游客"
 HOTEL_INDIVIDUAL_GUEST_ROLE_NAME = "散客"
 HOTEL_GROUP_GUEST_ROLE_NAME = "住宿团队"
 CATERING_FOOD_HALL_ROLE_NAME = "特色美食廊"
@@ -42,6 +47,7 @@ CATERING_HOTEL_BANQUET_ROLE_NAME = "酒店宴会"
 CATERING_HOTEL_BUFFET_ROLE_NAME = "酒店自助餐"
 HOTEL_ROLE_COLUMN = "C"
 CATERING_ROLE_COLUMN = "D"
+TOURISM_ROLE_COLUMN = "C"
 
 OVERALL_FILL = PatternFill(fill_type="solid", start_color="F4B183", end_color="F4B183")
 SECTION_FILL = PatternFill(fill_type="solid", start_color="C6EFD1", end_color="C6EFD1")
@@ -67,10 +73,18 @@ class SectionDefinition:
 
 
 @dataclass(frozen=True)
+class MatchCondition:
+    column: str
+    expected_value: str
+
+
+@dataclass(frozen=True)
 class RoleDefinition:
     role_name: str
     role_column: str
     sections: tuple[SectionDefinition, ...]
+    role_match_value: str | None = None
+    row_conditions: tuple[MatchCondition, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -467,6 +481,7 @@ MEETING_ORGANIZER_TEMPLATE = RoleDefinition(
         MEETING_SUPPORT_SECTION,
         MEETING_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, MEETING_CATEGORY_NAME),),
 )
 
 HOTEL_MEETING_ORGANIZER_TEMPLATE = RoleDefinition(
@@ -478,6 +493,8 @@ HOTEL_MEETING_ORGANIZER_TEMPLATE = RoleDefinition(
         MEETING_SUPPORT_SECTION,
         MEETING_SMART_SECTION,
     ),
+    role_match_value=MEETING_ORGANIZER_ROLE_NAME,
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, HOTEL_MEETING_CATEGORY_NAME),),
 )
 
 HOTEL_MEETING_ATTENDEE_TEMPLATE = RoleDefinition(
@@ -489,6 +506,8 @@ HOTEL_MEETING_ATTENDEE_TEMPLATE = RoleDefinition(
         MEETING_SUPPORT_SECTION,
         MEETING_SMART_SECTION,
     ),
+    role_match_value=MEETING_ATTENDEE_ROLE_NAME,
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, HOTEL_MEETING_CATEGORY_NAME),),
 )
 
 MEETING_ATTENDEE_TEMPLATE = RoleDefinition(
@@ -499,6 +518,59 @@ MEETING_ATTENDEE_TEMPLATE = RoleDefinition(
         MEETING_ATTENDEE_HARDWARE_SECTION,
         MEETING_SUPPORT_SECTION,
         MEETING_SMART_SECTION,
+    ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, MEETING_CATEGORY_NAME),),
+)
+
+TOURISM_SERVICE_SECTION = SectionDefinition(
+    "旅游服务",
+    (
+        MetricDefinition("售票/销售服务", "T", "U"),
+        MetricDefinition("景点设施", "V", "W"),
+        MetricDefinition("环境卫生", "X", "Y"),
+        MetricDefinition("安全服务", "Z", "AA"),
+        MetricDefinition("工作人员仪容仪表", "AB", "AC"),
+        MetricDefinition("工作人员服务态度", "AD", "AE"),
+        MetricDefinition("讲解人员专业性", "AF", "AG"),
+    ),
+)
+
+TOURISM_HARDWARE_SECTION = SectionDefinition(
+    "硬件设施",
+    (
+        MetricDefinition("交通便利，容易到达", "N", "O"),
+        MetricDefinition("园区停车方便", "P", "Q"),
+        MetricDefinition("标识标牌清晰", "R", "S"),
+    ),
+)
+
+TOURISM_SMART_SECTION = SectionDefinition(
+    "智慧服务",
+    (
+        MetricDefinition("语音导览", "AI", "AJ"),
+        MetricDefinition("AR导览", "AL", "AM"),
+        MetricDefinition("自助售卖", "AO", "AP"),
+        MetricDefinition("线上商城", "AR", "AS"),
+    ),
+)
+
+TRAVEL_STAFF_TEMPLATE = RoleDefinition(
+    role_name=TRAVEL_STAFF_ROLE_NAME,
+    role_column=TOURISM_ROLE_COLUMN,
+    sections=(
+        TOURISM_SERVICE_SECTION,
+        TOURISM_HARDWARE_SECTION,
+        TOURISM_SMART_SECTION,
+    ),
+)
+
+TOURIST_TEMPLATE = RoleDefinition(
+    role_name=TOURIST_ROLE_NAME,
+    role_column=TOURISM_ROLE_COLUMN,
+    sections=(
+        TOURISM_SERVICE_SECTION,
+        TOURISM_HARDWARE_SECTION,
+        TOURISM_SMART_SECTION,
     ),
 )
 
@@ -807,6 +879,8 @@ TEMPLATE_DEFINITIONS: dict[str, RoleDefinition] = {
     "hotel_meeting_organizer": HOTEL_MEETING_ORGANIZER_TEMPLATE,
     "hotel_meeting_attendee": HOTEL_MEETING_ATTENDEE_TEMPLATE,
     "meeting_attendee": MEETING_ATTENDEE_TEMPLATE,
+    "travel_staff": TRAVEL_STAFF_TEMPLATE,
+    "tourist": TOURIST_TEMPLATE,
     "hotel_individual_guest": HOTEL_INDIVIDUAL_GUEST_TEMPLATE,
     "hotel_group_guest": HOTEL_GROUP_GUEST_TEMPLATE,
     "catering_food_hall": CATERING_FOOD_HALL_TEMPLATE,
@@ -896,10 +970,16 @@ def resolve_role_definition(template_name: str, role_name: str | None = None) ->
     if template is None:
         supported = ", ".join(sorted(TEMPLATE_DEFINITIONS))
         raise ValueError(f"未知模板: {template_name}，支持的模板有: {supported}")
+    resolved_role_name = role_name or template.role_name
+    role_match_value = template.role_match_value
+    if role_name is not None and role_match_value is None:
+        role_match_value = resolved_role_name
     return RoleDefinition(
-        role_name=role_name or template.role_name,
+        role_name=resolved_role_name,
         role_column=template.role_column,
         sections=template.sections,
+        role_match_value=role_match_value,
+        row_conditions=template.row_conditions,
     )
 
 
@@ -976,6 +1056,8 @@ def build_summary_role_definition(role_definition: RoleDefinition) -> RoleDefini
                 smart_section,
                 dining_section,
             ),
+            role_match_value=role_definition.role_match_value,
+            row_conditions=role_definition.row_conditions,
         )
 
     if role_name in SUMMARY_HOTEL_ROLE_NAMES:
@@ -988,6 +1070,8 @@ def build_summary_role_definition(role_definition: RoleDefinition) -> RoleDefini
                 clone_section(find_section(role_definition, "智慧场馆", "智慧服务"), name="智慧场馆/服务"),
                 clone_section(find_section(role_definition, "餐饮服务")),
             ),
+            role_match_value=role_definition.role_match_value,
+            row_conditions=role_definition.row_conditions,
         )
 
     if role_name in SUMMARY_CATERING_ROLE_NAMES:
@@ -999,6 +1083,8 @@ def build_summary_role_definition(role_definition: RoleDefinition) -> RoleDefini
                 clone_section(find_section(role_definition, "智慧场馆", "智慧服务"), name="智慧场馆/服务"),
                 clone_section(find_section(role_definition, "餐饮服务")),
             ),
+            role_match_value=role_definition.role_match_value,
+            row_conditions=role_definition.row_conditions,
         )
 
     return role_definition
@@ -1016,6 +1102,8 @@ def get_effective_role_definition(
 
 def required_columns(role_definition: RoleDefinition) -> set[str]:
     columns = {role_definition.role_column}
+    for row_condition in role_definition.row_conditions:
+        columns.add(row_condition.column)
     for section in role_definition.sections:
         for metric in section.metrics:
             columns.add(metric.satisfaction_column)
@@ -1078,13 +1166,7 @@ def compute_role_stats(
     calculation_mode: str = DEFAULT_CALCULATION_MODE,
 ) -> SurveyStatistics:
     effective_role_definition = get_effective_role_definition(role_definition, calculation_mode)
-    role_series = (
-        df.iloc[:, excel_column_to_index(effective_role_definition.role_column)]
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    role_mask = role_series.eq(effective_role_definition.role_name)
+    role_mask = build_role_mask(df, effective_role_definition)
     matched_row_count = int(role_mask.sum())
 
     section_results: list[SectionResult] = []
@@ -1429,6 +1511,38 @@ def collect_role_values(df: pd.DataFrame, role_column: str) -> set[str]:
     }
 
 
+def load_text_column(
+    df: pd.DataFrame,
+    column_name: str,
+    *,
+    column_label: str,
+) -> pd.Series:
+    column_index = excel_column_to_index(column_name)
+    if column_index >= len(df.columns):
+        raise ValueError(
+            f"来源数据缺少{column_label}列 {column_name}，当前仅有 {len(df.columns)} 列。"
+        )
+
+    return (
+        df.iloc[:, column_index]
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+
+
+def build_role_mask(df: pd.DataFrame, role_definition: RoleDefinition) -> pd.Series:
+    role_series = load_text_column(df, role_definition.role_column, column_label="身份")
+    role_match_value = str(role_definition.role_match_value or role_definition.role_name).strip()
+    role_mask = role_series.eq(role_match_value)
+
+    for row_condition in role_definition.row_conditions:
+        condition_series = load_text_column(df, row_condition.column, column_label="筛选")
+        role_mask = role_mask & condition_series.eq(str(row_condition.expected_value).strip())
+
+    return role_mask
+
+
 def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
     if config.input_dir is None:
         raise ValueError("仅目录模式配置支持自动发现 jobs。")
@@ -1438,7 +1552,6 @@ def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
     missing_customer_type_notices: list[MissingCustomerTypeNotice] = []
     preprocess_notices: list[PreprocessNoticeRecord] = []
     dataframe_cache: dict[Path, pd.DataFrame] = {}
-    role_values_cache: dict[tuple[Path, str], set[str]] = {}
 
     for mapping in STANDARD_CUSTOMER_TYPE_MAPPINGS:
         source_reference = source_file_override_lookup.get(
@@ -1466,13 +1579,7 @@ def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
             dataframe_cache[input_path] = pd.read_excel(input_path, sheet_name=config.sheet_name)
 
         role_definition = resolve_role_definition(mapping.template_name, mapping.template_role_name)
-        role_cache_key = (input_path, role_definition.role_column)
-        role_values = role_values_cache.get(role_cache_key)
-        if role_values is None:
-            role_values = collect_role_values(dataframe_cache[input_path], role_definition.role_column)
-            role_values_cache[role_cache_key] = role_values
-
-        if role_definition.role_name not in role_values:
+        if not build_role_mask(dataframe_cache[input_path], role_definition).any():
             missing_customer_type_notices.append(
                 MissingCustomerTypeNotice(
                     customer_type_name=role_definition.role_name,
