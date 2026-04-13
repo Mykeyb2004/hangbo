@@ -1,6 +1,6 @@
 template_path = "templates/template.pptx"
-input_dir = "输出结果/Q1"
-output_ppt = "输出结果/Q1满意度报告.pptx"
+input_dir = "输出结果/3月"
+output_ppt = "输出结果/3月满意度报告.pptx"
 
 file_pattern = "*.xlsx"
 sheet_name_mode = "first"

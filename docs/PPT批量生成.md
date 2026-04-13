@@ -14,7 +14,8 @@
 
 ## 当前规则
 
-- 页面顺序默认按 [客户类型汇总表.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/客户类型汇总表.md) 中“## 大类与样本类型”的顺序排列
+- 页面顺序默认直接按 [survey_customer_category_rules.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_customer_category_rules.py) 中 `DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES` 的顺序排列
+- 页面分组默认直接按 [survey_customer_category_rules.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_customer_category_rules.py) 中每条规则的 `customer_group` 划分
 - 若配置了 `category_intro_slides`，会在某个客户大类第一次出现前插入指定章节页
 - 若配置了 `chart_page.enabled=true`，会在每个客户分组的数据页后插入 1 页图表页
 - 页面标题默认使用 `客户大类——客户分组`
@@ -28,8 +29,8 @@
 
 补充说明：
 
-- 如果 Excel 文件名是汇总表里的来源别名，例如 `展览主承办.xlsx`、`会议主承办.xlsx`、`参会人员.xlsx`，标题会自动转换成汇总展示名，如 `会展客户——展览活动主（承）办`
-- 若同一个汇总行对应多个来源文件，也会强制统一成同一个汇总展示标题；例如 `酒店宴会.xlsx`、`酒店自助餐.xlsx` 都显示为 `酒店客户——酒店餐饮客户`
+- 如果 Excel 文件名命中规则表中的 `name`，页面标题会自动转换成该规则的 `customer_category` 展示名，例如 `展览主承办.xlsx` 会显示为 `会展客户——展览活动主（承）办`
+- 若同一个展示页对应多个内部组件规则，也会强制统一成同一个展示标题；例如 `酒店宴会.xlsx`、`酒店自助餐.xlsx` 都显示为 `酒店客户——酒店餐饮客户`
 - 章节页按客户大类触发，每个客户大类在一次批量生成中最多只插入 1 次；若该大类本次没有匹配到 Excel，则不会插入章节页
 - 图表页标题与前一页数据页保持一致
 - 图表页默认使用“左侧图表 + 右侧文字框”布局，右侧文字框可先放占位文案

@@ -5,7 +5,9 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
+import generate_ppt as generate_ppt_module
 from openpyxl import Workbook
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx import Presentation
@@ -40,6 +42,7 @@ from generate_ppt import (
     resolve_section_definition,
     resolve_workbook_display_meta,
 )
+from survey_customer_category_rules import CustomerCategoryRule
 
 
 def create_report_workbook(path: Path, rows: list[tuple[object, object, object]]) -> None:
@@ -297,6 +300,57 @@ class GeneratePptTest(unittest.TestCase):
                     "自助餐.xlsx",
                     "未知客户.xlsx",
                 ],
+            )
+
+    def test_discover_input_files_follows_display_rules_single_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+
+            for file_name in ("自助餐.xlsx", "展览主承办.xlsx"):
+                create_report_workbook(
+                    input_dir / file_name,
+                    [
+                        ("指标", "满意度", "重要性"),
+                        (Path(file_name).stem, 9.9, 9.8),
+                    ],
+                )
+
+            config = PptBatchConfig(
+                template_path=Path("templates/template.pptx"),
+                input_dir=input_dir,
+                output_ppt=temp_path / "report.pptx",
+            )
+            reversed_rules = (
+                CustomerCategoryRule(
+                    name="自助餐",
+                    customer_group="二、餐饮客户",
+                    customer_category="自助餐",
+                    source_file_name="餐饮.xlsx",
+                    sequence_number=1,
+                ),
+                CustomerCategoryRule(
+                    name="展览主承办",
+                    customer_group="一、会展客户",
+                    customer_category="展览活动主（承）办",
+                    source_file_name="展览.xlsx",
+                    sequence_number=2,
+                ),
+            )
+
+            with mock.patch.object(
+                generate_ppt_module,
+                "DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES",
+                reversed_rules,
+            ):
+                generate_ppt_module.build_workbook_display_lookup.cache_clear()
+                files = discover_input_files(config)
+
+            generate_ppt_module.build_workbook_display_lookup.cache_clear()
+            self.assertEqual(
+                [path.name for path in files],
+                ["自助餐.xlsx", "展览主承办.xlsx"],
             )
 
     def test_resolve_workbook_display_meta_forces_shared_display_name(self) -> None:

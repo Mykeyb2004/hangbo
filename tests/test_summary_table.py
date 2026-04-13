@@ -10,17 +10,21 @@ from openpyxl.cell.rich_text import CellRichText
 
 from summary_table import (
     SUMMARY_CHINESE_FONT_NAME,
+    SUMMARY_ROW_DEFINITIONS,
     DEFAULT_SUMMARY_TITLE,
     SUMMARY_BODY_FILL,
     SUMMARY_BORDER,
+    SUMMARY_COLUMN_WIDTH_REFERENCE_FALLBACKS,
     SUMMARY_HEADER_FILL,
     SUMMARY_LATIN_FONT_NAME,
     SUMMARY_NO_DATA_TEXT,
     build_summary_dataframe,
     build_summary_rows,
     generate_summary_report,
+    load_summary_column_widths,
     load_report_snapshots,
 )
+from survey_customer_category_rules import DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES
 from survey_stats import OVERALL_FILL, SECTION_FILL
 
 
@@ -51,7 +55,51 @@ def write_role_report(
     workbook.save(output_path)
 
 
+def write_summary_width_reference(output_path: Path) -> None:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "汇总表"
+    worksheet.column_dimensions["A"].width = 22.0
+    worksheet.column_dimensions["B"].width = 29.33203125
+    worksheet.column_dimensions["C"].width = 18.1640625
+    worksheet.column_dimensions["C"].min = 3
+    worksheet.column_dimensions["C"].max = 8
+    workbook.save(output_path)
+
+
 class SummaryTableTest(unittest.TestCase):
+    def test_summary_row_definitions_follow_display_rules_order_and_labels(self) -> None:
+        self.assertEqual(
+            [
+                (row.category_label, row.display_name)
+                for row in SUMMARY_ROW_DEFINITIONS
+                if row.display_name
+            ],
+            [
+                (rule.customer_group, rule.customer_category)
+                for rule in DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES
+            ],
+        )
+
+    def test_load_summary_column_widths_expands_grouped_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            reference_path = Path(temp_dir) / "reference.xlsx"
+            write_summary_width_reference(reference_path)
+
+            widths = load_summary_column_widths(reference_path)
+
+            expected_widths = {
+                "A": 22.0,
+                "B": 29.33203125,
+                "C": 18.1640625,
+                "D": 18.1640625,
+                "E": 18.1640625,
+                "F": 18.1640625,
+                "G": 18.1640625,
+                "H": 18.1640625,
+            }
+            self.assertEqual(widths, expected_widths)
+
     def test_build_summary_dataframe_maps_roles_and_combines_hotel_catering(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             input_dir = Path(temp_dir)
@@ -126,7 +174,7 @@ class SummaryTableTest(unittest.TestCase):
             self.assertEqual(travel_staff_row["智慧场馆/服务"], 9.1)
             self.assertTrue(travel_staff_row["配套服务"] != travel_staff_row["配套服务"])
 
-            guest_row = summary_df[summary_df["样本类型"] == "散客"].iloc[0]
+            guest_row = summary_df[summary_df["样本类型"] == "酒店散客"].iloc[0]
             self.assertEqual(guest_row["产品服务"], 9.6)
             self.assertEqual(guest_row["餐饮服务"], 9.7)
 
@@ -372,6 +420,42 @@ class SummaryTableTest(unittest.TestCase):
             self.assertEqual(worksheet.cell(row=business_meal_row, column=7).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
             self.assertEqual(worksheet.cell(row=business_meal_row, column=8).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
             self.assertEqual(worksheet.cell(row=business_meal_row, column=6).value, SUMMARY_NO_DATA_TEXT)
+
+    def test_generate_summary_report_applies_reference_column_widths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "inputs"
+            output_dir = temp_path / "outputs"
+            reference_path = temp_path / "reference.xlsx"
+            input_dir.mkdir()
+            output_dir.mkdir()
+            write_summary_width_reference(reference_path)
+
+            write_role_report(
+                input_dir / "商务简餐.xlsx",
+                "商务简餐",
+                [
+                    ("商务简餐", 9.58, "overall"),
+                    ("餐饮服务", 9.98, "section"),
+                    ("硬件设施", 9.17, "section"),
+                    ("智慧场馆", 8.88, "section"),
+                ],
+            )
+
+            output_path = generate_summary_report(
+                input_dir=input_dir,
+                output_dir=output_dir,
+                column_width_reference=reference_path,
+            )
+
+            worksheet = load_workbook(output_path).active
+            expected_widths = load_summary_column_widths(reference_path)
+            for column_name, expected_width in expected_widths.items():
+                self.assertEqual(worksheet.column_dimensions[column_name].width, expected_width)
+
+    def test_load_summary_column_widths_uses_fallback_when_reference_missing(self) -> None:
+        widths = load_summary_column_widths(Path("/tmp/does-not-exist.xlsx"))
+        self.assertEqual(widths, SUMMARY_COLUMN_WIDTH_REFERENCE_FALLBACKS)
 
 
 if __name__ == "__main__":

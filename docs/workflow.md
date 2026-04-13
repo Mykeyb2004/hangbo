@@ -302,7 +302,7 @@ flowchart LR
 - 代码层面，运行时输入依赖 `survey_stats.py` 的结果表结构，见 [generate_ppt.py](/Users/zhangqijin/PycharmProjects/hangbo/generate_ppt.py#L446)
 - 流程层面，它放在 `summary_table.py` 之后，作为最终展示输出环节
 
-另外，它在“命名规则和排序规则”上借用了 `summary_table.py` 中的 `SUMMARY_ROW_DEFINITIONS`，见 [generate_ppt.py](/Users/zhangqijin/PycharmProjects/hangbo/generate_ppt.py#L30)。
+另外，它在“命名规则、排序规则和客户大类分组”上直接复用了 [survey_customer_category_rules.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_customer_category_rules.py) 中的客户分类规则，确保页面顺序和章节页触发口径一致。
 
 ## 面向 GUI 平台的推荐页面流程
 

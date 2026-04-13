@@ -10,6 +10,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 from survey_stats import OVERALL_FILL, SECTION_FILL, excel_round, mean_ignore_empty, normalize_output_dir
 
@@ -24,6 +25,20 @@ SUMMARY_COLUMNS = (
     "智慧场馆/服务",
     "餐饮服务",
 )
+SUMMARY_OUTPUT_COLUMN_LETTERS = tuple(get_column_letter(index) for index in range(1, len(SUMMARY_COLUMNS) + 3))
+SUMMARY_COLUMN_WIDTH_REFERENCE_PATH = (
+    Path(__file__).resolve().parent / "汇总结果" / "Q1" / "Q1客户类型满意度汇总表.xlsx"
+)
+SUMMARY_COLUMN_WIDTH_REFERENCE_FALLBACKS = {
+    "A": 22.0,
+    "B": 29.33203125,
+    "C": 18.1640625,
+    "D": 18.1640625,
+    "E": 18.1640625,
+    "F": 18.1640625,
+    "G": 18.1640625,
+    "H": 18.1640625,
+}
 
 SUMMARY_HEADER_FILL = PatternFill(fill_type="solid", start_color="B32046", end_color="B32046")
 SUMMARY_SIDE_FILL = PatternFill(fill_type="solid", start_color="B32046", end_color="B32046")
@@ -315,17 +330,6 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
     ),
     SummaryRowDefinition(
         category_label="二、餐饮客户",
-        display_name="宴会",
-        source_aliases=("宴会",),
-        selectors={
-            "总分": overall_selector(),
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="二、餐饮客户",
         display_name="婚宴",
         source_aliases=("婚宴",),
         selectors={
@@ -347,9 +351,20 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
         },
     ),
     SummaryRowDefinition(
+        category_label="二、餐饮客户",
+        display_name="宴会",
+        source_aliases=("宴会",),
+        selectors={
+            "总分": overall_selector(),
+            "硬件设施": HARDWARE_SELECTORS,
+            "智慧场馆/服务": SMART_SELECTORS,
+            "餐饮服务": dining_selector(),
+        },
+    ),
+    SummaryRowDefinition(
         category_label="三、G20峰会体验馆",
-        display_name="旅行社工作人员",
-        source_aliases=("旅行社工作人员",),
+        display_name="游客",
+        source_aliases=("游客",),
         selectors={
             "总分": overall_selector(),
             "产品服务": G20_PRODUCT_SELECTORS,
@@ -359,8 +374,8 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
     ),
     SummaryRowDefinition(
         category_label="三、G20峰会体验馆",
-        display_name="游客",
-        source_aliases=("游客",),
+        display_name="旅行社工作人员",
+        source_aliases=("旅行社工作人员",),
         selectors={
             "总分": overall_selector(),
             "产品服务": G20_PRODUCT_SELECTORS,
@@ -376,8 +391,8 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
     ),
     SummaryRowDefinition(
         category_label="五、酒店客户",
-        display_name="散客",
-        source_aliases=("散客",),
+        display_name="酒店散客",
+        source_aliases=("散客", "酒店散客"),
         selectors={
             "总分": overall_selector(),
             "产品服务": HOTEL_PRODUCT_SELECTORS,
@@ -388,8 +403,8 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
     ),
     SummaryRowDefinition(
         category_label="五、酒店客户",
-        display_name="住宿团队",
-        source_aliases=("住宿团队",),
+        display_name="酒店住宿团队",
+        source_aliases=("住宿团队", "酒店住宿团队"),
         selectors={
             "总分": overall_selector(),
             "产品服务": HOTEL_PRODUCT_SELECTORS,
@@ -400,8 +415,8 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
     ),
     SummaryRowDefinition(
         category_label="五、酒店客户",
-        display_name="酒店会议活动主（承）办",
-        source_aliases=("酒店会议主承办", "酒店会议活动主（承）办"),
+        display_name="酒店参会客户",
+        source_aliases=("酒店参会客户", "酒店参会人员"),
         selectors={
             "总分": overall_selector(),
             "产品服务": EVENT_PRODUCT_SELECTORS,
@@ -413,8 +428,8 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
     ),
     SummaryRowDefinition(
         category_label="五、酒店客户",
-        display_name="酒店参会客户",
-        source_aliases=("酒店参会客户", "酒店参会人员"),
+        display_name="酒店会议活动主（承）办",
+        source_aliases=("酒店会议主承办", "酒店会议活动主（承）办"),
         selectors={
             "总分": overall_selector(),
             "产品服务": EVENT_PRODUCT_SELECTORS,
@@ -598,7 +613,58 @@ def set_text_cell(cell, value: str | None, *, fill: PatternFill, font: Font) -> 
     apply_common_style(cell, fill=fill, font=font)
 
 
-def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> None:
+def load_summary_column_widths(
+    reference_path: Path | None = SUMMARY_COLUMN_WIDTH_REFERENCE_PATH,
+) -> dict[str, float]:
+    if reference_path is None or not reference_path.exists():
+        return dict(SUMMARY_COLUMN_WIDTH_REFERENCE_FALLBACKS)
+
+    workbook = load_workbook(reference_path)
+    try:
+        worksheet = workbook[SUMMARY_SHEET_NAME] if SUMMARY_SHEET_NAME in workbook.sheetnames else workbook.active
+        widths: dict[str, float] = {}
+        max_column_index = len(SUMMARY_OUTPUT_COLUMN_LETTERS)
+
+        for dimension in worksheet.column_dimensions.values():
+            if dimension.width is None:
+                continue
+            start_index = dimension.min
+            if start_index is None:
+                dimension_index = getattr(dimension, "index", None)
+                if not dimension_index:
+                    continue
+                start_index = column_index_from_string(dimension_index)
+            end_index = dimension.max or start_index
+            for column_index in range(start_index, min(end_index, max_column_index) + 1):
+                widths[get_column_letter(column_index)] = float(dimension.width)
+
+        default_width = worksheet.sheet_format.defaultColWidth
+        if default_width is not None:
+            for column_name in SUMMARY_OUTPUT_COLUMN_LETTERS:
+                widths.setdefault(column_name, float(default_width))
+
+        if widths:
+            return widths
+    finally:
+        workbook.close()
+
+    return dict(SUMMARY_COLUMN_WIDTH_REFERENCE_FALLBACKS)
+
+
+def apply_summary_column_widths(worksheet, column_widths: dict[str, float]) -> None:
+    for column_name in SUMMARY_OUTPUT_COLUMN_LETTERS:
+        width = column_widths.get(column_name)
+        if width is None:
+            continue
+        worksheet.column_dimensions[column_name].width = width
+
+
+def style_summary_worksheet(
+    worksheet,
+    rows: tuple[SummaryRowResult, ...],
+    *,
+    column_widths: dict[str, float] | None = None,
+) -> None:
     worksheet.merge_cells("A1:H1")
     worksheet.sheet_view.showGridLines = False
     worksheet.row_dimensions[1].height = 36
@@ -684,15 +750,10 @@ def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> No
 
     merge_category_cells(worksheet, rows, data_start_row)
     worksheet.freeze_panes = "C3"
-
-    worksheet.column_dimensions["A"].width = 22
-    worksheet.column_dimensions["B"].width = 36
-    worksheet.column_dimensions["C"].width = 11
-    worksheet.column_dimensions["D"].width = 15
-    worksheet.column_dimensions["E"].width = 15
-    worksheet.column_dimensions["F"].width = 14
-    worksheet.column_dimensions["G"].width = 16
-    worksheet.column_dimensions["H"].width = 12
+    apply_summary_column_widths(
+        worksheet,
+        column_widths or dict(SUMMARY_COLUMN_WIDTH_REFERENCE_FALLBACKS),
+    )
 
 
 def merge_category_cells(worksheet, rows: tuple[SummaryRowResult, ...], data_start_row: int) -> None:
@@ -735,19 +796,21 @@ def generate_summary_report(
     output_dir: Path,
     output_name: str = DEFAULT_OUTPUT_NAME,
     recursive: bool = False,
+    column_width_reference: Path | None = SUMMARY_COLUMN_WIDTH_REFERENCE_PATH,
 ) -> Path:
     reports = load_report_snapshots(input_dir, recursive=recursive)
     if not reports:
         raise ValueError("输入目录下未找到可识别的统计结果 xlsx 文件。")
 
     rows = build_summary_rows(reports)
+    column_widths = load_summary_column_widths(column_width_reference)
     output_path = ensure_output_path(output_dir, output_name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = SUMMARY_SHEET_NAME
-    style_summary_worksheet(worksheet, rows)
+    style_summary_worksheet(worksheet, rows, column_widths=column_widths)
     workbook.save(output_path)
     return output_path
 

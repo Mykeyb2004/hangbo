@@ -26,9 +26,13 @@ from survey_stats import (
     format_value,
     get_effective_role_definition,
 )
-from survey_customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
+from survey_customer_category_rules import (
+    ALL_CUSTOMER_CATEGORY_RULES,
+    CUSTOMER_CATEGORY_RULE_BY_NAME,
+    DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES,
+)
 from ppt_chart_renderer import ChartPoint, ChartRenderConfig, render_chart_image
-from summary_table import SUMMARY_ROW_DEFINITIONS, normalize_text
+from summary_table import normalize_text
 
 VALID_SECTION_MODES = ("auto", "template", "summary")
 DEFAULT_FILE_PATTERN = "*.xlsx"
@@ -57,6 +61,7 @@ CHART_TEXTBOX_BORDER_COLOR = "E8D5DA"
 CHART_TEXTBOX_FONT_NAME = "Kaiti SC"
 CHART_TEXTBOX_FONT_SIZE_PT = 14
 CHART_TEXTBOX_LINE_SPACING = 1.3
+CHART_TEXTBOX_FIRST_LINE_INDENT_PT = 28
 
 
 @dataclass(frozen=True)
@@ -379,24 +384,27 @@ def strip_category_label_prefix(category_label: str) -> str:
 @lru_cache(maxsize=1)
 def build_workbook_display_lookup() -> dict[str, tuple[int, int, str, str]]:
     lookup: dict[str, tuple[int, int, str, str]] = {}
-    for definition_index, definition in enumerate(SUMMARY_ROW_DEFINITIONS):
-        display_key = normalize_text(definition.display_name)
-        if display_key and display_key not in lookup:
-            lookup[display_key] = (
-                definition_index,
-                -1,
-                definition.category_label,
-                definition.display_name,
-            )
-
-        for alias_index, alias in enumerate(definition.source_aliases):
+    for definition_index, rule in enumerate(DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES):
+        aliases = dict.fromkeys(
+            [
+                rule.name,
+                rule.customer_category,
+                *(
+                    candidate.name
+                    for candidate in ALL_CUSTOMER_CATEGORY_RULES
+                    if candidate.customer_group == rule.customer_group
+                    and normalize_text(candidate.customer_category) == normalize_text(rule.customer_category)
+                ),
+            ]
+        )
+        for alias_index, alias in enumerate(aliases):
             alias_key = normalize_text(alias)
             if alias_key and alias_key not in lookup:
                 lookup[alias_key] = (
                     definition_index,
                     alias_index,
-                    definition.category_label,
-                    definition.display_name,
+                    rule.customer_group,
+                    rule.customer_category,
                 )
     return lookup
 
@@ -405,7 +413,7 @@ def resolve_workbook_display_meta(workbook_name: str) -> WorkbookDisplayMeta:
     entry = build_workbook_display_lookup().get(normalize_text(workbook_name))
     if entry is None:
         return WorkbookDisplayMeta(
-            sort_index=len(SUMMARY_ROW_DEFINITIONS),
+            sort_index=len(DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES),
             alias_index=0,
             title=workbook_name,
             category_label=None,
@@ -1120,6 +1128,7 @@ def render_chart_textbox(
         paragraph = text_frame.paragraphs[0] if paragraph_index == 0 else text_frame.add_paragraph()
         paragraph.alignment = PP_ALIGN.LEFT
         paragraph.line_spacing = CHART_TEXTBOX_LINE_SPACING
+        paragraph._p.get_or_add_pPr().set("indent", str(Pt(CHART_TEXTBOX_FIRST_LINE_INDENT_PT)))
         run = paragraph.add_run()
         run.text = line
         run.font.size = Pt(CHART_TEXTBOX_FONT_SIZE_PT)
