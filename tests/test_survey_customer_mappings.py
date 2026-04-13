@@ -37,6 +37,7 @@ class SurveyCustomerMappingsTest(unittest.TestCase):
                     "hotel_meeting_attendee",
                     "meeting_attendee",
                 ),
+                "旅游.xlsx": ("travel_staff", "tourist"),
                 "酒店.xlsx": ("hotel_individual_guest", "hotel_group_guest"),
                 "餐饮.xlsx": (
                     "catering_food_hall",

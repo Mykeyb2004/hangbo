@@ -10,6 +10,11 @@ import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from phase_column_preprocess import preprocess_phase_column_if_needed
+from survey_customer_category_rules import (
+    CUSTOMER_CATEGORY_RULE_BY_NAME,
+    CUSTOMER_CATEGORY_RULES,
+    CustomerCategoryRule,
+)
 from survey_customer_mappings import (
     SOURCE_FILE_TO_TEMPLATE_NAMES,
     STANDARD_CUSTOMER_TYPE_MAPPINGS,
@@ -45,6 +50,8 @@ CATERING_WEDDING_BANQUET_ROLE_NAME = "婚宴"
 CATERING_BUFFET_ROLE_NAME = "自助餐"
 CATERING_HOTEL_BANQUET_ROLE_NAME = "酒店宴会"
 CATERING_HOTEL_BUFFET_ROLE_NAME = "酒店自助餐"
+HOTEL_CATERING_BUSINESS_MEAL_COMPONENT_ROLE_NAME = "酒店餐饮-商务简餐"
+HOTEL_CATERING_BANQUET_COMPONENT_ROLE_NAME = "酒店餐饮-宴会"
 HOTEL_ROLE_COLUMN = "C"
 CATERING_ROLE_COLUMN = "D"
 TOURISM_ROLE_COLUMN = "C"
@@ -75,7 +82,7 @@ class SectionDefinition:
 @dataclass(frozen=True)
 class MatchCondition:
     column: str
-    expected_value: str
+    expected_value: str | tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -84,6 +91,7 @@ class RoleDefinition:
     role_column: str
     sections: tuple[SectionDefinition, ...]
     role_match_value: str | None = None
+    role_match_values: tuple[str, ...] | None = None
     row_conditions: tuple[MatchCondition, ...] = ()
 
 
@@ -96,6 +104,7 @@ class JobConfig:
     role_name: str
     output_name: str
     output_format: str | None = None
+    category_rule_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -174,10 +183,19 @@ class PreprocessNoticeRecord:
 
 
 @dataclass(frozen=True)
+class UnmappedCustomerCategoryNotice:
+    source_file_name: str
+    auxiliary_value: str | None
+    data_value: str
+    row_count: int
+
+
+@dataclass(frozen=True)
 class DirectoryDiscoveryResult:
     jobs: tuple[JobConfig, ...]
     missing_customer_type_notices: tuple[MissingCustomerTypeNotice, ...]
     preprocess_notices: tuple[PreprocessNoticeRecord, ...]
+    unmapped_customer_category_notices: tuple[UnmappedCustomerCategoryNotice, ...] = ()
 
 
 ORGANIZER_TEMPLATE = RoleDefinition(
@@ -235,6 +253,7 @@ ORGANIZER_TEMPLATE = RoleDefinition(
             ),
         ),
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "展览"),),
 )
 
 EXHIBITOR_TEMPLATE = RoleDefinition(
@@ -281,6 +300,7 @@ EXHIBITOR_TEMPLATE = RoleDefinition(
             ),
         ),
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "展览"),),
 )
 
 VISITOR_TEMPLATE = RoleDefinition(
@@ -327,6 +347,7 @@ VISITOR_TEMPLATE = RoleDefinition(
             ),
         ),
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "展览"),),
 )
 
 SERVICE_PROVIDER_TEMPLATE = RoleDefinition(
@@ -493,7 +514,7 @@ HOTEL_MEETING_ORGANIZER_TEMPLATE = RoleDefinition(
         MEETING_SUPPORT_SECTION,
         MEETING_SMART_SECTION,
     ),
-    role_match_value=MEETING_ORGANIZER_ROLE_NAME,
+    role_match_value=HOTEL_MEETING_ORGANIZER_ROLE_NAME,
     row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, HOTEL_MEETING_CATEGORY_NAME),),
 )
 
@@ -506,7 +527,7 @@ HOTEL_MEETING_ATTENDEE_TEMPLATE = RoleDefinition(
         MEETING_SUPPORT_SECTION,
         MEETING_SMART_SECTION,
     ),
-    role_match_value=MEETING_ATTENDEE_ROLE_NAME,
+    role_match_value=HOTEL_MEETING_ATTENDEE_ROLE_NAME,
     row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, HOTEL_MEETING_CATEGORY_NAME),),
 )
 
@@ -711,6 +732,7 @@ CATERING_FOOD_HALL_TEMPLATE = RoleDefinition(
         CATERING_BASIC_HARDWARE_SECTION,
         CATERING_STANDARD_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "餐饮"),),
 )
 
 CATERING_BUSINESS_MEAL_TEMPLATE = RoleDefinition(
@@ -732,6 +754,7 @@ CATERING_BUSINESS_MEAL_TEMPLATE = RoleDefinition(
         CATERING_BASIC_HARDWARE_SECTION,
         CATERING_STANDARD_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "餐饮"),),
 )
 
 CATERING_TOUR_MEAL_TEMPLATE = RoleDefinition(
@@ -753,6 +776,7 @@ CATERING_TOUR_MEAL_TEMPLATE = RoleDefinition(
         CATERING_BASIC_HARDWARE_SECTION,
         CATERING_STANDARD_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "餐饮"),),
 )
 
 CATERING_BANQUET_TEMPLATE = RoleDefinition(
@@ -776,6 +800,7 @@ CATERING_BANQUET_TEMPLATE = RoleDefinition(
         CATERING_BANQUET_HARDWARE_SECTION,
         CATERING_STANDARD_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "餐饮"),),
 )
 
 CATERING_WEDDING_BANQUET_TEMPLATE = RoleDefinition(
@@ -801,6 +826,7 @@ CATERING_WEDDING_BANQUET_TEMPLATE = RoleDefinition(
         CATERING_WEDDING_HARDWARE_SECTION,
         CATERING_STANDARD_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "餐饮"),),
 )
 
 CATERING_BUFFET_TEMPLATE = RoleDefinition(
@@ -823,6 +849,7 @@ CATERING_BUFFET_TEMPLATE = RoleDefinition(
         CATERING_BASIC_HARDWARE_SECTION,
         CATERING_BUFFET_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "餐饮"),),
 )
 
 CATERING_HOTEL_BANQUET_TEMPLATE = RoleDefinition(
@@ -846,6 +873,7 @@ CATERING_HOTEL_BANQUET_TEMPLATE = RoleDefinition(
         CATERING_BANQUET_HARDWARE_SECTION,
         CATERING_STANDARD_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "酒店餐饮"),),
 )
 
 CATERING_HOTEL_BUFFET_TEMPLATE = RoleDefinition(
@@ -868,6 +896,7 @@ CATERING_HOTEL_BUFFET_TEMPLATE = RoleDefinition(
         CATERING_BASIC_HARDWARE_SECTION,
         CATERING_BUFFET_SMART_SECTION,
     ),
+    row_conditions=(MatchCondition(MEETING_CATEGORY_COLUMN, "酒店餐饮"),),
 )
 
 TEMPLATE_DEFINITIONS: dict[str, RoleDefinition] = {
@@ -921,6 +950,8 @@ SUMMARY_CATERING_ROLE_NAMES = frozenset(
         CATERING_BUFFET_ROLE_NAME,
         CATERING_HOTEL_BANQUET_ROLE_NAME,
         CATERING_HOTEL_BUFFET_ROLE_NAME,
+        HOTEL_CATERING_BUSINESS_MEAL_COMPONENT_ROLE_NAME,
+        HOTEL_CATERING_BANQUET_COMPONENT_ROLE_NAME,
     }
 )
 
@@ -971,15 +1002,148 @@ def resolve_role_definition(template_name: str, role_name: str | None = None) ->
         supported = ", ".join(sorted(TEMPLATE_DEFINITIONS))
         raise ValueError(f"未知模板: {template_name}，支持的模板有: {supported}")
     resolved_role_name = role_name or template.role_name
+    role_match_values = template.role_match_values
     role_match_value = template.role_match_value
-    if role_name is not None and role_match_value is None:
+    if role_name is not None and role_match_value is None and role_match_values is None:
         role_match_value = resolved_role_name
     return RoleDefinition(
         role_name=resolved_role_name,
         role_column=template.role_column,
         sections=template.sections,
         role_match_value=role_match_value,
+        role_match_values=role_match_values,
         row_conditions=template.row_conditions,
+    )
+
+
+def build_role_definition_from_customer_category_rule(
+    rule: CustomerCategoryRule,
+) -> RoleDefinition:
+    if rule.template_name is None:
+        raise ValueError(f"{rule.name} 是聚合客户类别，不能直接构建单一模板定义。")
+
+    template = TEMPLATE_DEFINITIONS.get(rule.template_name)
+    if template is None:
+        supported = ", ".join(sorted(TEMPLATE_DEFINITIONS))
+        raise ValueError(f"未知模板: {rule.template_name}，支持的模板有: {supported}")
+
+    row_conditions: tuple[MatchCondition, ...] = ()
+    if rule.auxiliary_column and rule.auxiliary_values:
+        expected_value: str | tuple[str, ...]
+        if len(rule.auxiliary_values) == 1:
+            expected_value = rule.auxiliary_values[0]
+        else:
+            expected_value = rule.auxiliary_values
+        row_conditions = (MatchCondition(rule.auxiliary_column, expected_value),)
+
+    return RoleDefinition(
+        role_name=rule.name,
+        role_column=rule.data_column or template.role_column,
+        sections=template.sections,
+        role_match_value=rule.data_values[0] if len(rule.data_values) == 1 else None,
+        role_match_values=rule.data_values if len(rule.data_values) > 1 else None,
+        row_conditions=row_conditions,
+    )
+
+
+def build_customer_category_rule_mask(
+    df: pd.DataFrame,
+    rule: CustomerCategoryRule,
+) -> pd.Series:
+    if rule.data_column is None or not rule.data_values:
+        return pd.Series([False] * len(df), index=df.index)
+
+    role_definition = RoleDefinition(
+        role_name=rule.name,
+        role_column=rule.data_column,
+        sections=(),
+        role_match_value=rule.data_values[0] if len(rule.data_values) == 1 else None,
+        role_match_values=rule.data_values if len(rule.data_values) > 1 else None,
+        row_conditions=(
+            (
+                MatchCondition(
+                    rule.auxiliary_column,
+                    rule.auxiliary_values[0]
+                    if len(rule.auxiliary_values) == 1
+                    else rule.auxiliary_values,
+                ),
+            )
+            if rule.auxiliary_column and rule.auxiliary_values
+            else ()
+        ),
+    )
+    return build_role_mask(df, role_definition)
+
+
+def unique_preserve_order(values: list[str]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        ordered.append(value)
+        seen.add(value)
+    return tuple(ordered)
+
+
+def merge_survey_statistics(
+    role_name: str,
+    stats_list: list[SurveyStatistics],
+) -> SurveyStatistics:
+    section_names = unique_preserve_order(
+        [section.name for stats in stats_list for section in stats.sections]
+    )
+    section_results: list[SectionResult] = []
+
+    for section_name in section_names:
+        matched_sections = [
+            section
+            for stats in stats_list
+            for section in stats.sections
+            if section.name == section_name
+        ]
+        metric_names = unique_preserve_order(
+            [metric.name for section in matched_sections for metric in section.metrics]
+        )
+        metric_results: list[MetricResult] = []
+        for metric_name in metric_names:
+            matched_metrics = [
+                metric
+                for section in matched_sections
+                for metric in section.metrics
+                if metric.name == metric_name
+            ]
+            metric_results.append(
+                MetricResult(
+                    name=metric_name,
+                    satisfaction=mean_ignore_empty(
+                        [metric.satisfaction for metric in matched_metrics]
+                    ),
+                    importance=mean_ignore_empty(
+                        [metric.importance for metric in matched_metrics]
+                    ),
+                )
+            )
+
+        section_results.append(
+            SectionResult(
+                name=section_name,
+                satisfaction=mean_ignore_empty(
+                    [section.satisfaction for section in matched_sections]
+                ),
+                importance=mean_ignore_empty(
+                    [section.importance for section in matched_sections]
+                ),
+                metrics=tuple(metric_results),
+            )
+        )
+
+    return SurveyStatistics(
+        role_name=role_name,
+        satisfaction=mean_ignore_empty([stats.satisfaction for stats in stats_list]),
+        importance=mean_ignore_empty([stats.importance for stats in stats_list]),
+        sections=tuple(section_results),
+        matched_row_count=sum(stats.matched_row_count for stats in stats_list),
     )
 
 
@@ -1057,6 +1221,7 @@ def build_summary_role_definition(role_definition: RoleDefinition) -> RoleDefini
                 dining_section,
             ),
             role_match_value=role_definition.role_match_value,
+            role_match_values=role_definition.role_match_values,
             row_conditions=role_definition.row_conditions,
         )
 
@@ -1071,6 +1236,7 @@ def build_summary_role_definition(role_definition: RoleDefinition) -> RoleDefini
                 clone_section(find_section(role_definition, "餐饮服务")),
             ),
             role_match_value=role_definition.role_match_value,
+            role_match_values=role_definition.role_match_values,
             row_conditions=role_definition.row_conditions,
         )
 
@@ -1084,6 +1250,7 @@ def build_summary_role_definition(role_definition: RoleDefinition) -> RoleDefini
                 clone_section(find_section(role_definition, "餐饮服务")),
             ),
             role_match_value=role_definition.role_match_value,
+            role_match_values=role_definition.role_match_values,
             row_conditions=role_definition.row_conditions,
         )
 
@@ -1354,7 +1521,10 @@ def load_source_file_overrides(raw_overrides: object) -> tuple[SourceFileOverrid
     if not isinstance(raw_overrides, dict):
         raise ValueError("source_file_overrides 必须是表结构。")
 
-    supported_source_files = set(SOURCE_FILE_TO_TEMPLATE_NAMES)
+    supported_source_files = {
+        *SOURCE_FILE_TO_TEMPLATE_NAMES,
+        *(rule.source_file_name for rule in CUSTOMER_CATEGORY_RULES),
+    }
     overrides: list[SourceFileOverride] = []
     for standard_file_name, actual_file_name_value in raw_overrides.items():
         normalized_standard_file_name = str(standard_file_name).strip()
@@ -1531,16 +1701,92 @@ def load_text_column(
     )
 
 
+def normalize_expected_values(expected_value: str | tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(expected_value, tuple):
+        return tuple(str(value).strip() for value in expected_value if str(value).strip())
+    text = str(expected_value).strip()
+    return (text,) if text else ()
+
+
 def build_role_mask(df: pd.DataFrame, role_definition: RoleDefinition) -> pd.Series:
     role_series = load_text_column(df, role_definition.role_column, column_label="身份")
-    role_match_value = str(role_definition.role_match_value or role_definition.role_name).strip()
-    role_mask = role_series.eq(role_match_value)
+    role_match_values = role_definition.role_match_values or normalize_expected_values(
+        role_definition.role_match_value or role_definition.role_name
+    )
+    role_mask = role_series.isin(role_match_values)
 
     for row_condition in role_definition.row_conditions:
         condition_series = load_text_column(df, row_condition.column, column_label="筛选")
-        role_mask = role_mask & condition_series.eq(str(row_condition.expected_value).strip())
+        role_mask = role_mask & condition_series.isin(
+            normalize_expected_values(row_condition.expected_value)
+        )
 
     return role_mask
+
+
+def build_unmapped_customer_category_notices_for_source(
+    source_file_name: str,
+    df: pd.DataFrame,
+) -> tuple[UnmappedCustomerCategoryNotice, ...]:
+    rules = [rule for rule in CUSTOMER_CATEGORY_RULES if rule.source_file_name == source_file_name]
+    if not rules:
+        return ()
+
+    data_columns = {rule.data_column for rule in rules if rule.data_column}
+    auxiliary_columns = {rule.auxiliary_column for rule in rules if rule.auxiliary_column}
+    if len(data_columns) != 1:
+        return ()
+
+    data_column = next(iter(data_columns))
+    data_series = load_text_column(df, data_column, column_label="数据标签")
+
+    if auxiliary_columns:
+        if len(auxiliary_columns) != 1:
+            return ()
+        auxiliary_column = next(iter(auxiliary_columns))
+        auxiliary_series = load_text_column(df, auxiliary_column, column_label="辅助标签")
+        mapped_pairs: set[tuple[str, str]] = set()
+        for rule in rules:
+            for auxiliary_value in (rule.auxiliary_values or ("",)):
+                for data_value in rule.data_values:
+                    mapped_pairs.add((auxiliary_value, data_value))
+
+        pair_counts = (
+            pd.DataFrame({"auxiliary": auxiliary_series, "data": data_series})
+            .query("auxiliary != '' and data != ''")
+            .value_counts(sort=False)
+        )
+        notices = [
+            UnmappedCustomerCategoryNotice(
+                source_file_name=source_file_name,
+                auxiliary_value=auxiliary_value,
+                data_value=data_value,
+                row_count=int(row_count),
+            )
+            for (auxiliary_value, data_value), row_count in pair_counts.items()
+            if (auxiliary_value, data_value) not in mapped_pairs
+        ]
+        notices.sort(key=lambda item: (-item.row_count, item.auxiliary_value or "", item.data_value))
+        return tuple(notices)
+
+    mapped_values = {
+        data_value
+        for rule in rules
+        for data_value in rule.data_values
+    }
+    value_counts = data_series[data_series != ""].value_counts(sort=False)
+    notices = [
+        UnmappedCustomerCategoryNotice(
+            source_file_name=source_file_name,
+            auxiliary_value=None,
+            data_value=data_value,
+            row_count=int(row_count),
+        )
+        for data_value, row_count in value_counts.items()
+        if data_value not in mapped_values
+    ]
+    notices.sort(key=lambda item: (-item.row_count, item.data_value))
+    return tuple(notices)
 
 
 def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
@@ -1551,18 +1797,19 @@ def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
     jobs: list[JobConfig] = []
     missing_customer_type_notices: list[MissingCustomerTypeNotice] = []
     preprocess_notices: list[PreprocessNoticeRecord] = []
+    unmapped_customer_category_notices: list[UnmappedCustomerCategoryNotice] = []
     dataframe_cache: dict[Path, pd.DataFrame] = {}
 
-    for mapping in STANDARD_CUSTOMER_TYPE_MAPPINGS:
+    for rule in CUSTOMER_CATEGORY_RULES:
         source_reference = source_file_override_lookup.get(
-            mapping.source_file_name,
-            mapping.source_file_name,
+            rule.source_file_name,
+            rule.source_file_name,
         )
         input_path = (config.input_dir / source_reference).resolve()
         if not input_path.exists() or not input_path.is_file():
             missing_customer_type_notices.append(
                 MissingCustomerTypeNotice(
-                    customer_type_name=mapping.template_role_name,
+                    customer_type_name=rule.name,
                     source_reference=source_reference,
                     sheet_name=config.sheet_name,
                     reason=DIRECTORY_NOTICE_REASON_MISSING_SOURCE_FILE,
@@ -1577,12 +1824,17 @@ def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
                     PreprocessNoticeRecord(input_path=input_path, notice=preprocess_notice)
                 )
             dataframe_cache[input_path] = pd.read_excel(input_path, sheet_name=config.sheet_name)
+            unmapped_customer_category_notices.extend(
+                build_unmapped_customer_category_notices_for_source(
+                    rule.source_file_name,
+                    dataframe_cache[input_path],
+                )
+            )
 
-        role_definition = resolve_role_definition(mapping.template_name, mapping.template_role_name)
-        if not build_role_mask(dataframe_cache[input_path], role_definition).any():
+        if not build_customer_category_rule_mask(dataframe_cache[input_path], rule).any():
             missing_customer_type_notices.append(
                 MissingCustomerTypeNotice(
-                    customer_type_name=role_definition.role_name,
+                    customer_type_name=rule.name,
                     source_reference=source_reference,
                     sheet_name=config.sheet_name,
                     reason=DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA,
@@ -1592,12 +1844,13 @@ def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
 
         jobs.append(
             JobConfig(
-                name=role_definition.role_name,
+                name=rule.name,
                 path=input_path,
                 sheet_name=config.sheet_name,
-                template_name=mapping.template_name,
-                role_name=role_definition.role_name,
-                output_name=role_definition.role_name,
+                template_name=rule.template_name or "",
+                role_name=rule.name,
+                output_name=rule.name,
+                category_rule_name=rule.name,
             )
         )
 
@@ -1605,6 +1858,7 @@ def discover_directory_jobs(config: BatchConfig) -> DirectoryDiscoveryResult:
         jobs=tuple(jobs),
         missing_customer_type_notices=tuple(missing_customer_type_notices),
         preprocess_notices=tuple(preprocess_notices),
+        unmapped_customer_category_notices=tuple(unmapped_customer_category_notices),
     )
 
 
@@ -1629,6 +1883,70 @@ def generate_role_report_bundle(
     final_sheet_title = sheet_title or role_definition.role_name
     if not dry_run and (save_empty_report or stats.matched_row_count > 0):
         save_results(result_df, output_path, effective_role_definition, final_sheet_title)
+    return GeneratedReport(
+        result_df=result_df,
+        output_path=output_path,
+        stats=stats,
+        preprocess_notice=preprocess_notice,
+    )
+
+
+def generate_customer_category_report_bundle(
+    input_path: Path,
+    category_rule: CustomerCategoryRule,
+    output_path: Path,
+    sheet_name: str = DEFAULT_SHEET_NAME,
+    calculation_mode: str = DEFAULT_CALCULATION_MODE,
+    dry_run: bool = False,
+    save_empty_report: bool = True,
+) -> GeneratedReport:
+    if not category_rule.is_aggregate:
+        role_definition = build_role_definition_from_customer_category_rule(category_rule)
+        return generate_role_report_bundle(
+            input_path=input_path,
+            role_definition=role_definition,
+            output_path=output_path,
+            sheet_name=sheet_name,
+            sheet_title=category_rule.name,
+            calculation_mode=calculation_mode,
+            dry_run=dry_run,
+            save_empty_report=save_empty_report,
+        )
+
+    component_rules = [
+        CUSTOMER_CATEGORY_RULE_BY_NAME[rule_name]
+        for rule_name in category_rule.aggregate_rule_names
+    ]
+    if not component_rules:
+        raise ValueError(f"{category_rule.name} 未配置聚合组件规则。")
+
+    first_role_definition = build_role_definition_from_customer_category_rule(component_rules[0])
+    preprocess_notice = preprocess_phase_column_if_needed(input_path, sheet_name)
+    df = pd.read_excel(input_path, sheet_name=sheet_name)
+    validate_dataframe(df, first_role_definition)
+
+    component_stats: list[SurveyStatistics] = []
+    for component_rule in component_rules:
+        role_definition = build_role_definition_from_customer_category_rule(component_rule)
+        validate_dataframe(df, role_definition)
+        component_stats.append(
+            compute_role_stats(
+                df,
+                role_definition,
+                calculation_mode=calculation_mode,
+            )
+        )
+
+    stats = merge_survey_statistics(category_rule.name, component_stats)
+    result_df = build_result_dataframe(stats)
+    if not dry_run and (save_empty_report or stats.matched_row_count > 0):
+        save_results(
+            result_df,
+            output_path,
+            RoleDefinition(role_name=category_rule.name, role_column="A", sections=stats.sections),
+            category_rule.name,
+        )
+
     return GeneratedReport(
         result_df=result_df,
         output_path=output_path,
@@ -1707,6 +2025,30 @@ def build_missing_customer_type_summary(notices: list[MissingCustomerTypeNotice]
 
 def print_missing_customer_type_summary(notices: list[MissingCustomerTypeNotice]) -> None:
     summary = build_missing_customer_type_summary(notices)
+    if summary is not None:
+        print(f"\n{summary}")
+
+
+def build_unmapped_customer_category_summary(
+    notices: list[UnmappedCustomerCategoryNotice],
+) -> str | None:
+    if not notices:
+        return None
+
+    lines = ["以下来源数据中存在未纳入 V1.0 客户类别口径的标签组合，本次统计已排除："]
+    for notice in notices:
+        if notice.auxiliary_value:
+            label = f"{notice.auxiliary_value} + {notice.data_value}"
+        else:
+            label = notice.data_value
+        lines.append(f"- {notice.source_file_name}: {label}（{notice.row_count} 行）")
+    return "\n".join(lines)
+
+
+def print_unmapped_customer_category_summary(
+    notices: list[UnmappedCustomerCategoryNotice],
+) -> None:
+    summary = build_unmapped_customer_category_summary(notices)
     if summary is not None:
         print(f"\n{summary}")
 
@@ -1815,6 +2157,7 @@ def run_config_mode(args: argparse.Namespace) -> None:
     selected_jobs: tuple[JobConfig, ...]
     missing_group_notices: list[MissingGroupNotice] = []
     missing_customer_type_notices: list[MissingCustomerTypeNotice] = []
+    unmapped_customer_category_notices: list[UnmappedCustomerCategoryNotice] = []
     preprocess_notice_lookup: dict[Path, str] = {}
 
     if config.input_dir is None:
@@ -1833,26 +2176,41 @@ def run_config_mode(args: argparse.Namespace) -> None:
         preprocess_notice_lookup = {
             record.input_path: record.notice for record in discovery_result.preprocess_notices
         }
+        unmapped_customer_category_notices = list(
+            discovery_result.unmapped_customer_category_notices
+        )
         if not selected_jobs and not missing_customer_type_notices:
             raise ValueError("筛选后没有可运行的 jobs。")
 
     total_jobs = len(selected_jobs)
 
     for index, job in enumerate(selected_jobs, start=1):
-        role_definition = resolve_role_definition(job.template_name, job.role_name)
         output_format = job.output_format or global_output_format
         output_path = build_output_path(output_dir, job.output_name, output_format)
         print_file_progress_start(index, total_jobs, job.path, job.name)
-        report = generate_role_report_bundle(
-            input_path=job.path,
-            role_definition=role_definition,
-            output_path=output_path,
-            sheet_name=job.sheet_name,
-            sheet_title=job.name,
-            calculation_mode=calculation_mode,
-            dry_run=args.dry_run,
-            save_empty_report=config.input_dir is None,
-        )
+        if job.category_rule_name is None:
+            role_definition = resolve_role_definition(job.template_name, job.role_name)
+            report = generate_role_report_bundle(
+                input_path=job.path,
+                role_definition=role_definition,
+                output_path=output_path,
+                sheet_name=job.sheet_name,
+                sheet_title=job.name,
+                calculation_mode=calculation_mode,
+                dry_run=args.dry_run,
+                save_empty_report=config.input_dir is None,
+            )
+        else:
+            category_rule = CUSTOMER_CATEGORY_RULE_BY_NAME[job.category_rule_name]
+            report = generate_customer_category_report_bundle(
+                input_path=job.path,
+                category_rule=category_rule,
+                output_path=output_path,
+                sheet_name=job.sheet_name,
+                calculation_mode=calculation_mode,
+                dry_run=args.dry_run,
+                save_empty_report=config.input_dir is None,
+            )
         preprocess_notice = report.preprocess_notice or preprocess_notice_lookup.pop(job.path, None)
         print_preprocess_notice(index, total_jobs, preprocess_notice)
         if config.input_dir is not None and report.stats.matched_row_count == 0:
@@ -1880,6 +2238,7 @@ def run_config_mode(args: argparse.Namespace) -> None:
         print_missing_group_summary(missing_group_notices)
     else:
         print_missing_customer_type_summary(missing_customer_type_notices)
+        print_unmapped_customer_category_summary(unmapped_customer_category_notices)
 
 
 def parse_args() -> argparse.Namespace:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from copy import copy
 from pathlib import Path
 from typing import Iterable
 
@@ -491,6 +492,76 @@ def describe_locator(locator: TagLocator) -> str:
     )
 
 
+def locator_to_column_text(locator: TagLocator) -> str:
+    if not locator.target_values:
+        return ""
+    if locator.best_match is None:
+        return "未找到"
+    return locator.best_match.column_letter
+
+
+def write_augmented_workbook(
+    source_workbook_path: Path,
+    output_workbook_path: Path,
+    report: AuditReport,
+    *,
+    sheet_name: str | None = None,
+) -> None:
+    workbook = load_workbook(source_workbook_path)
+    worksheet = workbook[sheet_name] if sheet_name else workbook[workbook.sheetnames[0]]
+
+    data_column_index = worksheet.max_column + 1
+    auxiliary_column_index = worksheet.max_column + 2
+    data_header_cell = worksheet.cell(row=1, column=data_column_index, value="数据标签所在列")
+    auxiliary_header_cell = worksheet.cell(row=1, column=auxiliary_column_index, value="辅助标签所在列")
+
+    if worksheet.max_column >= 1:
+        header_template = worksheet.cell(row=1, column=1)
+        copy_cell_style(header_template, data_header_cell)
+        copy_cell_style(header_template, auxiliary_header_cell)
+
+    audit_by_row_number = {rule.row_number: rule for rule in report.rule_audits}
+    for row_index in range(2, worksheet.max_row + 1):
+        rule = audit_by_row_number.get(row_index)
+        if rule is None:
+            continue
+
+        data_cell = worksheet.cell(
+            row=row_index,
+            column=data_column_index,
+            value=locator_to_column_text(rule.data_tag_locator),
+        )
+        auxiliary_cell = worksheet.cell(
+            row=row_index,
+            column=auxiliary_column_index,
+            value=locator_to_column_text(rule.auxiliary_tag_locator),
+        )
+
+        template_data_cell = worksheet.cell(row=row_index, column=max(1, data_column_index - 1))
+        copy_cell_style(template_data_cell, data_cell)
+        copy_cell_style(template_data_cell, auxiliary_cell)
+
+    output_workbook_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook.save(output_workbook_path)
+
+
+def copy_cell_style(source_cell, target_cell) -> None:
+    if source_cell.has_style:
+        target_cell._style = copy(source_cell._style)
+    if source_cell.font is not None:
+        target_cell.font = copy(source_cell.font)
+    if source_cell.fill is not None:
+        target_cell.fill = copy(source_cell.fill)
+    if source_cell.border is not None:
+        target_cell.border = copy(source_cell.border)
+    if source_cell.alignment is not None:
+        target_cell.alignment = copy(source_cell.alignment)
+    if source_cell.number_format is not None:
+        target_cell.number_format = source_cell.number_format
+    if source_cell.protection is not None:
+        target_cell.protection = copy(source_cell.protection)
+
+
 def build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="核查客户类别对照表与数据源标签的一致性。")
     parser.add_argument(
@@ -510,6 +581,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         type=Path,
         help="可选：把 Markdown 报告写入指定文件",
     )
+    parser.add_argument(
+        "--xlsx-output",
+        type=Path,
+        help="可选：生成在原对照表后追加两列定位结果的新 Excel 文件",
+    )
     return parser
 
 
@@ -521,6 +597,8 @@ def main() -> int:
     print(markdown)
     if args.markdown_output is not None:
         args.markdown_output.write_text(markdown, encoding="utf-8")
+    if args.xlsx_output is not None:
+        write_augmented_workbook(args.mapping_workbook, args.xlsx_output, report)
     return 0
 
 

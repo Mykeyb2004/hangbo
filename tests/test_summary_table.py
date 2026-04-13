@@ -15,7 +15,7 @@ from summary_table import (
     SUMMARY_BORDER,
     SUMMARY_HEADER_FILL,
     SUMMARY_LATIN_FONT_NAME,
-    SUMMARY_NA_FILL,
+    SUMMARY_NO_DATA_TEXT,
     build_summary_dataframe,
     build_summary_rows,
     generate_summary_report,
@@ -130,7 +130,7 @@ class SummaryTableTest(unittest.TestCase):
             self.assertEqual(guest_row["产品服务"], 9.6)
             self.assertEqual(guest_row["餐饮服务"], 9.7)
 
-            hotel_catering_row = summary_df[summary_df["样本类型"] == "餐饮客户"].iloc[0]
+            hotel_catering_row = summary_df[summary_df["样本类型"] == "酒店餐饮客户"].iloc[0]
             self.assertEqual(hotel_catering_row["客户大类"], "五、酒店客户")
             self.assertEqual(hotel_catering_row["总分"], 9.8)
             self.assertEqual(hotel_catering_row["硬件设施"], 9.7)
@@ -168,6 +168,30 @@ class SummaryTableTest(unittest.TestCase):
             self.assertEqual(row["配套服务"], 9.2)
             self.assertEqual(row["餐饮服务"], 9.4)
 
+    def test_hotel_catering_row_accepts_combined_report_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = Path(temp_dir)
+            write_role_report(
+                input_dir / "酒店餐饮客户.xlsx",
+                "酒店餐饮客户",
+                [
+                    ("酒店餐饮客户", 9.8, "overall"),
+                    ("餐饮服务", 9.9, "section"),
+                    ("硬件设施", 9.7, "section"),
+                    ("智慧场馆", 8.2, "section"),
+                ],
+            )
+
+            reports = load_report_snapshots(input_dir)
+            rows = build_summary_rows(reports)
+            summary_df = build_summary_dataframe(rows)
+
+            row = summary_df[summary_df["样本类型"] == "酒店餐饮客户"].iloc[0]
+            self.assertEqual(row["总分"], 9.8)
+            self.assertEqual(row["硬件设施"], 9.7)
+            self.assertEqual(row["智慧场馆/服务"], 8.2)
+            self.assertEqual(row["餐饮服务"], 9.9)
+
     def test_food_hall_support_section_is_not_used_in_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             input_dir = Path(temp_dir)
@@ -194,7 +218,7 @@ class SummaryTableTest(unittest.TestCase):
             self.assertEqual(row["餐饮服务"], 9.8)
             self.assertTrue(pd.isna(row["配套服务"]))
 
-    def test_generate_summary_report_creates_expected_layout_and_grey_na_cells(self) -> None:
+    def test_generate_summary_report_creates_expected_layout_and_no_data_placeholders(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             input_dir = temp_path / "inputs"
@@ -248,10 +272,21 @@ class SummaryTableTest(unittest.TestCase):
             self.assertEqual(worksheet.cell(row=business_meal_row, column=3).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
             self.assertEqual(worksheet.cell(row=business_meal_row, column=3).font.name, SUMMARY_LATIN_FONT_NAME)
             self.assertEqual(worksheet.cell(row=business_meal_row, column=3).number_format, "0.00")
-            self.assertEqual(worksheet.cell(row=business_meal_row, column=6).fill.start_color.rgb, SUMMARY_NA_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=6).value, SUMMARY_NO_DATA_TEXT)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=6).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
             self.assertEqual(worksheet.cell(row=worksheet.max_row, column=3).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
             self.assertEqual(worksheet.cell(row=worksheet.max_row, column=3).font.name, SUMMARY_LATIN_FONT_NAME)
             self.assertEqual(worksheet.cell(row=worksheet.max_row, column=3).number_format, "0.00")
+
+            special_research_row = None
+            for row_index in range(3, worksheet.max_row + 1):
+                if worksheet.cell(row=row_index, column=1).value == "四、专项调研":
+                    special_research_row = row_index
+                    break
+
+            self.assertIsNotNone(special_research_row)
+            self.assertEqual(worksheet.cell(row=special_research_row, column=3).value, SUMMARY_NO_DATA_TEXT)
+            self.assertEqual(worksheet.cell(row=special_research_row, column=8).value, SUMMARY_NO_DATA_TEXT)
 
             g20_label_value = None
             for row_index in range(3, worksheet.max_row + 1):
@@ -269,7 +304,7 @@ class SummaryTableTest(unittest.TestCase):
             self.assertEqual(g20_label_value[2].text, "峰会体验馆")
             self.assertEqual(g20_label_value[2].font.rFont, SUMMARY_CHINESE_FONT_NAME)
 
-    def test_food_hall_support_cell_is_greyed_out(self) -> None:
+    def test_food_hall_support_cell_uses_no_data_placeholder(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             input_dir = temp_path / "inputs"
@@ -299,8 +334,44 @@ class SummaryTableTest(unittest.TestCase):
                     break
 
             self.assertIsNotNone(food_hall_row)
-            self.assertIsNone(worksheet.cell(row=food_hall_row, column=6).value)
-            self.assertEqual(worksheet.cell(row=food_hall_row, column=6).fill.start_color.rgb, SUMMARY_NA_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=food_hall_row, column=6).value, SUMMARY_NO_DATA_TEXT)
+            self.assertEqual(worksheet.cell(row=food_hall_row, column=6).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
+
+    def test_applicable_missing_cells_remain_blank(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "inputs"
+            output_dir = temp_path / "outputs"
+            input_dir.mkdir()
+            output_dir.mkdir()
+
+            write_role_report(
+                input_dir / "商务简餐.xlsx",
+                "商务简餐",
+                [
+                    ("商务简餐", 9.4, "overall"),
+                ],
+            )
+
+            output_path = generate_summary_report(input_dir=input_dir, output_dir=output_dir)
+            worksheet = load_workbook(output_path).active
+
+            business_meal_row = None
+            for row_index in range(3, worksheet.max_row + 1):
+                if worksheet.cell(row=row_index, column=2).value == "商务简餐":
+                    business_meal_row = row_index
+                    break
+
+            self.assertIsNotNone(business_meal_row)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=4).value, SUMMARY_NO_DATA_TEXT)
+            self.assertIsNone(worksheet.cell(row=business_meal_row, column=5).value)
+            self.assertIsNone(worksheet.cell(row=business_meal_row, column=7).value)
+            self.assertIsNone(worksheet.cell(row=business_meal_row, column=8).value)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=3).value, 9.4)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=5).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=7).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=8).fill.start_color.rgb, SUMMARY_BODY_FILL.start_color.rgb)
+            self.assertEqual(worksheet.cell(row=business_meal_row, column=6).value, SUMMARY_NO_DATA_TEXT)
 
 
 if __name__ == "__main__":

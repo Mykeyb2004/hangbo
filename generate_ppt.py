@@ -26,6 +26,7 @@ from survey_stats import (
     format_value,
     get_effective_role_definition,
 )
+from survey_customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
 from ppt_chart_renderer import ChartPoint, ChartRenderConfig, render_chart_image
 from summary_table import SUMMARY_ROW_DEFINITIONS, normalize_text
 
@@ -498,6 +499,29 @@ def to_optional_float(value: object) -> float | None:
         return None
 
 
+def merge_role_definitions_for_ppt(
+    role_name: str,
+    definitions: Sequence[RoleDefinition],
+) -> RoleDefinition | None:
+    if not definitions:
+        return None
+
+    merged_sections = []
+    seen_section_names: set[str] = set()
+    for definition in definitions:
+        for section in definition.sections:
+            if section.name in seen_section_names:
+                continue
+            merged_sections.append(section)
+            seen_section_names.add(section.name)
+
+    return RoleDefinition(
+        role_name=role_name,
+        role_column=definitions[0].role_column,
+        sections=tuple(merged_sections),
+    )
+
+
 def resolve_section_definition(
     role_name: str,
     rows: Sequence[tuple[str, float | None, float | None]],
@@ -512,18 +536,41 @@ def resolve_section_definition(
         ),
         None,
     )
-    if base_definition is None:
+    base_definitions: list[RoleDefinition] = []
+    if base_definition is not None:
+        base_definitions = [base_definition]
+    else:
+        aggregate_rule = CUSTOMER_CATEGORY_RULE_BY_NAME.get(role_name)
+        if aggregate_rule is not None and aggregate_rule.is_aggregate:
+            base_definitions = [
+                template
+                for component_rule_name in aggregate_rule.aggregate_rule_names
+                for component_rule in [CUSTOMER_CATEGORY_RULE_BY_NAME.get(component_rule_name)]
+                if component_rule is not None and component_rule.template_name is not None
+                for template in [TEMPLATE_DEFINITIONS.get(component_rule.template_name)]
+                if template is not None
+            ]
+
+    if not base_definitions:
         return None
 
     normalized_mode = normalize_section_mode(section_mode)
+    def build_candidate(mode: str) -> RoleDefinition | None:
+        return merge_role_definitions_for_ppt(
+            role_name,
+            [get_effective_role_definition(definition, mode) for definition in base_definitions],
+        )
+
     if normalized_mode == "template":
-        return get_effective_role_definition(base_definition, "template")
+        return build_candidate("template")
     if normalized_mode == "summary":
-        return get_effective_role_definition(base_definition, "summary")
+        return build_candidate("summary")
 
     candidates: list[RoleDefinition] = []
     for mode in ("template", "summary"):
-        candidate = get_effective_role_definition(base_definition, mode)
+        candidate = build_candidate(mode)
+        if candidate is None:
+            continue
         if candidate.sections not in [existing.sections for existing in candidates]:
             candidates.append(candidate)
 

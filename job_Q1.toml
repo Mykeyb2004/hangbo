@@ -7,11 +7,11 @@
 # uv run python survey_stats.py --config job_Q1.toml --dry-run
 #
 # 说明：
-# - 使用目录模式：自动扫描 datas/合并结果 下标准来源文件
-# - datas/合并结果/旅游.xlsx 会按“游客 / 旅行社工作人员”两类自动拆分统计
+# - 使用目录模式：自动扫描 datas/Q1 下标准来源文件
+# - datas/Q1/旅游.xlsx 会按“游客 / 旅行社工作人员”两类自动拆分统计
 # - 缺少来源文件或身份值无匹配的客户类型，会在结尾统一提示，不生成空白文件
 
 output_dir = "输出结果/Q1"
 output_format = "xlsx"
 calculation_mode = "template"
-input_dir = "datas/合并结果"
+input_dir = "datas/Q1"

@@ -303,8 +303,29 @@ class GeneratePptTest(unittest.TestCase):
         banquet_meta = resolve_workbook_display_meta("酒店宴会")
         buffet_meta = resolve_workbook_display_meta("酒店自助餐")
 
-        self.assertEqual(banquet_meta.title, "酒店客户——餐饮客户")
-        self.assertEqual(buffet_meta.title, "酒店客户——餐饮客户")
+        self.assertEqual(banquet_meta.title, "酒店客户——酒店餐饮客户")
+        self.assertEqual(buffet_meta.title, "酒店客户——酒店餐饮客户")
+
+    def test_resolve_section_definition_supports_aggregate_hotel_catering_workbook(self) -> None:
+        rows = [
+            ("酒店餐饮客户", 9.7, 9.5),
+            ("餐饮服务", 9.9, 9.8),
+            ("菜品温度", 9.9, 9.8),
+            ("菜肴品种", 9.8, 9.7),
+            ("硬件设施", 9.5, 9.4),
+            ("园区停车方便", 9.5, 9.4),
+            ("交通便利，容易到达", 9.4, 9.3),
+            ("智慧场馆", 9.2, 9.1),
+            ("杭州国博APP", 9.2, 9.1),
+        ]
+
+        role_definition = resolve_section_definition("酒店餐饮客户", rows)
+
+        self.assertIsNotNone(role_definition)
+        self.assertEqual(
+            [section.name for section in role_definition.sections],
+            ["餐饮服务", "硬件设施", "智慧场馆"],
+        )
 
     def test_load_batch_config_parses_category_intro_slides(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

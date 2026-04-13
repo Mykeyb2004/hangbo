@@ -14,9 +14,14 @@ from phase_column_preprocess import preprocess_phase_column_if_needed
 from survey_stats import (
     CATERING_BUFFET_ROLE_NAME,
     CATERING_BUFFET_TEMPLATE,
+    CATERING_BANQUET_ROLE_NAME,
+    CATERING_BUSINESS_MEAL_ROLE_NAME,
     CATERING_FOOD_HALL_TEMPLATE,
+    CATERING_HOTEL_BANQUET_ROLE_NAME,
+    CATERING_HOTEL_BANQUET_TEMPLATE,
     CATERING_HOTEL_BUFFET_ROLE_NAME,
     CATERING_HOTEL_BUFFET_TEMPLATE,
+    CATERING_TOUR_MEAL_ROLE_NAME,
     CATERING_WEDDING_BANQUET_ROLE_NAME,
     CATERING_WEDDING_BANQUET_TEMPLATE,
     DEFAULT_SHEET_NAME,
@@ -49,16 +54,19 @@ from survey_stats import (
     TOURIST_TEMPLATE,
     TRAVEL_STAFF_ROLE_NAME,
     TRAVEL_STAFF_TEMPLATE,
+    UnmappedCustomerCategoryNotice,
     VISITOR_ROLE_NAME,
     VISITOR_TEMPLATE,
     build_missing_customer_type_summary,
     build_missing_group_summary,
     build_output_path,
     build_result_dataframe,
+    build_unmapped_customer_category_summary,
     compute_role_stats,
     compute_metric_average,
     excel_column_to_index,
     excel_round,
+    generate_customer_category_report_bundle,
     generate_role_report,
     generate_role_report_bundle,
     load_batch_config,
@@ -75,6 +83,28 @@ def build_mock_dataframe(role_name: str, role_column: str = "E") -> pd.DataFrame
 
     rows[0][excel_column_to_index(role_column)] = role_name
     rows[1][excel_column_to_index(role_column)] = "其他身份"
+
+    default_category_by_role_name = {
+        ORGANIZER_ROLE_NAME: "展览",
+        EXHIBITOR_ROLE_NAME: "展览",
+        VISITOR_ROLE_NAME: "展览",
+        MEETING_ORGANIZER_ROLE_NAME: "会议",
+        MEETING_ATTENDEE_ROLE_NAME: "会议",
+        HOTEL_MEETING_ORGANIZER_ROLE_NAME: "酒店会议",
+        HOTEL_MEETING_ATTENDEE_ROLE_NAME: "酒店会议",
+        CATERING_FOOD_HALL_TEMPLATE.role_name: "餐饮",
+        CATERING_BUSINESS_MEAL_ROLE_NAME: "餐饮",
+        CATERING_TOUR_MEAL_ROLE_NAME: "餐饮",
+        CATERING_BANQUET_ROLE_NAME: "餐饮",
+        CATERING_WEDDING_BANQUET_ROLE_NAME: "餐饮",
+        CATERING_BUFFET_ROLE_NAME: "餐饮",
+        CATERING_HOTEL_BANQUET_ROLE_NAME: "酒店餐饮",
+        CATERING_HOTEL_BUFFET_ROLE_NAME: "酒店餐饮",
+    }
+    default_category = default_category_by_role_name.get(role_name)
+    if default_category is not None:
+        rows[0][excel_column_to_index("C")] = default_category
+        rows[1][excel_column_to_index("C")] = f"其他{default_category}"
 
     for column_name in (
         "AA",
@@ -180,9 +210,43 @@ def build_meeting_category_split_dataframe(role_name: str) -> pd.DataFrame:
 
 
 def build_directory_mode_meeting_dataframe() -> pd.DataFrame:
-    organizer_df = build_meeting_category_split_dataframe(MEETING_ORGANIZER_ROLE_NAME)
-    attendee_df = build_meeting_category_split_dataframe(MEETING_ATTENDEE_ROLE_NAME)
+    organizer_df = build_mock_dataframe(MEETING_ORGANIZER_ROLE_NAME)
+    organizer_df.iloc[0, excel_column_to_index("C")] = "会议"
+    organizer_df.iloc[1, excel_column_to_index("C")] = "酒店会议"
+    organizer_df.iloc[1, excel_column_to_index("E")] = HOTEL_MEETING_ORGANIZER_ROLE_NAME
+
+    attendee_df = build_mock_dataframe(MEETING_ATTENDEE_ROLE_NAME)
+    attendee_df.iloc[0, excel_column_to_index("C")] = "会议"
+    attendee_df.iloc[1, excel_column_to_index("C")] = "酒店会议"
+    attendee_df.iloc[1, excel_column_to_index("E")] = "参会人员"
     return pd.concat([organizer_df, attendee_df], ignore_index=True)
+
+
+def build_catering_category_split_dataframe() -> pd.DataFrame:
+    banquet_df = build_mock_dataframe(CATERING_HOTEL_BANQUET_ROLE_NAME, role_column="D")
+    banquet_df.iloc[0, excel_column_to_index("C")] = "酒店餐饮"
+    banquet_df.iloc[1, excel_column_to_index("C")] = "餐饮"
+    banquet_df.iloc[1, excel_column_to_index("D")] = CATERING_HOTEL_BANQUET_ROLE_NAME
+
+    buffet_df = build_mock_dataframe(CATERING_HOTEL_BUFFET_ROLE_NAME, role_column="D")
+    buffet_df.iloc[0, excel_column_to_index("C")] = "酒店餐饮"
+    buffet_df.iloc[1, excel_column_to_index("C")] = "餐饮"
+    buffet_df.iloc[1, excel_column_to_index("D")] = CATERING_HOTEL_BUFFET_ROLE_NAME
+
+    business_meal_df = build_mock_dataframe(CATERING_BUSINESS_MEAL_ROLE_NAME, role_column="D")
+    business_meal_df.iloc[0, excel_column_to_index("C")] = "酒店餐饮"
+    business_meal_df.iloc[1, excel_column_to_index("C")] = "餐饮"
+    business_meal_df.iloc[1, excel_column_to_index("D")] = CATERING_BUSINESS_MEAL_ROLE_NAME
+
+    standard_banquet_df = build_mock_dataframe(CATERING_BANQUET_ROLE_NAME, role_column="D")
+    standard_banquet_df.iloc[0, excel_column_to_index("C")] = "酒店餐饮"
+    standard_banquet_df.iloc[1, excel_column_to_index("C")] = "餐饮"
+    standard_banquet_df.iloc[1, excel_column_to_index("D")] = CATERING_BANQUET_ROLE_NAME
+
+    return pd.concat(
+        [banquet_df, buffet_df, business_meal_df, standard_banquet_df],
+        ignore_index=True,
+    )
 
 
 def build_directory_mode_tourism_dataframe() -> pd.DataFrame:
@@ -473,6 +537,7 @@ class SurveyStatsTest(unittest.TestCase):
         df.iloc[0, excel_column_to_index("R")] = 2
         df.iloc[1, excel_column_to_index("Q")] = 8
         df.iloc[1, excel_column_to_index("R")] = 7
+        df.iloc[1, excel_column_to_index("E")] = HOTEL_MEETING_ATTENDEE_ROLE_NAME
 
         meeting_stats = compute_role_stats(df, MEETING_ATTENDEE_TEMPLATE)
         hotel_stats = compute_role_stats(df, HOTEL_MEETING_ATTENDEE_TEMPLATE)
@@ -489,12 +554,42 @@ class SurveyStatsTest(unittest.TestCase):
         self.assertEqual(hotel_parking_row["满意度"], 8.0)
         self.assertEqual(hotel_parking_row["重要性"], 7.0)
 
+    def test_generate_customer_category_report_bundle_accepts_hotel_meeting_attendee_shared_label(self) -> None:
+        df = build_template_matching_dataframe(HOTEL_MEETING_ATTENDEE_TEMPLATE)
+        df.iloc[0, excel_column_to_index("E")] = "参会人员"
+        df.iloc[0, excel_column_to_index("Q")] = 6
+        df.iloc[0, excel_column_to_index("R")] = 5
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_file = temp_path / "会议.xlsx"
+            output_file = temp_path / "酒店参会客户.xlsx"
+            with pd.ExcelWriter(input_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            from survey_customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
+
+            report = generate_customer_category_report_bundle(
+                input_path=input_file,
+                category_rule=CUSTOMER_CATEGORY_RULE_BY_NAME["酒店参会客户"],
+                output_path=output_file,
+                sheet_name=DEFAULT_SHEET_NAME,
+                dry_run=True,
+            )
+
+        parking_row = report.result_df[report.result_df["指标"] == "园区停车方便"].iloc[0]
+        self.assertEqual(report.stats.role_name, "酒店参会客户")
+        self.assertEqual(report.stats.matched_row_count, 1)
+        self.assertEqual(parking_row["满意度"], 6.0)
+        self.assertEqual(parking_row["重要性"], 5.0)
+
     def test_meeting_organizer_templates_split_rows_by_category_column(self) -> None:
         df = build_meeting_category_split_dataframe(MEETING_ORGANIZER_ROLE_NAME)
         df.iloc[0, excel_column_to_index("Q")] = 4
         df.iloc[0, excel_column_to_index("R")] = 3
         df.iloc[1, excel_column_to_index("Q")] = 9
         df.iloc[1, excel_column_to_index("R")] = 8
+        df.iloc[1, excel_column_to_index("E")] = HOTEL_MEETING_ORGANIZER_ROLE_NAME
 
         meeting_stats = compute_role_stats(df, MEETING_ORGANIZER_TEMPLATE)
         hotel_stats = compute_role_stats(df, HOTEL_MEETING_ORGANIZER_TEMPLATE)
@@ -510,6 +605,68 @@ class SurveyStatsTest(unittest.TestCase):
         self.assertEqual(meeting_parking_row["重要性"], 3.0)
         self.assertEqual(hotel_parking_row["满意度"], 9.0)
         self.assertEqual(hotel_parking_row["重要性"], 8.0)
+
+    def test_hotel_catering_templates_require_hotel_catering_auxiliary_category(self) -> None:
+        df = build_catering_category_split_dataframe()
+        df.iloc[0, excel_column_to_index("I")] = 9
+        df.iloc[0, excel_column_to_index("J")] = 8
+        df.iloc[1, excel_column_to_index("I")] = 3
+        df.iloc[1, excel_column_to_index("J")] = 2
+        df.iloc[2, excel_column_to_index("I")] = 7
+        df.iloc[2, excel_column_to_index("J")] = 6
+        df.iloc[3, excel_column_to_index("I")] = 4
+        df.iloc[3, excel_column_to_index("J")] = 1
+
+        banquet_stats = compute_role_stats(df, CATERING_HOTEL_BANQUET_TEMPLATE)
+        buffet_stats = compute_role_stats(df, CATERING_HOTEL_BUFFET_TEMPLATE)
+
+        banquet_df = build_result_dataframe(banquet_stats)
+        buffet_df = build_result_dataframe(buffet_stats)
+
+        self.assertEqual(banquet_stats.matched_row_count, 1)
+        self.assertEqual(buffet_stats.matched_row_count, 1)
+        self.assertEqual(
+            banquet_df[banquet_df["指标"] == "园区停车方便"].iloc[0]["满意度"],
+            9.0,
+        )
+        self.assertEqual(
+            buffet_df[buffet_df["指标"] == "园区停车方便"].iloc[0]["满意度"],
+            7.0,
+        )
+
+    def test_generate_customer_category_report_bundle_merges_hotel_catering_components(self) -> None:
+        df = build_catering_category_split_dataframe()
+        df.iloc[0, excel_column_to_index("I")] = 10
+        df.iloc[0, excel_column_to_index("J")] = 8
+        df.iloc[2, excel_column_to_index("I")] = 6
+        df.iloc[2, excel_column_to_index("J")] = 4
+        df.iloc[4, excel_column_to_index("I")] = 8
+        df.iloc[4, excel_column_to_index("J")] = 6
+        df.iloc[6, excel_column_to_index("I")] = 4
+        df.iloc[6, excel_column_to_index("J")] = 2
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_file = temp_path / "餐饮.xlsx"
+            output_file = temp_path / "酒店餐饮客户.xlsx"
+            with pd.ExcelWriter(input_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            from survey_customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
+
+            report = generate_customer_category_report_bundle(
+                input_path=input_file,
+                category_rule=CUSTOMER_CATEGORY_RULE_BY_NAME["酒店餐饮客户"],
+                output_path=output_file,
+                sheet_name=DEFAULT_SHEET_NAME,
+                dry_run=True,
+            )
+
+        parking_row = report.result_df[report.result_df["指标"] == "园区停车方便"].iloc[0]
+        self.assertEqual(report.stats.role_name, "酒店餐饮客户")
+        self.assertEqual(report.stats.matched_row_count, 4)
+        self.assertEqual(parking_row["满意度"], 7.0)
+        self.assertEqual(parking_row["重要性"], 5.0)
 
     def test_hotel_guest_templates_use_role_column_c_and_fixed_importance_columns(self) -> None:
         for role_name, template in (
@@ -625,6 +782,22 @@ class SurveyStatsTest(unittest.TestCase):
         self.assertIn("会展服务商 [会展服务商.xlsx / 问卷数据]", summary)
         self.assertIn("[来源文件存在但未找到匹配身份值]", summary)
         self.assertIn("专业观众 [展览.xlsx / 问卷数据]", summary)
+
+    def test_build_unmapped_customer_category_summary_lists_excluded_combinations(self) -> None:
+        summary = build_unmapped_customer_category_summary(
+            [
+                UnmappedCustomerCategoryNotice(
+                    source_file_name="会议.xlsx",
+                    auxiliary_value="会议",
+                    data_value="酒店参会客户",
+                    row_count=1,
+                ),
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        self.assertIn("未纳入 V1.0 客户类别口径", summary)
+        self.assertIn("会议.xlsx: 会议 + 酒店参会客户（1 行）", summary)
 
     def test_template_role_names_are_unique(self) -> None:
         role_names = [role_definition.role_name for role_definition in TEMPLATE_DEFINITIONS.values()]
@@ -1080,6 +1253,45 @@ input_dir = "datas"
 
             self.assertTrue((temp_path / "exports" / "旅行社工作人员.xlsx").exists())
             self.assertTrue((temp_path / "exports" / "游客.xlsx").exists())
+
+    def test_run_config_mode_directory_mode_generates_hotel_catering_customer(self) -> None:
+        df = build_catering_category_split_dataframe()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            data_dir = temp_path / "datas"
+            data_dir.mkdir()
+            source_file = data_dir / "餐饮.xlsx"
+            config_path = temp_path / "jobs.toml"
+
+            with pd.ExcelWriter(source_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
+
+            config_path.write_text(
+                """
+output_dir = "exports"
+output_format = "xlsx"
+input_dir = "datas"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with redirect_stdout(io.StringIO()):
+                run_config_mode(
+                    argparse.Namespace(
+                        config=config_path,
+                        job=["酒店餐饮客户"],
+                        dry_run=False,
+                        sheet_name=DEFAULT_SHEET_NAME,
+                        output_format=None,
+                        calculation_mode=None,
+                        output_dir=None,
+                    )
+                )
+
+            self.assertTrue((temp_path / "exports" / "酒店餐饮客户.xlsx").exists())
+            self.assertFalse((temp_path / "exports" / "酒店宴会.xlsx").exists())
+            self.assertFalse((temp_path / "exports" / "酒店自助餐.xlsx").exists())
 
 
 if __name__ == "__main__":

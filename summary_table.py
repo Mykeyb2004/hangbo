@@ -28,8 +28,8 @@ SUMMARY_COLUMNS = (
 SUMMARY_HEADER_FILL = PatternFill(fill_type="solid", start_color="B32046", end_color="B32046")
 SUMMARY_SIDE_FILL = PatternFill(fill_type="solid", start_color="B32046", end_color="B32046")
 SUMMARY_BODY_FILL = PatternFill(fill_type="solid", start_color="F4E8E8", end_color="F4E8E8")
-SUMMARY_NA_FILL = PatternFill(fill_type="solid", start_color="BFBFBF", end_color="BFBFBF")
 SUMMARY_NUMBER_FORMAT = "0.00"
+SUMMARY_NO_DATA_TEXT = "--"
 SUMMARY_CHINESE_FONT_NAME = "楷体"
 SUMMARY_LATIN_FONT_NAME = "Times New Roman"
 SUMMARY_BORDER = Border(
@@ -426,8 +426,8 @@ SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
     ),
     SummaryRowDefinition(
         category_label="五、酒店客户",
-        display_name="餐饮客户",
-        source_aliases=("酒店宴会", "酒店自助餐"),
+        display_name="酒店餐饮客户",
+        source_aliases=("酒店宴会", "酒店自助餐", "酒店餐饮客户"),
         selectors={
             "总分": overall_selector(),
             "硬件设施": HARDWARE_SELECTORS,
@@ -643,12 +643,15 @@ def style_summary_worksheet(worksheet, rows: tuple[SummaryRowResult, ...]) -> No
             value = row.values[column_name]
             if value is not None:
                 worksheet.cell(row=excel_row, column=column_index, value=value)
-            fill = SUMMARY_BODY_FILL
-            if column_name not in row.applicable_columns:
-                fill = SUMMARY_NA_FILL
+            elif column_name not in row.applicable_columns:
+                worksheet.cell(
+                    row=excel_row,
+                    column=column_index,
+                    value=SUMMARY_NO_DATA_TEXT,
+                )
             apply_common_style(
                 worksheet.cell(row=excel_row, column=column_index),
-                fill=fill,
+                fill=SUMMARY_BODY_FILL,
                 font=SUMMARY_BODY_FONT,
             )
             worksheet.cell(row=excel_row, column=column_index).number_format = SUMMARY_NUMBER_FORMAT
