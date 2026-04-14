@@ -39,6 +39,7 @@ uv run python sample_table.py --input-dir 'datas/Q1' --output-dir '汇总结果/
 - [survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_stats.py)
 - [summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/summary_table.py)
 - [sample_table.py](/Users/zhangqijin/PycharmProjects/hangbo/sample_table.py)
+- [check_unmapped_customer_records.py](/Users/zhangqijin/PycharmProjects/hangbo/check_unmapped_customer_records.py)
 - [check_start_time_month.py](/Users/zhangqijin/PycharmProjects/hangbo/check_start_time_month.py)
 - [fill_year_month_columns.py](/Users/zhangqijin/PycharmProjects/hangbo/fill_year_month_columns.py)
 - [merge_questionnaire_workbooks.py](/Users/zhangqijin/PycharmProjects/hangbo/merge_questionnaire_workbooks.py)
@@ -184,6 +185,37 @@ uv run python fill_year_month_columns.py \
 
 详细说明见：
 - [docs/问卷数据年月填充.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/问卷数据年月填充.md)
+
+## `check_unmapped_customer_records.py` 用法
+
+用途：
+- 按 [survey_customer_category_rules.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_customer_category_rules.py) 的目录模式规则
+- 扫描指定目录下原始问卷中的标准来源文件
+- 找出没有被映射规则覆盖的具体记录
+- 在终端打印排好版的明细，并把同样内容写入 `/logs`
+
+基本用法：
+
+```bash
+uv run python check_unmapped_customer_records.py \
+  --input-dir './datas/1-2月'
+```
+
+指定日志文件：
+
+```bash
+uv run python check_unmapped_customer_records.py \
+  --input-dir './datas/1-2月' \
+  --log-file './logs/1-2月未映射记录核查.log'
+```
+
+输出会包含：
+- 摘要：规则涉及来源文件数、实际检查文件数、未映射记录数
+- 未映射记录明细：文件名、Excel 行号、辅助标签、数据标签、原因
+- 附加提示：当前目录缺少哪些规则来源文件
+
+详细说明见：
+- [docs/未映射客户记录核查.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/未映射客户记录核查.md)
 
 ## `merge_questionnaire_workbooks.py` 用法
 
