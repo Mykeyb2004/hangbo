@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>二期场馆测试阶段主要问题反馈</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        /* === THEME TOKENS === */
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #fbfaf8;
+            --surface: rgba(255, 255, 255, 0.94);
+            --surface-strong: #f7f5f2;
+            --text-primary: #0f1113;
+            --text-secondary: #555d66;
+            --text-muted: #7c848c;
+            --accent: #c5221f;
+            --accent-deep: #971917;
+            --accent-soft: rgba(197, 34, 31, 0.08);
+            --line-strong: rgba(15, 17, 19, 0.18);
+            --line-soft: rgba(15, 17, 19, 0.09);
+            --shadow-soft: 0 clamp(18px, 2vw, 28px) clamp(40px, 4vw, 68px) rgba(15, 17, 19, 0.08);
+            --font-display: "Archivo", sans-serif;
+            --font-body: "Nunito Sans", sans-serif;
+            --title-size: clamp(2rem, 4vw, 3.8rem);
+            --hero-size: clamp(1.4rem, 2.2vw, 2.2rem);
+            --section-size: clamp(1rem, 1.3vw, 1.25rem);
+            --meta-size: clamp(0.68rem, 0.82vw, 0.9rem);
+            --body-size: clamp(0.7rem, 0.88vw, 0.9rem);
+            --small-size: clamp(0.62rem, 0.76vw, 0.8rem);
+            --slide-padding: clamp(1rem, 2.6vw, 2.2rem);
+            --content-gap: clamp(0.7rem, 1.4vw, 1.2rem);
+            --element-gap: clamp(0.45rem, 0.9vw, 0.85rem);
+            --radius-large: clamp(1rem, 1.5vw, 1.5rem);
+            --radius-medium: clamp(0.8rem, 1vw, 1rem);
+            --radius-small: clamp(0.5rem, 0.8vw, 0.75rem);
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+            --duration-fast: 0.28s;
+            --duration-normal: 0.6s;
+        }
+
+        /* ===========================================
+           VIEWPORT FITTING: MANDATORY BASE STYLES
+           Include this ENTIRE file in every presentation.
+           These styles ensure slides fit exactly in the viewport.
+           =========================================== */
+
+        /* 1. Lock html/body to viewport */
+        html, body {
+            height: 100%;
+            overflow-x: hidden;
+        }
+
+        html {
+            scroll-snap-type: y mandatory;
+            scroll-behavior: smooth;
+        }
+
+        /* 2. Each slide = exact viewport height */
+        .slide {
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh; /* Dynamic viewport height for mobile browsers */
+            overflow: hidden; /* CRITICAL: Prevent ANY overflow */
+            scroll-snap-align: start;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* 3. Content container with flex for centering */
+        .slide-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            max-height: 100%;
+            overflow: hidden; /* Double-protection against overflow */
+            padding: var(--slide-padding);
+        }
+
+        /* 4. ALL typography uses clamp() for responsive scaling */
+        :root {
+            /* Titles scale from mobile to desktop */
+            --title-size: clamp(1.5rem, 5vw, 4rem);
+            --h2-size: clamp(1.25rem, 3.5vw, 2.5rem);
+            --h3-size: clamp(1rem, 2.5vw, 1.75rem);
+
+            /* Body text */
+            --body-size: clamp(0.75rem, 1.5vw, 1.125rem);
+            --small-size: clamp(0.65rem, 1vw, 0.875rem);
+
+            /* Spacing scales with viewport */
+            --slide-padding: clamp(1rem, 4vw, 4rem);
+            --content-gap: clamp(0.5rem, 2vw, 2rem);
+            --element-gap: clamp(0.25rem, 1vw, 1rem);
+        }
+
+        /* 5. Cards/containers use viewport-relative max sizes */
+        .card, .container, .content-box {
+            max-width: min(90vw, 1000px);
+            max-height: min(80vh, 700px);
+        }
+
+        /* 6. Lists auto-scale with viewport */
+        .feature-list, .bullet-list {
+            gap: clamp(0.4rem, 1vh, 1rem);
+        }
+
+        .feature-list li, .bullet-list li {
+            font-size: var(--body-size);
+            line-height: 1.4;
+        }
+
+        /* 7. Grids adapt to available space */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+            gap: clamp(0.5rem, 1.5vw, 1rem);
+        }
+
+        /* 8. Images constrained to viewport */
+        img, .image-container {
+            max-width: 100%;
+            max-height: min(50vh, 400px);
+            object-fit: contain;
+        }
+
+        /* ===========================================
+           RESPONSIVE BREAKPOINTS
+           Aggressive scaling for smaller viewports
+           =========================================== */
+
+        /* Short viewports (< 700px height) */
+        @media (max-height: 700px) {
+            :root {
+                --slide-padding: clamp(0.75rem, 3vw, 2rem);
+                --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+                --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+                --h2-size: clamp(1rem, 3vw, 1.75rem);
+            }
+        }
+
+        /* Very short viewports (< 600px height) */
+        @media (max-height: 600px) {
+            :root {
+                --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+                --content-gap: clamp(0.3rem, 1vw, 0.75rem);
+                --title-size: clamp(1.1rem, 4vw, 2rem);
+                --body-size: clamp(0.7rem, 1.2vw, 0.95rem);
+            }
+
+            /* Hide non-essential elements */
+            .nav-dots, .keyboard-hint, .decorative {
+                display: none;
+            }
+        }
+
+        /* Extremely short (landscape phones, < 500px height) */
+        @media (max-height: 500px) {
+            :root {
+                --slide-padding: clamp(0.4rem, 2vw, 1rem);
+                --title-size: clamp(1rem, 3.5vw, 1.5rem);
+                --h2-size: clamp(0.9rem, 2.5vw, 1.25rem);
+                --body-size: clamp(0.65rem, 1vw, 0.85rem);
+            }
+        }
+
+        /* Narrow viewports (< 600px width) */
+        @media (max-width: 600px) {
+            :root {
+                --title-size: clamp(1.25rem, 7vw, 2.5rem);
+            }
+
+            /* Stack grids vertically */
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ===========================================
+           REDUCED MOTION
+           Respect user preferences
+           =========================================== */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.2s !important;
+            }
+
+            html {
+                scroll-behavior: auto;
+            }
+        }
+
+        /* === CUSTOM VIEWPORT TUNING === */
+        :root {
+            --title-size: clamp(1.85rem, 3.35vw, 3.2rem);
+            --hero-size: clamp(1.22rem, 1.75vw, 1.7rem);
+            --section-size: clamp(0.92rem, 1.04vw, 1.08rem);
+            --meta-size: clamp(0.62rem, 0.72vw, 0.78rem);
+            --body-size: clamp(0.62rem, 0.72vw, 0.8rem);
+            --small-size: clamp(0.55rem, 0.64vw, 0.72rem);
+            --slide-padding: clamp(0.82rem, 1.8vw, 1.4rem);
+            --content-gap: clamp(0.52rem, 0.76vw, 0.8rem);
+            --element-gap: clamp(0.32rem, 0.52vw, 0.55rem);
+        }
+
+        @media (max-height: 720px) {
+            :root {
+                --title-size: clamp(1.65rem, 3vw, 2.6rem);
+                --hero-size: clamp(1.08rem, 1.5vw, 1.45rem);
+                --body-size: clamp(0.58rem, 0.68vw, 0.74rem);
+                --small-size: clamp(0.52rem, 0.6vw, 0.68rem);
+                --slide-padding: clamp(0.7rem, 1.5vw, 1.05rem);
+            }
+        }
+
+        /* === BASE PAGE STYLES === */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-body);
+            color: var(--text-primary);
+            background:
+                linear-gradient(0deg, rgba(15, 17, 19, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(15, 17, 19, 0.04) 1px, transparent 1px),
+                linear-gradient(180deg, #ffffff 0%, #ffffff 100%);
+            background-size: clamp(28px, 3vw, 40px) clamp(28px, 3vw, 40px), clamp(28px, 3vw, 40px) clamp(28px, 3vw, 40px), auto;
+        }
+
+        body::before,
+        body::after {
+            content: "";
+            position: fixed;
+            inset: auto;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        body::before {
+            top: clamp(1.2rem, 2vw, 2rem);
+            right: clamp(1.2rem, 2vw, 2rem);
+            width: clamp(8rem, 14vw, 14rem);
+            height: clamp(8rem, 14vw, 14rem);
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(197, 34, 31, 0.14) 0%, rgba(197, 34, 31, 0) 72%);
+        }
+
+        body::after {
+            bottom: clamp(1rem, 2vw, 1.8rem);
+            left: clamp(1rem, 2vw, 1.8rem);
+            width: clamp(4rem, 7vw, 7rem);
+            height: clamp(4rem, 7vw, 7rem);
+            background: rgba(15, 17, 19, 0.06);
+        }
+
+        /* === PROGRESS AND NAVIGATION === */
+        .progress-track {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: clamp(0.2rem, 0.35vw, 0.32rem);
+            background: rgba(15, 17, 19, 0.06);
+            z-index: 30;
+        }
+
+        .progress-bar {
+            width: 0;
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-deep) 100%);
+            transform-origin: left center;
+            transition: width var(--duration-fast) ease;
+        }
+
+        .nav-dots {
+            position: fixed;
+            right: clamp(0.7rem, 1.6vw, 1.4rem);
+            bottom: clamp(0.7rem, 1.6vw, 1.4rem);
+            display: flex;
+            flex-direction: column;
+            gap: clamp(0.25rem, 0.6vw, 0.45rem);
+            z-index: 30;
+        }
+
+        .nav-dots button {
+            width: clamp(0.55rem, 0.75vw, 0.7rem);
+            height: clamp(0.55rem, 0.75vw, 0.7rem);
+            border-radius: 999px;
+            border: none;
+            background: rgba(15, 17, 19, 0.18);
+            cursor: pointer;
+            transition: transform var(--duration-fast) ease, background var(--duration-fast) ease;
+        }
+
+        .nav-dots button.active {
+            background: var(--accent);
+            transform: scale(1.16);
+        }
+
+        /* === REVEAL ANIMATIONS === */
+        .reveal {
+            opacity: 0;
+            transform: translateY(clamp(0.6rem, 1vw, 1rem));
+            transition:
+                opacity var(--duration-normal) var(--ease-out-expo),
+                transform var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .slide.visible .reveal {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .reveal:nth-child(1) { transition-delay: 0.04s; }
+        .reveal:nth-child(2) { transition-delay: 0.1s; }
+        .reveal:nth-child(3) { transition-delay: 0.16s; }
+        .reveal:nth-child(4) { transition-delay: 0.22s; }
+        .reveal:nth-child(5) { transition-delay: 0.28s; }
+
+        /* === INLINE EDITING CONTROLS === */
+        .edit-hotzone {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 80px;
+            height: 80px;
+            z-index: 10000;
+            cursor: pointer;
+        }
+
+        .edit-toggle {
+            position: fixed;
+            top: clamp(0.8rem, 1.4vw, 1.2rem);
+            left: clamp(0.8rem, 1.4vw, 1.2rem);
+            border: none;
+            border-radius: 999px;
+            padding: clamp(0.5rem, 0.9vw, 0.7rem) clamp(0.8rem, 1.2vw, 1rem);
+            font-size: var(--small-size);
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #ffffff;
+            background: rgba(15, 17, 19, 0.9);
+            box-shadow: 0 12px 32px rgba(15, 17, 19, 0.18);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease, transform 0.3s ease, background 0.3s ease;
+            z-index: 10001;
+        }
+
+        .edit-toggle.show,
+        .edit-toggle.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .edit-toggle.active {
+            background: var(--accent);
+            transform: translateY(-1px);
+        }
+
+        .edit-toolbar {
+            position: fixed;
+            top: clamp(0.8rem, 1.4vw, 1.2rem);
+            right: clamp(0.8rem, 1.4vw, 1.2rem);
+            display: flex;
+            gap: clamp(0.35rem, 0.7vw, 0.55rem);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-10px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            z-index: 10001;
+        }
+
+        .edit-toolbar.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
+        }
+
+        .toolbar-button {
+            border: 1px solid rgba(15, 17, 19, 0.1);
+            border-radius: 999px;
+            padding: clamp(0.45rem, 0.8vw, 0.66rem) clamp(0.8rem, 1.1vw, 0.95rem);
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.94);
+            cursor: pointer;
+            box-shadow: 0 10px 24px rgba(15, 17, 19, 0.08);
+            transition: border-color var(--duration-fast) ease, transform var(--duration-fast) ease;
+        }
+
+        .toolbar-button:hover {
+            border-color: rgba(197, 34, 31, 0.34);
+            transform: translateY(-1px);
+        }
+
+        .status-toast {
+            position: fixed;
+            left: 50%;
+            bottom: clamp(1rem, 2vw, 1.6rem);
+            transform: translateX(-50%) translateY(1rem);
+            border-radius: 999px;
+            padding: clamp(0.45rem, 0.8vw, 0.65rem) clamp(0.9rem, 1.2vw, 1rem);
+            font-size: var(--small-size);
+            font-weight: 700;
+            color: #ffffff;
+            background: rgba(15, 17, 19, 0.92);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            z-index: 10001;
+        }
+
+        .status-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        body.edit-mode [data-editable-id] {
+            outline: 1px dashed rgba(197, 34, 31, 0.35);
+            outline-offset: clamp(0.12rem, 0.2vw, 0.18rem);
+            cursor: text;
+            border-radius: clamp(0.2rem, 0.4vw, 0.4rem);
+            background: rgba(197, 34, 31, 0.03);
+        }
+
+        body.edit-mode [data-editable-id]:focus {
+            outline-color: var(--accent);
+            background: rgba(197, 34, 31, 0.06);
+        }
+
+        /* === SLIDE LAYOUT === */
+        .report-slide {
+            z-index: 1;
+        }
+
+        .report-slide::before {
+            content: "";
+            position: absolute;
+            top: clamp(1rem, 1.8vw, 1.6rem);
+            left: clamp(1rem, 1.8vw, 1.6rem);
+            width: clamp(2.2rem, 4vw, 3.8rem);
+            height: clamp(2.2rem, 4vw, 3.8rem);
+            background: var(--accent);
+            opacity: 0.08;
+        }
+
+        .report-board {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr);
+            gap: clamp(0.75rem, 1vw, 1rem);
+            width: min(100%, 1500px);
+            height: 100%;
+            margin: 0 auto;
+            padding: clamp(0.6rem, 0.8vw, 0.8rem);
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-large);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+            box-shadow: var(--shadow-soft);
+            overflow: hidden;
+        }
+
+        .report-board::after {
+            content: "";
+            position: absolute;
+            inset: clamp(0.7rem, 1vw, 1rem);
+            border: 1px solid rgba(15, 17, 19, 0.05);
+            border-radius: calc(var(--radius-large) - clamp(0.3rem, 0.4vw, 0.4rem));
+            pointer-events: none;
+        }
+
+        .report-header {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: end;
+            gap: var(--content-gap);
+            padding: clamp(0.6rem, 1vw, 0.95rem) clamp(0.9rem, 1.3vw, 1.2rem) 0;
+        }
+
+        .header-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: clamp(0.45rem, 0.8vw, 0.55rem);
+            font-size: var(--meta-size);
+            font-weight: 800;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        .header-kicker::before {
+            content: "";
+            width: clamp(1.1rem, 1.6vw, 1.5rem);
+            height: 1px;
+            background: var(--accent);
+        }
+
+        .header-title {
+            margin-top: clamp(0.3rem, 0.5vw, 0.4rem);
+            font-family: var(--font-display);
+            font-size: var(--title-size);
+            line-height: 0.95;
+            letter-spacing: -0.04em;
+            text-transform: uppercase;
+            color: var(--text-primary);
+        }
+
+        .header-subtitle {
+            margin-top: clamp(0.3rem, 0.45vw, 0.4rem);
+            font-size: var(--meta-size);
+            color: var(--text-secondary);
+            letter-spacing: 0.04em;
+        }
+
+        .header-page {
+            display: flex;
+            align-items: flex-end;
+            gap: clamp(0.5rem, 1vw, 0.8rem);
+            padding-bottom: clamp(0.15rem, 0.2vw, 0.25rem);
+        }
+
+        .page-number {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 3.2vw, 3rem);
+            line-height: 0.9;
+            letter-spacing: -0.06em;
+            color: var(--text-primary);
+        }
+
+        .page-caption {
+            display: flex;
+            flex-direction: column;
+            gap: clamp(0.12rem, 0.2vw, 0.16rem);
+            font-size: var(--small-size);
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .report-grid {
+            display: grid;
+            grid-template-columns: minmax(17rem, 0.9fr) minmax(0, 1.35fr);
+            gap: clamp(0.85rem, 1.2vw, 1.1rem);
+            min-height: 0;
+            padding: 0 clamp(0.9rem, 1.3vw, 1.2rem) clamp(0.9rem, 1.2vw, 1.1rem);
+        }
+
+        .hero-panel {
+            position: relative;
+            display: grid;
+            grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+            gap: clamp(0.75rem, 1vw, 0.9rem);
+            min-height: 0;
+            padding: clamp(1rem, 1.4vw, 1.25rem);
+            border: 1px solid rgba(15, 17, 19, 0.08);
+            border-radius: var(--radius-medium);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+            overflow: hidden;
+        }
+
+        .hero-panel::before {
+            content: "";
+            position: absolute;
+            top: clamp(1rem, 1.5vw, 1.2rem);
+            right: clamp(1rem, 1.5vw, 1.2rem);
+            width: clamp(1.6rem, 2.2vw, 2rem);
+            height: clamp(1.6rem, 2.2vw, 2rem);
+            background: var(--text-primary);
+            opacity: 0.06;
+        }
+
+        .hero-strip {
+            display: inline-flex;
+            align-items: center;
+            width: fit-content;
+            padding: clamp(0.25rem, 0.45vw, 0.32rem) clamp(0.55rem, 0.8vw, 0.7rem);
+            border-radius: 999px;
+            font-size: var(--small-size);
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-primary);
+            background: rgba(15, 17, 19, 0.05);
+        }
+
+        .hero-summary {
+            display: grid;
+            gap: clamp(0.55rem, 0.9vw, 0.75rem);
+        }
+
+        .hero-lead {
+            font-family: var(--font-display);
+            font-size: var(--hero-size);
+            line-height: 1.02;
+            letter-spacing: -0.05em;
+            text-transform: uppercase;
+        }
+
+        .hero-lead strong {
+            display: block;
+            color: var(--accent);
+            font-weight: 800;
+        }
+
+        .hero-callout {
+            display: grid;
+            gap: clamp(0.45rem, 0.7vw, 0.55rem);
+            padding: clamp(0.75rem, 1vw, 0.85rem);
+            border-left: clamp(0.25rem, 0.45vw, 0.35rem) solid var(--accent);
+            background: var(--accent-soft);
+        }
+
+        .callout-label {
+            font-size: var(--small-size);
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent-deep);
+        }
+
+        .callout-text {
+            font-size: clamp(0.9rem, 1.15vw, 1.02rem);
+            line-height: 1.45;
+            color: var(--text-primary);
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: clamp(0.55rem, 0.8vw, 0.7rem);
+        }
+
+        .stat-card {
+            display: grid;
+            gap: clamp(0.25rem, 0.45vw, 0.32rem);
+            padding: clamp(0.7rem, 0.95vw, 0.85rem);
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-small);
+            background: rgba(255, 255, 255, 0.92);
+        }
+
+        .stat-value {
+            font-family: var(--font-display);
+            font-size: clamp(1.1rem, 1.7vw, 1.55rem);
+            line-height: 1;
+            letter-spacing: -0.05em;
+            color: var(--text-primary);
+        }
+
+        .stat-label {
+            font-size: var(--small-size);
+            line-height: 1.4;
+            color: var(--text-secondary);
+        }
+
+        .hero-footer {
+            align-self: end;
+            display: grid;
+            gap: clamp(0.4rem, 0.7vw, 0.55rem);
+            padding-top: clamp(0.35rem, 0.55vw, 0.45rem);
+            border-top: 1px solid var(--line-soft);
+        }
+
+        .footer-caption {
+            font-size: var(--small-size);
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .footer-note {
+            font-size: var(--body-size);
+            line-height: 1.5;
+            color: var(--text-secondary);
+        }
+
+        .content-panel {
+            display: grid;
+            grid-template-rows: minmax(0, 1.08fr) minmax(0, 0.92fr);
+            gap: clamp(0.75rem, 0.95vw, 0.9rem);
+            min-height: 0;
+        }
+
+        .section-panel {
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr);
+            gap: clamp(0.55rem, 0.8vw, 0.7rem);
+            min-height: 0;
+            padding: clamp(0.9rem, 1.1vw, 1rem);
+            border-radius: var(--radius-medium);
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid var(--line-soft);
+            overflow: hidden;
+        }
+
+        .section-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: clamp(0.6rem, 1vw, 0.8rem);
+            padding-bottom: clamp(0.45rem, 0.6vw, 0.5rem);
+            border-bottom: 1px solid var(--line-soft);
+        }
+
+        .section-title {
+            font-family: var(--font-display);
+            font-size: var(--section-size);
+            letter-spacing: -0.03em;
+            color: var(--text-primary);
+        }
+
+        .section-tag {
+            padding: clamp(0.22rem, 0.38vw, 0.28rem) clamp(0.5rem, 0.8vw, 0.66rem);
+            border-radius: 999px;
+            font-size: var(--small-size);
+            font-weight: 700;
+            color: var(--accent-deep);
+            background: var(--accent-soft);
+            white-space: nowrap;
+        }
+
+        .card-grid {
+            display: grid;
+            gap: clamp(0.55rem, 0.8vw, 0.7rem);
+            min-height: 0;
+        }
+
+        .card-grid-four {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-rows: repeat(2, minmax(0, 1fr));
+        }
+
+        .card-grid-two {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .issue-card {
+            position: relative;
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr);
+            gap: clamp(0.45rem, 0.65vw, 0.55rem);
+            min-height: 0;
+            padding: clamp(0.75rem, 0.95vw, 0.85rem);
+            border: 1px solid rgba(15, 17, 19, 0.08);
+            border-radius: var(--radius-small);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+            overflow: hidden;
+        }
+
+        .issue-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: clamp(0.16rem, 0.25vw, 0.22rem);
+            background: linear-gradient(90deg, var(--accent) 0%, rgba(197, 34, 31, 0.25) 100%);
+        }
+
+        .card-title {
+            display: flex;
+            align-items: center;
+            gap: clamp(0.4rem, 0.7vw, 0.5rem);
+            font-size: var(--small-size);
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-primary);
+        }
+
+        .card-index {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: clamp(1.4rem, 1.8vw, 1.6rem);
+            height: clamp(1.4rem, 1.8vw, 1.6rem);
+            border-radius: 999px;
+            font-size: clamp(0.62rem, 0.75vw, 0.72rem);
+            color: var(--accent-deep);
+            background: var(--accent-soft);
+        }
+
+        .card-body {
+            display: grid;
+            gap: clamp(0.35rem, 0.55vw, 0.45rem);
+            align-content: start;
+            min-height: 0;
+            font-size: var(--body-size);
+            line-height: 1.55;
+            color: var(--text-secondary);
+        }
+
+        .card-body p {
+            margin: 0;
+        }
+
+        .card-body strong {
+            color: var(--text-primary);
+        }
+
+        .keyboard-hint {
+            position: absolute;
+            right: clamp(1rem, 1.6vw, 1.25rem);
+            bottom: clamp(1rem, 1.6vw, 1.15rem);
+            display: flex;
+            gap: clamp(0.3rem, 0.5vw, 0.4rem);
+            align-items: center;
+            font-size: var(--small-size);
+            color: var(--text-muted);
+        }
+
+        .keyboard-chip {
+            padding: clamp(0.16rem, 0.26vw, 0.22rem) clamp(0.35rem, 0.5vw, 0.45rem);
+            border-radius: 999px;
+            border: 1px solid rgba(15, 17, 19, 0.08);
+            background: rgba(255, 255, 255, 0.92);
+        }
+
+        /* === RESPONSIVE TUNING === */
+        @media (max-width: 1180px) {
+            .report-grid {
+                grid-template-columns: minmax(15rem, 0.84fr) minmax(0, 1.4fr);
+            }
+
+            .hero-lead {
+                font-size: clamp(1.28rem, 2vw, 1.8rem);
+            }
+        }
+
+        @media (max-width: 900px) {
+            .report-header {
+                grid-template-columns: 1fr;
+            }
+
+            .header-page {
+                justify-content: flex-start;
+            }
+
+            .report-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .content-panel {
+                grid-template-rows: repeat(2, minmax(0, 1fr));
+            }
+
+            .hero-footer {
+                align-self: start;
+            }
+        }
+
+        @media (max-width: 680px) {
+            .card-grid-four,
+            .card-grid-two {
+                grid-template-columns: 1fr;
+            }
+
+            .section-heading {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .page-number {
+                font-size: clamp(1.4rem, 7vw, 2rem);
+            }
+
+            .header-title {
+                font-size: clamp(1.5rem, 7vw, 2.4rem);
+            }
+
+            .hero-lead {
+                font-size: clamp(1.08rem, 5vw, 1.45rem);
+            }
+
+            .keyboard-hint {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- === PRESENTATION PROGRESS === -->
+    <div class="progress-track" aria-hidden="true">
+        <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <!-- === INLINE EDITING CONTROLS === -->
+    <div class="edit-hotzone" aria-hidden="true"></div>
+    <button class="edit-toggle" id="editToggle" title="编辑模式（E）">Edit</button>
+    <div class="edit-toolbar" id="editToolbar">
+        <button class="toolbar-button" id="saveButton" type="button">保存</button>
+        <button class="toolbar-button" id="exportButton" type="button">导出</button>
+        <button class="toolbar-button" id="resetButton" type="button">重置</button>
+    </div>
+    <div class="status-toast" id="statusToast" aria-live="polite"></div>
+
+    <!-- === NAVIGATION DOTS === -->
+    <nav class="nav-dots" id="navDots" aria-label="幻灯片导航"></nav>
+
+    <!-- === SINGLE-SLIDE REPORT === -->
+    <section class="slide report-slide">
+        <div class="slide-content">
+            <div class="report-board">
+                <!-- === HEADER === -->
+                <header class="report-header">
+                    <div class="reveal">
+                        <div class="header-kicker" data-editable-id="header-kicker">领导汇报版</div>
+                        <h1 class="header-title" data-editable-id="header-title">二期场馆测试阶段主要问题反馈</h1>
+                        <p class="header-subtitle" data-editable-id="header-subtitle">白底单页汇报版式｜保留原文表达｜支持浏览器内直接改字与导出</p>
+                    </div>
+
+                    <div class="header-page reveal">
+                        <div class="page-number" data-editable-id="page-number">01</div>
+                        <div class="page-caption">
+                            <span data-editable-id="page-caption-top">二期场馆</span>
+                            <span data-editable-id="page-caption-bottom">问题快照</span>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- === MAIN CONTENT GRID === -->
+                <div class="report-grid">
+                    <!-- === LEFT SUMMARY PANEL === -->
+                    <aside class="hero-panel reveal">
+                        <div class="hero-strip" data-editable-id="hero-strip">测试反馈摘要</div>
+
+                        <div class="hero-summary">
+                            <div class="hero-lead" data-editable-id="hero-lead">
+                                <span>问题主要集中在观众端</span>
+                                <strong>当前反馈以硬件设施和基础配套问题为主</strong>
+                            </div>
+
+                            <div class="hero-callout">
+                                <div class="callout-label" data-editable-id="callout-label">核心判断</div>
+                                <div class="callout-text" data-editable-id="callout-text">硬件设施短板更为突出，会展服务类问题暂未形成集中反馈。</div>
+                            </div>
+                        </div>
+
+                        <div class="stat-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" data-editable-id="stat-value-1">14</div>
+                                <div class="stat-label" data-editable-id="stat-label-1">目前二期测试展共回收 14 份问卷。</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" data-editable-id="stat-value-2">4</div>
+                                <div class="stat-label" data-editable-id="stat-label-2">其中参展商 4 份暂未提出明确问题。</div>
+                            </div>
+                        </div>
+
+                        <div class="hero-footer">
+                            <div class="footer-caption" data-editable-id="footer-caption">当前关注点</div>
+                            <div class="footer-note" data-editable-id="footer-note">现阶段未见明显集中的参展服务类投诉，当前暴露出的矛盾更多集中在观众到场、观展和基础体验环节。</div>
+                        </div>
+                    </aside>
+
+                    <!-- === RIGHT DETAIL PANEL === -->
+                    <div class="content-panel">
+                        <section class="section-panel reveal">
+                            <div class="section-heading">
+                                <h2 class="section-title" data-editable-id="section-title-1">（一）反馈总体特征</h2>
+                                <span class="section-tag" data-editable-id="section-tag-1">问题主要集中在观众端</span>
+                            </div>
+
+                            <div class="card-grid card-grid-four">
+                                <article class="issue-card">
+                                    <div class="card-title">
+                                        <span class="card-index">01</span>
+                                        <span data-editable-id="card-title-1">问卷回收情况</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <p data-editable-id="card-body-1">（1）目前二期测试展共回收14份问卷，其中参展商4份暂未提出明确问题，现阶段未见明显集中的参展服务类投诉。</p>
+                                    </div>
+                                </article>
+
+                                <article class="issue-card">
+                                    <div class="card-title">
+                                        <span class="card-index">02</span>
+                                        <span data-editable-id="card-title-2">问题来源判断</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <p data-editable-id="card-body-2">（2）从现有反馈看，问题主要来自专业观众和普通观众，说明当前暴露出的矛盾更多集中在观众到场、观展和基础体验环节。</p>
+                                    </div>
+                                </article>
+
+                                <article class="issue-card">
+                                    <div class="card-title">
+                                        <span class="card-index">03</span>
+                                        <span data-editable-id="card-title-3">交通与停车</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <p data-editable-id="card-body-3">（1）“停车不方便”“需要绕路”“希望与一期地下车库联通”等意见，初步可归入“硬件设施”维度中的“园区停车方便”“交通流线”“交通便利，容易到达”等指标，反映出二期场馆在停车组织、到达动线和场馆衔接方面仍有优化空间。</p>
+                                    </div>
+                                </article>
+
+                                <article class="issue-card">
+                                    <div class="card-title">
+                                        <span class="card-index">04</span>
+                                        <span data-editable-id="card-title-4">标识与环境</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <p data-editable-id="card-body-4a">（2）与到场效率、找路便利性相关的反馈，也与“标识标牌清晰”有关；该指标强调标识应设置在显眼易见位置、内容简明扼要、数量足够并覆盖关键区域。</p>
+                                        <p data-editable-id="card-body-4b">（3）“油漆味、甲醛味较重”“希望增加厕所”等意见，说明当前场馆环境舒适度和基础配套保障仍是影响观展体验的重点问题。</p>
+                                    </div>
+                                </article>
+                            </div>
+                        </section>
+
+                        <section class="section-panel reveal">
+                            <div class="section-heading">
+                                <h2 class="section-title" data-editable-id="section-title-2">（二）指标归类判断</h2>
+                                <span class="section-tag" data-editable-id="section-tag-2">硬件设施短板更为突出</span>
+                            </div>
+
+                            <div class="card-grid card-grid-two">
+                                <article class="issue-card">
+                                    <div class="card-title">
+                                        <span class="card-index">05</span>
+                                        <span data-editable-id="card-title-5">硬件设施短板更为突出</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <p data-editable-id="card-body-5a">（1）根据指标定义，交通、停车、到达便利性、标识标牌及设施设备均属于“硬件设施”评价范围。</p>
+                                        <p data-editable-id="card-body-5b">（2）结合现有反馈判断，二期场馆当前更突出的不是服务执行问题，而是停车衔接、交通流线、导视覆盖和现场环境等基础条件问题。</p>
+                                    </div>
+                                </article>
+
+                                <article class="issue-card">
+                                    <div class="card-title">
+                                        <span class="card-index">06</span>
+                                        <span data-editable-id="card-title-6">会展服务类问题暂未形成集中反馈</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <p data-editable-id="card-body-6a">（1）“会展服务”维度主要包括工作人员服务态度、业务技能、服务响应及时性、整体协调和配合等内容。</p>
+                                        <p data-editable-id="card-body-6b">（2）现阶段反馈中未见上述服务类问题被集中提及，说明当前阶段性问题暂未明显集中在人员服务层面。</p>
+                                    </div>
+                                </article>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <!-- === BOTTOM NAVIGATION HINT === -->
+                <div class="keyboard-hint reveal">
+                    <span class="keyboard-chip">E</span>
+                    <span data-editable-id="keyboard-hint">进入编辑模式，可直接修改文字并导出当前文件</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        /* === SLIDE PRESENTATION CONTROLLER === */
+        class SlidePresentation {
+            constructor() {
+                this.slides = Array.from(document.querySelectorAll('.slide'));
+                this.currentSlide = 0;
+                this.progressBar = document.getElementById('progressBar');
+                this.navDots = document.getElementById('navDots');
+                this.isWheelLocked = false;
+
+                this.setupIntersectionObserver();
+                this.setupKeyboardNav();
+                this.setupTouchNav();
+                this.setupWheelNav();
+                this.setupNavDots();
+                this.updateProgressBar();
+                this.updateVisibleSlide(0);
+            }
+
+            setupIntersectionObserver() {
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        if (entry.isIntersecting) {
+                            const slideIndex = this.slides.indexOf(entry.target);
+                            entry.target.classList.add('visible');
+                            this.updateVisibleSlide(slideIndex);
+                        }
+                    });
+                }, {
+                    threshold: 0.55
+                });
+
+                this.slides.forEach((slide) => observer.observe(slide));
+            }
+
+            setupKeyboardNav() {
+                document.addEventListener('keydown', (event) => {
+                    if (event.target.closest('[contenteditable="true"]')) {
+                        return;
+                    }
+
+                    if (['ArrowDown', 'ArrowRight', 'PageDown', ' '].includes(event.key)) {
+                        event.preventDefault();
+                        this.goToSlide(this.currentSlide + 1);
+                    }
+
+                    if (['ArrowUp', 'ArrowLeft', 'PageUp'].includes(event.key)) {
+                        event.preventDefault();
+                        this.goToSlide(this.currentSlide - 1);
+                    }
+
+                    if (event.key === 'Home') {
+                        event.preventDefault();
+                        this.goToSlide(0);
+                    }
+
+                    if (event.key === 'End') {
+                        event.preventDefault();
+                        this.goToSlide(this.slides.length - 1);
+                    }
+                });
+            }
+
+            setupTouchNav() {
+                let touchStartY = 0;
+                let touchEndY = 0;
+
+                document.addEventListener('touchstart', (event) => {
+                    touchStartY = event.changedTouches[0].screenY;
+                }, { passive: true });
+
+                document.addEventListener('touchend', (event) => {
+                    touchEndY = event.changedTouches[0].screenY;
+                    const delta = touchStartY - touchEndY;
+
+                    if (Math.abs(delta) < 48) {
+                        return;
+                    }
+
+                    if (delta > 0) {
+                        this.goToSlide(this.currentSlide + 1);
+                    } else {
+                        this.goToSlide(this.currentSlide - 1);
+                    }
+                }, { passive: true });
+            }
+
+            setupWheelNav() {
+                document.addEventListener('wheel', (event) => {
+                    if (this.isWheelLocked || event.target.closest('[contenteditable="true"]')) {
+                        return;
+                    }
+
+                    if (Math.abs(event.deltaY) < 18) {
+                        return;
+                    }
+
+                    this.isWheelLocked = true;
+                    if (event.deltaY > 0) {
+                        this.goToSlide(this.currentSlide + 1);
+                    } else {
+                        this.goToSlide(this.currentSlide - 1);
+                    }
+
+                    window.setTimeout(() => {
+                        this.isWheelLocked = false;
+                    }, 550);
+                }, { passive: true });
+            }
+
+            setupNavDots() {
+                this.navDots.innerHTML = '';
+
+                this.slides.forEach((_, index) => {
+                    const dot = document.createElement('button');
+                    dot.type = 'button';
+                    dot.setAttribute('aria-label', `跳转到第 ${index + 1} 页`);
+                    dot.addEventListener('click', () => this.goToSlide(index));
+                    this.navDots.appendChild(dot);
+                });
+
+                this.updateNavDots();
+            }
+
+            updateVisibleSlide(index) {
+                this.currentSlide = Math.max(0, Math.min(index, this.slides.length - 1));
+                this.updateProgressBar();
+                this.updateNavDots();
+            }
+
+            updateProgressBar() {
+                const progress = this.slides.length <= 1 ? 100 : ((this.currentSlide + 1) / this.slides.length) * 100;
+                this.progressBar.style.width = `${progress}%`;
+            }
+
+            updateNavDots() {
+                Array.from(this.navDots.children).forEach((dot, index) => {
+                    dot.classList.toggle('active', index === this.currentSlide);
+                });
+            }
+
+            goToSlide(index) {
+                const boundedIndex = Math.max(0, Math.min(index, this.slides.length - 1));
+                this.currentSlide = boundedIndex;
+                this.slides[boundedIndex].scrollIntoView({
+                    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                    block: 'start'
+                });
+                this.updateProgressBar();
+                this.updateNavDots();
+            }
+        }
+
+        /* === INLINE EDITOR === */
+        class InlineEditor {
+            constructor() {
+                this.storageKey = 'slide-edit-state::phase2-venue-issues-v1';
+                this.editables = Array.from(document.querySelectorAll('[data-editable-id]'));
+                this.originalContent = new Map(this.editables.map((element) => [
+                    element.dataset.editableId,
+                    element.innerHTML
+                ]));
+                this.isActive = false;
+                this.toastTimer = null;
+
+                this.hotzone = document.querySelector('.edit-hotzone');
+                this.editToggle = document.getElementById('editToggle');
+                this.toolbar = document.getElementById('editToolbar');
+                this.statusToast = document.getElementById('statusToast');
+                this.saveButton = document.getElementById('saveButton');
+                this.exportButton = document.getElementById('exportButton');
+                this.resetButton = document.getElementById('resetButton');
+
+                this.restore();
+                this.bindControls();
+            }
+
+            bindControls() {
+                this.editToggle.addEventListener('click', () => {
+                    this.toggleEditMode();
+                });
+
+                this.saveButton.addEventListener('click', () => this.save());
+                this.exportButton.addEventListener('click', () => this.exportHtml());
+                this.resetButton.addEventListener('click', () => this.reset());
+
+                this.editables.forEach((element) => {
+                    element.addEventListener('input', () => {
+                        if (this.isActive) {
+                            this.save(true);
+                        }
+                    });
+                });
+
+                const hotzone = this.hotzone;
+                const editToggle = this.editToggle;
+                let hideTimeout = null;
+
+                hotzone.addEventListener('mouseenter', () => {
+                    window.clearTimeout(hideTimeout);
+                    editToggle.classList.add('show');
+                });
+
+                hotzone.addEventListener('mouseleave', () => {
+                    hideTimeout = window.setTimeout(() => {
+                        if (!this.isActive) {
+                            editToggle.classList.remove('show');
+                        }
+                    }, 400);
+                });
+
+                editToggle.addEventListener('mouseenter', () => {
+                    window.clearTimeout(hideTimeout);
+                });
+
+                editToggle.addEventListener('mouseleave', () => {
+                    hideTimeout = window.setTimeout(() => {
+                        if (!this.isActive) {
+                            editToggle.classList.remove('show');
+                        }
+                    }, 400);
+                });
+
+                hotzone.addEventListener('click', () => {
+                    this.toggleEditMode();
+                });
+
+                document.addEventListener('keydown', (event) => {
+                    const isEditableTarget = Boolean(event.target.closest('[contenteditable="true"]'));
+
+                    if ((event.key === 'e' || event.key === 'E') && !isEditableTarget) {
+                        event.preventDefault();
+                        this.toggleEditMode();
+                    }
+
+                    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+                        event.preventDefault();
+                        this.save();
+                    }
+                });
+            }
+
+            toggleEditMode() {
+                this.isActive = !this.isActive;
+                document.body.classList.toggle('edit-mode', this.isActive);
+                this.editToggle.classList.toggle('active', this.isActive);
+                this.editToggle.classList.toggle('show', this.isActive);
+                this.toolbar.classList.toggle('active', this.isActive);
+
+                this.editables.forEach((element) => {
+                    element.setAttribute('contenteditable', this.isActive ? 'true' : 'false');
+                    element.setAttribute('spellcheck', 'false');
+                });
+
+                if (this.isActive) {
+                    this.showStatus('编辑模式已开启');
+                } else {
+                    this.editables.forEach((element) => element.blur());
+                    this.showStatus('编辑模式已关闭');
+                }
+            }
+
+            save(isAutosave = false) {
+                try {
+                    const payload = {};
+                    this.editables.forEach((element) => {
+                        payload[element.dataset.editableId] = element.innerHTML;
+                    });
+                    window.localStorage.setItem(this.storageKey, JSON.stringify(payload));
+                    if (!isAutosave) {
+                        this.showStatus('已保存到当前浏览器');
+                    }
+                } catch (error) {
+                    this.showStatus('保存失败，请检查浏览器权限');
+                }
+            }
+
+            restore() {
+                try {
+                    const raw = window.localStorage.getItem(this.storageKey);
+                    if (!raw) {
+                        return;
+                    }
+                    const payload = JSON.parse(raw);
+                    this.editables.forEach((element) => {
+                        const saved = payload[element.dataset.editableId];
+                        if (typeof saved === 'string') {
+                            element.innerHTML = saved;
+                        }
+                    });
+                } catch (error) {
+                    this.showStatus('检测到旧缓存但恢复失败');
+                }
+            }
+
+            reset() {
+                this.editables.forEach((element) => {
+                    element.innerHTML = this.originalContent.get(element.dataset.editableId) || '';
+                });
+                try {
+                    window.localStorage.removeItem(this.storageKey);
+                } catch (error) {
+                    /* Ignore localStorage cleanup issues and keep reset in-memory */
+                }
+                this.showStatus('已恢复到初始内容');
+            }
+
+            exportHtml() {
+                this.save(true);
+
+                const clonedDocument = document.documentElement.cloneNode(true);
+                clonedDocument.querySelectorAll('[contenteditable]').forEach((node) => {
+                    node.removeAttribute('contenteditable');
+                    node.removeAttribute('spellcheck');
+                });
+                clonedDocument.querySelectorAll('.edit-toggle').forEach((node) => {
+                    node.classList.remove('active', 'show');
+                });
+                clonedDocument.querySelectorAll('.edit-toolbar').forEach((node) => {
+                    node.classList.remove('active');
+                });
+                clonedDocument.querySelectorAll('.status-toast').forEach((node) => {
+                    node.classList.remove('show');
+                });
+                clonedDocument.querySelectorAll('.slide').forEach((node) => {
+                    node.classList.add('visible');
+                });
+
+                const html = `<!DOCTYPE html>\n${clonedDocument.outerHTML}`;
+                const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement('a');
+                anchor.href = url;
+                anchor.download = '二期场馆测试阶段主要问题反馈-slide.html';
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                URL.revokeObjectURL(url);
+
+                this.showStatus('已导出当前编辑版本');
+            }
+
+            showStatus(message) {
+                window.clearTimeout(this.toastTimer);
+                this.statusToast.textContent = message;
+                this.statusToast.classList.add('show');
+                this.toastTimer = window.setTimeout(() => {
+                    this.statusToast.classList.remove('show');
+                }, 1800);
+            }
+        }
+
+        const presentation = new SlidePresentation();
+        const editor = new InlineEditor();
+
+        window.presentation = presentation;
+        window.editor = editor;
+    </script>
+</body>
+</html>
