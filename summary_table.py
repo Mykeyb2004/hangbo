@@ -12,6 +12,7 @@ from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import column_index_from_string, get_column_letter
 
+from survey_customer_category_rules import DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES, CustomerCategoryRule
 from survey_stats import OVERALL_FILL, SECTION_FILL, excel_round, mean_ignore_empty, normalize_output_dir
 
 DEFAULT_SUMMARY_TITLE = "杭博客户类型满意度情况表"
@@ -227,230 +228,130 @@ HARDWARE_SELECTORS = section_selector("硬件设施")
 SUPPORT_SELECTORS = section_selector("配套服务")
 SMART_SELECTORS = section_selector("智慧场馆", "智慧服务")
 
-SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = (
-    SummaryRowDefinition(
-        category_label="一、会展客户",
-        display_name="展览活动主（承）办",
-        source_aliases=("展览主承办", "展览活动主（承）办"),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": EVENT_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="一、会展客户",
-        display_name="参展商",
-        source_aliases=("参展商",),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": EVENT_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="一、会展客户",
-        display_name="专业观众",
-        source_aliases=("专业观众",),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": EVENT_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="一、会展客户",
-        display_name="会展服务商",
-        source_aliases=("会展服务商",),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": EVENT_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="一、会展客户",
-        display_name="会议活动主（承）办",
-        source_aliases=("会议主承办", "会议活动主（承）办"),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": EVENT_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="一、会展客户",
-        display_name="参会客户",
-        source_aliases=("参会人员", "参会客户"),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": EVENT_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="二、餐饮客户",
-        display_name="商务简餐",
-        source_aliases=("商务简餐",),
-        selectors={
-            "总分": overall_selector(),
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="二、餐饮客户",
-        display_name="特色美食廊",
-        source_aliases=("特色美食廊",),
-        selectors={
-            "总分": overall_selector(),
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="二、餐饮客户",
-        display_name="婚宴",
-        source_aliases=("婚宴",),
-        selectors={
-            "总分": overall_selector(),
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="二、餐饮客户",
-        display_name="自助餐",
-        source_aliases=("自助餐",),
-        selectors={
-            "总分": overall_selector(),
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="二、餐饮客户",
-        display_name="宴会",
-        source_aliases=("宴会",),
-        selectors={
-            "总分": overall_selector(),
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="三、G20峰会体验馆",
-        display_name="游客",
-        source_aliases=("游客",),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": G20_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="三、G20峰会体验馆",
-        display_name="旅行社工作人员",
-        source_aliases=("旅行社工作人员",),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": G20_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="四、专项调研",
-        display_name="",
-        source_aliases=(),
-        selectors={},
-    ),
-    SummaryRowDefinition(
-        category_label="五、酒店客户",
-        display_name="酒店散客",
-        source_aliases=("散客", "酒店散客"),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": HOTEL_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="五、酒店客户",
-        display_name="酒店住宿团队",
-        source_aliases=("住宿团队", "酒店住宿团队"),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": HOTEL_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="五、酒店客户",
-        display_name="酒店参会客户",
-        source_aliases=("酒店参会客户", "酒店参会人员"),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": EVENT_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="五、酒店客户",
-        display_name="酒店会议活动主（承）办",
-        source_aliases=("酒店会议主承办", "酒店会议活动主（承）办"),
-        selectors={
-            "总分": overall_selector(),
-            "产品服务": EVENT_PRODUCT_SELECTORS,
-            "硬件设施": HARDWARE_SELECTORS,
-            "配套服务": SUPPORT_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
-    SummaryRowDefinition(
-        category_label="五、酒店客户",
-        display_name="酒店餐饮客户",
-        source_aliases=("酒店宴会", "酒店自助餐", "酒店餐饮客户"),
-        selectors={
-            "总分": overall_selector(),
-            "硬件设施": HARDWARE_SELECTORS,
-            "智慧场馆/服务": SMART_SELECTORS,
-            "餐饮服务": dining_selector(),
-        },
-    ),
+SPECIAL_RESEARCH_ROW_DEFINITION = SummaryRowDefinition(
+    category_label="四、专项调研",
+    display_name="",
+    source_aliases=(),
+    selectors={},
 )
+
+LEGACY_SOURCE_ALIASES_BY_RULE_NAME: dict[str, tuple[str, ...]] = {
+    "展览主承办": ("展览活动主（承）办",),
+    "会议主承办": ("会议活动主（承）办",),
+    "参会人员": ("参会客户",),
+    "散客": ("酒店散客",),
+    "住宿团队": ("酒店住宿团队",),
+    "酒店参会客户": ("酒店参会人员",),
+    "酒店会议主承办": ("酒店会议活动主（承）办",),
+}
+
+
+def dedupe_preserving_order(values: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    ordered_values: list[str] = []
+    for value in values:
+        normalized_value = normalize_text(value)
+        if not normalized_value or normalized_value in seen:
+            continue
+        seen.add(normalized_value)
+        ordered_values.append(value)
+    return tuple(ordered_values)
+
+
+def build_summary_source_aliases(rule: CustomerCategoryRule) -> tuple[str, ...]:
+    aliases = [
+        rule.name,
+        rule.customer_category,
+        *(LEGACY_SOURCE_ALIASES_BY_RULE_NAME.get(rule.name, ())),
+    ]
+    if rule.name == "酒店餐饮客户":
+        aliases.extend(rule.aggregate_rule_names)
+        aliases.extend(("酒店宴会", "酒店自助餐"))
+    return dedupe_preserving_order(tuple(aliases))
+
+
+def build_summary_selectors(rule: CustomerCategoryRule) -> dict[str, tuple[ValueSelector, ...]]:
+    if rule.customer_group == "一、会展客户":
+        return {
+            "总分": overall_selector(),
+            "产品服务": EVENT_PRODUCT_SELECTORS,
+            "硬件设施": HARDWARE_SELECTORS,
+            "配套服务": SUPPORT_SELECTORS,
+            "智慧场馆/服务": SMART_SELECTORS,
+            "餐饮服务": dining_selector(),
+        }
+
+    if rule.customer_group == "二、餐饮客户":
+        return {
+            "总分": overall_selector(),
+            "硬件设施": HARDWARE_SELECTORS,
+            "智慧场馆/服务": SMART_SELECTORS,
+            "餐饮服务": dining_selector(),
+        }
+
+    if rule.customer_group == "三、G20峰会体验馆":
+        return {
+            "总分": overall_selector(),
+            "产品服务": G20_PRODUCT_SELECTORS,
+            "硬件设施": HARDWARE_SELECTORS,
+            "智慧场馆/服务": SMART_SELECTORS,
+        }
+
+    if rule.customer_group == "五、酒店客户":
+        if rule.template_name in {"hotel_individual_guest", "hotel_group_guest"}:
+            return {
+                "总分": overall_selector(),
+                "产品服务": HOTEL_PRODUCT_SELECTORS,
+                "硬件设施": HARDWARE_SELECTORS,
+                "智慧场馆/服务": SMART_SELECTORS,
+                "餐饮服务": dining_selector(),
+            }
+
+        if rule.template_name in {"hotel_meeting_attendee", "hotel_meeting_organizer"}:
+            return {
+                "总分": overall_selector(),
+                "产品服务": EVENT_PRODUCT_SELECTORS,
+                "硬件设施": HARDWARE_SELECTORS,
+                "配套服务": SUPPORT_SELECTORS,
+                "智慧场馆/服务": SMART_SELECTORS,
+                "餐饮服务": dining_selector(),
+            }
+
+        if rule.name == "酒店餐饮客户":
+            return {
+                "总分": overall_selector(),
+                "硬件设施": HARDWARE_SELECTORS,
+                "智慧场馆/服务": SMART_SELECTORS,
+                "餐饮服务": dining_selector(),
+            }
+
+    raise ValueError(f"未定义汇总表选择器规则：{rule.name}")
+
+
+def build_summary_row_definitions() -> tuple[SummaryRowDefinition, ...]:
+    row_definitions: list[SummaryRowDefinition] = []
+    special_research_inserted = False
+    for rule in DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES:
+        if not special_research_inserted and rule.customer_group == "五、酒店客户":
+            row_definitions.append(SPECIAL_RESEARCH_ROW_DEFINITION)
+            special_research_inserted = True
+
+        row_definitions.append(
+            SummaryRowDefinition(
+                category_label=rule.customer_group,
+                display_name=rule.customer_category,
+                source_aliases=build_summary_source_aliases(rule),
+                selectors=build_summary_selectors(rule),
+            )
+        )
+
+    if not special_research_inserted:
+        row_definitions.append(SPECIAL_RESEARCH_ROW_DEFINITION)
+
+    return tuple(row_definitions)
+
+
+SUMMARY_ROW_DEFINITIONS: tuple[SummaryRowDefinition, ...] = build_summary_row_definitions()
 
 
 def build_report_index(reports: tuple[ReportSnapshot, ...]) -> dict[str, dict[Path, ReportSnapshot]]:

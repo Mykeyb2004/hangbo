@@ -121,16 +121,24 @@ def load_sample_table_config(
 
     rows: list[SampleTableRowConfig] = []
     for row_data in rows_data:
+        rule_name = (
+            str(row_data["rule_name"]).strip()
+            if row_data.get("rule_name") is not None
+            else None
+        )
+        display_name = str(row_data.get("display_name", "")).strip()
+        if not display_name and rule_name is not None:
+            rule = CUSTOMER_CATEGORY_RULE_BY_NAME.get(rule_name)
+            if rule is None:
+                raise ValueError(f"样本统计配置引用了未知映射规则：{rule_name}")
+            display_name = rule.customer_category
+
         rows.append(
             SampleTableRowConfig(
                 category_label=str(row_data["category_label"]).strip(),
-                display_name=str(row_data.get("display_name", "")).strip(),
+                display_name=display_name,
                 target_sample_size=int(row_data["target_sample_size"]),
-                rule_name=(
-                    str(row_data["rule_name"]).strip()
-                    if row_data.get("rule_name") is not None
-                    else None
-                ),
+                rule_name=rule_name,
                 actual_count_override=(
                     int(row_data["actual_count_override"])
                     if row_data.get("actual_count_override") is not None

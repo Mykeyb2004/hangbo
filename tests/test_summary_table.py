@@ -210,7 +210,7 @@ class SummaryTableTest(unittest.TestCase):
             rows = build_summary_rows(reports)
             summary_df = build_summary_dataframe(rows)
 
-            row = summary_df[summary_df["样本类型"] == "酒店会议活动主（承）办"].iloc[0]
+            row = summary_df[summary_df["样本类型"] == "酒店会议主（承）办"].iloc[0]
             self.assertEqual(row["总分"], 9.5)
             self.assertEqual(row["产品服务"], 9.7)
             self.assertEqual(row["配套服务"], 9.2)

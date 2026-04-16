@@ -211,7 +211,7 @@ ALL_CUSTOMER_CATEGORY_RULES: tuple[CustomerCategoryRule, ...] = (
     CustomerCategoryRule(
         name="酒店会议主承办",
         customer_group="五、酒店客户",
-        customer_category="酒店会议活动主（承）办",
+        customer_category="酒店会议主（承）办",
         source_file_name="会议.xlsx",
         sequence_number=17,
         template_name="hotel_meeting_organizer",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from textwrap import dedent
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -34,6 +35,25 @@ def write_source_workbook(
 
 
 class SampleTableTest(unittest.TestCase):
+    def test_load_sample_table_config_derives_display_name_from_customer_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "sample.toml"
+            config_path.write_text(
+                dedent(
+                    """
+                    [[rows]]
+                    category_label = "六、酒店客户"
+                    target_sample_size = 100
+                    rule_name = "散客"
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            config = load_sample_table_config(config_path)
+
+        self.assertEqual(config.rows[0].display_name, "酒店散客")
+
     def test_load_sample_table_config_reads_default_targets(self) -> None:
         config = load_sample_table_config()
 
@@ -48,7 +68,7 @@ class SampleTableTest(unittest.TestCase):
         self.assertEqual(config.rows[16].display_name, "酒店散客")
         self.assertEqual(config.rows[17].display_name, "酒店住宿团队")
         self.assertEqual(config.rows[18].display_name, "酒店参会客户")
-        self.assertEqual(config.rows[19].display_name, "酒店会议活动主（承）办")
+        self.assertEqual(config.rows[19].display_name, "酒店会议主（承）办")
         self.assertEqual(config.rows[-1].display_name, "酒店餐饮客户")
         self.assertEqual(config.rows[-1].target_sample_size, 266)
 
@@ -87,7 +107,7 @@ class SampleTableTest(unittest.TestCase):
             self.assertEqual(meeting_attendee_row.actual_count, 1)
             self.assertEqual(meeting_attendee_row.group_counts, {"1-2月": 0, "3月": 1})
 
-            meeting_organizer_row = row_by_label[("六、酒店客户", "酒店会议活动主（承）办")]
+            meeting_organizer_row = row_by_label[("六、酒店客户", "酒店会议主（承）办")]
             self.assertEqual(meeting_organizer_row.actual_count, 1)
             self.assertEqual(meeting_organizer_row.group_counts, {"1-2月": 0, "3月": 1})
 
@@ -196,7 +216,7 @@ class SampleTableTest(unittest.TestCase):
             self.assertEqual(worksheet["E24"].value, 1)
             self.assertEqual(worksheet["F24"].value, 0)
             self.assertEqual(worksheet["G24"].value, 1)
-            self.assertEqual(worksheet["B25"].value, "酒店会议活动主（承）办")
+            self.assertEqual(worksheet["B25"].value, "酒店会议主（承）办")
             self.assertEqual(worksheet["E25"].value, 1)
             self.assertEqual(worksheet["F25"].value, 0)
             self.assertEqual(worksheet["G25"].value, 1)
