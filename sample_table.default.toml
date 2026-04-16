@@ -3,32 +3,26 @@ sheet_name = "样本统计"
 output_name = "客户类型样本统计表.xlsx"
 
 [[rows]]
-category_label = "一、会展客户"
 target_sample_size = 38
 rule_name = "展览主承办"
 
 [[rows]]
-category_label = "一、会展客户"
 target_sample_size = 722
 rule_name = "参展商"
 
 [[rows]]
-category_label = "一、会展客户"
 target_sample_size = 930
 rule_name = "专业观众"
 
 [[rows]]
-category_label = "一、会展客户"
 target_sample_size = 38
 rule_name = "会展服务商"
 
 [[rows]]
-category_label = "一、会展客户"
 target_sample_size = 38
 rule_name = "会议主承办"
 
 [[rows]]
-category_label = "一、会展客户"
 target_sample_size = 930
 rule_name = "参会人员"
 
@@ -39,73 +33,59 @@ target_sample_size = 38
 actual_count_override = 0
 
 [[rows]]
-category_label = "二、酒店暗访（次）"
-display_name = ""
-target_sample_size = 4
-actual_count_override = 1
-
-[[rows]]
-category_label = "三、餐饮客户"
 target_sample_size = 285
 rule_name = "商务简餐"
 
 [[rows]]
-category_label = "三、餐饮客户"
 target_sample_size = 285
 rule_name = "特色美食廊"
 
 [[rows]]
-category_label = "三、餐饮客户"
-target_sample_size = 152
-rule_name = "宴会"
-
-[[rows]]
-category_label = "三、餐饮客户"
 target_sample_size = 57
 rule_name = "婚宴"
 
 [[rows]]
-category_label = "三、餐饮客户"
 target_sample_size = 152
 rule_name = "自助餐"
 
 [[rows]]
-category_label = "四、G20峰会体验馆"
-target_sample_size = 15
-rule_name = "旅行社工作人员"
+target_sample_size = 152
+rule_name = "宴会"
 
 [[rows]]
-category_label = "四、G20峰会体验馆"
 target_sample_size = 75
 rule_name = "游客"
 
 [[rows]]
-category_label = "五、专项调研"
-display_name = ""
-target_sample_size = 171
-actual_count_override = 0
+target_sample_size = 15
+rule_name = "旅行社工作人员"
 
 [[rows]]
-category_label = "六、酒店客户"
+display_name = "四、专项调研"
+target_sample_size = 171
+actual_count_from_group_sum = true
+
+[[rows]]
 target_sample_size = 100
 rule_name = "散客"
 
 [[rows]]
-category_label = "六、酒店客户"
 target_sample_size = 150
 rule_name = "住宿团队"
 
 [[rows]]
-category_label = "六、酒店客户"
 target_sample_size = 75
 rule_name = "酒店参会客户"
 
 [[rows]]
-category_label = "六、酒店客户"
 target_sample_size = 9
 rule_name = "酒店会议主承办"
 
 [[rows]]
-category_label = "六、酒店客户"
 target_sample_size = 266
 rule_name = "酒店餐饮客户"
+
+[[rows]]
+display_name = "六、酒店暗访（次）"
+target_sample_size = 4
+actual_count_from_group_sum = true

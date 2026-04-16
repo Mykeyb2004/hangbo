@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 import tomllib
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +52,7 @@ class SampleTableRowConfig:
     target_sample_size: int
     rule_name: str | None = None
     actual_count_override: int | None = None
+    actual_count_from_group_sum: bool = False
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,7 @@ class SampleTableRowResult:
     target_sample_size: int
     actual_count: int
     group_counts: dict[str, int]
+    actual_count_from_group_sum: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,16 +129,23 @@ def load_sample_table_config(
             if row_data.get("rule_name") is not None
             else None
         )
+        category_label = str(row_data.get("category_label", "")).strip()
         display_name = str(row_data.get("display_name", "")).strip()
-        if not display_name and rule_name is not None:
+        actual_count_from_group_sum = bool(row_data.get("actual_count_from_group_sum", False))
+        if rule_name is not None and (not category_label or not display_name):
             rule = CUSTOMER_CATEGORY_RULE_BY_NAME.get(rule_name)
             if rule is None:
                 raise ValueError(f"样本统计配置引用了未知映射规则：{rule_name}")
-            display_name = rule.customer_category
+            if not category_label:
+                category_label = rule.customer_group
+            if not display_name:
+                display_name = rule.customer_category
+        if actual_count_from_group_sum and row_data.get("actual_count_override") is not None:
+            raise ValueError("样本统计配置不能同时设置 actual_count_override 和 actual_count_from_group_sum。")
 
         rows.append(
             SampleTableRowConfig(
-                category_label=str(row_data["category_label"]).strip(),
+                category_label=category_label,
                 display_name=display_name,
                 target_sample_size=int(row_data["target_sample_size"]),
                 rule_name=rule_name,
@@ -144,6 +154,7 @@ def load_sample_table_config(
                     if row_data.get("actual_count_override") is not None
                     else None
                 ),
+                actual_count_from_group_sum=actual_count_from_group_sum,
             )
         )
 
@@ -491,6 +502,7 @@ def build_sample_table_rows(
                     sample_groups=sample_groups,
                     default_year=default_year,
                 ),
+                actual_count_from_group_sum=row_config.actual_count_from_group_sum,
             )
         )
 
@@ -537,6 +549,36 @@ def merge_category_column(worksheet, start_row: int, end_row: int) -> None:
     worksheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=1)
 
 
+def merge_special_row_label(worksheet, row_index: int) -> None:
+    worksheet.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=2)
+
+
+def display_text_width(value: object) -> int:
+    if value is None:
+        return 0
+    text = str(value).strip()
+    if not text:
+        return 0
+    if text.startswith("="):
+        return 0
+
+    width = 0
+    for char in text:
+        width += 2 if unicodedata.east_asian_width(char) in {"F", "W"} else 1
+    return width
+
+
+def apply_auto_content_widths(worksheet, *, start_column_index: int, end_column_index: int) -> None:
+    for column_index in range(start_column_index, end_column_index + 1):
+        max_width = 0
+        for row_index in range(1, worksheet.max_row + 1):
+            max_width = max(
+                max_width,
+                display_text_width(worksheet.cell(row=row_index, column=column_index).value),
+            )
+        worksheet.column_dimensions[get_column_letter(column_index)].width = max(max_width + 2, 10)
+
+
 def ensure_output_path(output_dir: Path, output_name: str) -> Path:
     final_output_dir = normalize_output_dir(output_dir)
     file_name = output_name if output_name.lower().endswith(".xlsx") else f"{output_name}.xlsx"
@@ -550,6 +592,14 @@ def build_sum_formula(column_index: int, row_ranges: list[tuple[int, int]]) -> s
         for start_row, end_row in row_ranges
     )
     return f"=SUM({joined_ranges})"
+
+
+def build_row_group_sum_formula(row_index: int, start_column_index: int, end_column_index: int) -> str:
+    if end_column_index < start_column_index:
+        return "=0"
+    start_column_letter = get_column_letter(start_column_index)
+    end_column_letter = get_column_letter(end_column_index)
+    return f"=SUM({start_column_letter}{row_index}:{end_column_letter}{row_index})"
 
 
 def style_sample_table_worksheet(
@@ -588,29 +638,50 @@ def style_sample_table_worksheet(
 
         for row in group.rows:
             worksheet.row_dimensions[current_excel_row].height = 24
-            set_text_cell(
-                worksheet.cell(row=current_excel_row, column=1),
-                row.category_label,
-                fill=SUMMARY_SIDE_FILL,
-                font=SUMMARY_SIDE_FONT,
-            )
-            set_text_cell(
-                worksheet.cell(row=current_excel_row, column=2),
-                row.display_name or None,
-                fill=SUMMARY_SIDE_FILL,
-                font=SUMMARY_SIDE_FONT,
-            )
+            if not row.category_label and row.display_name:
+                merge_special_row_label(worksheet, current_excel_row)
+                set_text_cell(
+                    worksheet.cell(row=current_excel_row, column=1),
+                    row.display_name,
+                    fill=SUMMARY_SIDE_FILL,
+                    font=SUMMARY_SIDE_FONT,
+                )
+                apply_common_style(
+                    worksheet.cell(row=current_excel_row, column=2),
+                    fill=SUMMARY_SIDE_FILL,
+                    font=SUMMARY_SIDE_FONT,
+                )
+            else:
+                set_text_cell(
+                    worksheet.cell(row=current_excel_row, column=1),
+                    row.category_label,
+                    fill=SUMMARY_SIDE_FILL,
+                    font=SUMMARY_SIDE_FONT,
+                )
+                set_text_cell(
+                    worksheet.cell(row=current_excel_row, column=2),
+                    row.display_name or None,
+                    fill=SUMMARY_SIDE_FILL,
+                    font=SUMMARY_SIDE_FONT,
+                )
             set_count_cell(worksheet.cell(row=current_excel_row, column=3), row.target_sample_size)
             set_percent_cell(
                 worksheet.cell(row=current_excel_row, column=4),
                 f"=IFERROR(E{current_excel_row}/C{current_excel_row},0)",
             )
-            set_count_cell(worksheet.cell(row=current_excel_row, column=5), row.actual_count)
             for column_offset, group_label in enumerate(result.group_labels, start=6):
                 set_count_cell(
                     worksheet.cell(row=current_excel_row, column=column_offset),
                     row.group_counts.get(group_label, 0),
                 )
+            set_count_cell(
+                worksheet.cell(row=current_excel_row, column=5),
+                build_row_group_sum_formula(
+                    current_excel_row,
+                    6,
+                    last_column_index,
+                ),
+            )
             current_excel_row += 1
 
         group_end_row = current_excel_row - 1
@@ -619,15 +690,15 @@ def style_sample_table_worksheet(
 
         if len(group.rows) > 1:
             worksheet.row_dimensions[current_excel_row].height = 24
+            merge_special_row_label(worksheet, current_excel_row)
             set_text_cell(
                 worksheet.cell(row=current_excel_row, column=1),
-                None,
+                "小计",
                 fill=SUMMARY_SIDE_FILL,
                 font=SUMMARY_SIDE_FONT,
             )
-            set_text_cell(
+            apply_common_style(
                 worksheet.cell(row=current_excel_row, column=2),
-                "小计",
                 fill=SUMMARY_SIDE_FILL,
                 font=SUMMARY_SIDE_FONT,
             )
@@ -680,11 +751,11 @@ def style_sample_table_worksheet(
     worksheet.freeze_panes = "C3"
     worksheet.column_dimensions["A"].width = 24
     worksheet.column_dimensions["B"].width = 30
-    worksheet.column_dimensions["C"].width = 12
-    worksheet.column_dimensions["D"].width = 16
-    worksheet.column_dimensions["E"].width = 14
-    for column_offset in range(6, last_column_index + 1):
-        worksheet.column_dimensions[get_column_letter(column_offset)].width = 14
+    apply_auto_content_widths(
+        worksheet,
+        start_column_index=3,
+        end_column_index=last_column_index,
+    )
 
 
 def generate_sample_table_report(
