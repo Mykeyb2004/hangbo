@@ -18,7 +18,7 @@ from tkinter import ttk
 
 from pptx import Presentation
 from summary_table import SUMMARY_ROW_DEFINITIONS
-from survey_customer_mappings import STANDARD_CUSTOMER_TYPE_MAPPINGS
+from survey_customer_category_rules import DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES
 from survey_stats import (
     BatchConfig,
     DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA,
@@ -1041,16 +1041,18 @@ def build_stats_preview_summary(config: GuiBatchConfig) -> StatsPreviewSummary:
         return StatsPreviewSummary(
             rows=tuple(
                 CustomerTypePreviewRow(
-                    template_name=mapping.template_name,
-                    customer_type_name=mapping.template_role_name,
-                    document_display_name=mapping.document_display_name,
-                    source_file_name=mapping.source_file_name,
-                    output_name=f"{mapping.template_role_name}.xlsx",
+                    template_name=rule.template_name or rule.name,
+                    customer_type_name=rule.name,
+                    document_display_name=(
+                        None if rule.customer_category == rule.name else rule.customer_category
+                    ),
+                    source_file_name=rule.source_file_name,
+                    output_name=f"{rule.name}.xlsx",
                     status=CustomerTypePreviewStatus.MISSING_INPUT_DIR,
                     detail=f"输入目录不存在：{input_dir}",
-                    note=mapping.note,
+                    note=rule.note,
                 )
-                for mapping in STANDARD_CUSTOMER_TYPE_MAPPINGS
+                for rule in DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES
             ),
             input_dir=input_dir,
         )
@@ -1061,41 +1063,42 @@ def build_stats_preview_summary(config: GuiBatchConfig) -> StatsPreviewSummary:
         notice.customer_type_name: notice for notice in discovery.missing_customer_type_notices
     }
     rows: list[CustomerTypePreviewRow] = []
-    for mapping in STANDARD_CUSTOMER_TYPE_MAPPINGS:
-        job = job_lookup.get(mapping.template_role_name)
+    for rule in DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES:
+        document_display_name = None if rule.customer_category == rule.name else rule.customer_category
+        job = job_lookup.get(rule.name)
         if job is not None:
             rows.append(
                 CustomerTypePreviewRow(
-                    template_name=mapping.template_name,
-                    customer_type_name=mapping.template_role_name,
-                    document_display_name=mapping.document_display_name,
-                    source_file_name=mapping.source_file_name,
+                    template_name=rule.template_name or rule.name,
+                    customer_type_name=rule.name,
+                    document_display_name=document_display_name,
+                    source_file_name=rule.source_file_name,
                     output_name=f"{job.output_name}.{config.output_format}",
                     status=CustomerTypePreviewStatus.READY,
                     detail=f"来源文件：{job.path.name}",
-                    note=mapping.note,
+                    note=rule.note,
                 )
             )
             continue
 
-        notice = missing_notice_lookup.get(mapping.template_role_name)
+        notice = missing_notice_lookup.get(rule.name)
         if notice is not None and notice.reason == DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA:
             status = CustomerTypePreviewStatus.MISSING_ROLE_DATA
             detail = f"来源文件存在，但未找到身份值：{notice.source_reference}"
         else:
             status = CustomerTypePreviewStatus.MISSING_SOURCE_FILE
-            source_reference = notice.source_reference if notice is not None else mapping.source_file_name
+            source_reference = notice.source_reference if notice is not None else rule.source_file_name
             detail = f"缺少来源文件：{source_reference}"
         rows.append(
             CustomerTypePreviewRow(
-                template_name=mapping.template_name,
-                customer_type_name=mapping.template_role_name,
-                document_display_name=mapping.document_display_name,
-                source_file_name=mapping.source_file_name,
-                output_name=f"{mapping.template_role_name}.{config.output_format}",
+                template_name=rule.template_name or rule.name,
+                customer_type_name=rule.name,
+                document_display_name=document_display_name,
+                source_file_name=rule.source_file_name,
+                output_name=f"{rule.name}.{config.output_format}",
                 status=status,
                 detail=detail,
-                note=mapping.note,
+                note=rule.note,
             )
         )
 

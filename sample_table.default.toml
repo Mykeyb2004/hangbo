@@ -100,27 +100,27 @@ actual_count_override = 0
 
 [[rows]]
 category_label = "六、酒店客户"
-display_name = "散客-到店/网络预定"
+display_name = "酒店散客"
 target_sample_size = 100
 rule_name = "散客"
 
 [[rows]]
 category_label = "六、酒店客户"
-display_name = "住宿团队"
+display_name = "酒店住宿团队"
 target_sample_size = 150
 rule_name = "住宿团队"
 
 [[rows]]
 category_label = "六、酒店客户"
-display_name = "会议活动主（承）办"
-target_sample_size = 9
-rule_name = "酒店会议主承办"
+display_name = "酒店参会客户"
+target_sample_size = 75
+rule_name = "酒店参会客户"
 
 [[rows]]
 category_label = "六、酒店客户"
-display_name = "会议活动参会客户"
-target_sample_size = 75
-rule_name = "酒店参会客户"
+display_name = "酒店会议活动主（承）办"
+target_sample_size = 9
+rule_name = "酒店会议主承办"
 
 [[rows]]
 category_label = "六、酒店客户"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import tomllib
 from collections import Counter
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ DEFAULT_GROUP_YEAR = "2026"
 
 COUNT_NUMBER_FORMAT = "0"
 PERCENT_NUMBER_FORMAT = "0.00%"
+MONTH_RANGE_PATTERN = re.compile(r"^(\d{1,2})\s*[-~至到]\s*(\d{1,2})月?$")
+MONTH_SINGLE_PATTERN = re.compile(r"^(\d{1,2})月?$")
 SUMMARY_HEADER_FILL = PatternFill(fill_type="solid", start_color="B32046", end_color="B32046")
 SUMMARY_SIDE_FILL = PatternFill(fill_type="solid", start_color="B32046", end_color="B32046")
 SUMMARY_BODY_FILL = PatternFill(fill_type="solid", start_color="F4E8E8", end_color="F4E8E8")
@@ -157,6 +160,13 @@ def normalize_month_value(value: object) -> str:
         numeric_text = text[:-2]
         if numeric_text.isdigit():
             return str(int(numeric_text))
+    range_match = MONTH_RANGE_PATTERN.fullmatch(text)
+    if range_match:
+        start_month, end_month = range_match.groups()
+        return f"{int(start_month)}-{int(end_month)}"
+    single_match = MONTH_SINGLE_PATTERN.fullmatch(text)
+    if single_match:
+        return str(int(single_match.group(1)))
     return text
 
 
@@ -196,7 +206,8 @@ def iter_row_year_month_values(
 
 
 def build_auto_group_label(year_text: str, month_text: str, *, include_year: bool) -> str:
-    return f"{year_text}年{month_text}" if include_year else month_text
+    month_label = f"{month_text}月" if month_text else ""
+    return f"{year_text}年{month_label}" if include_year else month_label
 
 
 def build_auto_sample_groups(

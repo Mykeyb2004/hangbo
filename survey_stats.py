@@ -15,10 +15,6 @@ from survey_customer_category_rules import (
     CUSTOMER_CATEGORY_RULES,
     CustomerCategoryRule,
 )
-from survey_customer_mappings import (
-    SOURCE_FILE_TO_TEMPLATE_NAMES,
-    STANDARD_CUSTOMER_TYPE_MAPPINGS,
-)
 
 DEFAULT_SHEET_NAME = "问卷数据"
 DEFAULT_OUTPUT_FORMAT = "xlsx"
@@ -1521,10 +1517,7 @@ def load_source_file_overrides(raw_overrides: object) -> tuple[SourceFileOverrid
     if not isinstance(raw_overrides, dict):
         raise ValueError("source_file_overrides 必须是表结构。")
 
-    supported_source_files = {
-        *SOURCE_FILE_TO_TEMPLATE_NAMES,
-        *(rule.source_file_name for rule in CUSTOMER_CATEGORY_RULES),
-    }
+    supported_source_files = {rule.source_file_name for rule in CUSTOMER_CATEGORY_RULES}
     overrides: list[SourceFileOverride] = []
     for standard_file_name, actual_file_name_value in raw_overrides.items():
         normalized_standard_file_name = str(standard_file_name).strip()

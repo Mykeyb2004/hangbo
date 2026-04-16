@@ -802,8 +802,8 @@ class CustomerTypePreviewTests(unittest.TestCase):
                 input_dir / "展览.xlsx",
                 headers=["A", "B", "C", "D", "E"],
                 rows=[
-                    ["x", "x", "x", "x", "展览主承办"],
-                    ["x", "x", "x", "x", "参展商"],
+                    ["x", "x", "展览", "x", "展览主承办"],
+                    ["x", "x", "展览", "x", "参展商"],
                 ],
             )
             self.create_workbook(
@@ -844,7 +844,7 @@ class CustomerTypePreviewTests(unittest.TestCase):
             self.create_workbook(
                 merged_dir / "展览.xlsx",
                 headers=["A", "B", "C", "D", "E"],
-                rows=[["x", "x", "x", "x", "展览主承办"]],
+                rows=[["x", "x", "展览", "x", "展览主承办"]],
             )
 
             config = GuiBatchConfig(

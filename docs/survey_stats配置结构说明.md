@@ -108,7 +108,7 @@ input_dir = "datas/历史批次"
 
 ### 目录模式的标准来源文件
 
-目录模式会按标准映射自动尝试查找这些来源文件：
+目录模式会按客户类别规则自动尝试查找这些来源文件：
 
 - `展览.xlsx`
 - `会展服务商.xlsx`
@@ -122,7 +122,7 @@ input_dir = "datas/历史批次"
 
 ### 新结构行为
 
-- 程序会自动展开当前已支持的 20 类模板客户。
+- 程序会自动展开当前在 [survey_customer_category_rules.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_customer_category_rules.py) 中启用的目录模式客户类型。
 - 如果来源文件不存在，该客户类型会被跳过。
 - 如果来源文件存在，但没有匹配身份值，该客户类型也会被跳过。
 - 以上两种情况都不会生成空白输出文件。

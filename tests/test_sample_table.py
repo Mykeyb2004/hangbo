@@ -45,6 +45,10 @@ class SampleTableTest(unittest.TestCase):
         self.assertEqual(config.rows[7].category_label, "二、酒店暗访（次）")
         self.assertEqual(config.rows[7].display_name, "")
         self.assertEqual(config.rows[7].target_sample_size, 4)
+        self.assertEqual(config.rows[16].display_name, "酒店散客")
+        self.assertEqual(config.rows[17].display_name, "酒店住宿团队")
+        self.assertEqual(config.rows[18].display_name, "酒店参会客户")
+        self.assertEqual(config.rows[19].display_name, "酒店会议活动主（承）办")
         self.assertEqual(config.rows[-1].display_name, "酒店餐饮客户")
         self.assertEqual(config.rows[-1].target_sample_size, 266)
 
@@ -59,33 +63,41 @@ class SampleTableTest(unittest.TestCase):
                 for row in result.rows
             }
 
-            self.assertEqual(result.group_labels, ("01-02", "3"))
+            self.assertEqual(result.group_labels, ("1-2月", "3月"))
 
             organizer_row = row_by_label[("一、会展客户", "展览活动主（承）办")]
             self.assertEqual(organizer_row.target_sample_size, 38)
             self.assertEqual(organizer_row.actual_count, 1)
-            self.assertEqual(organizer_row.group_counts, {"01-02": 1, "3": 0})
+            self.assertEqual(organizer_row.group_counts, {"1-2月": 1, "3月": 0})
 
             lost_row = row_by_label[("一、会展客户", "会展流失主办客户")]
             self.assertEqual(lost_row.actual_count, 0)
-            self.assertEqual(lost_row.group_counts, {"01-02": 0, "3": 0})
+            self.assertEqual(lost_row.group_counts, {"1-2月": 0, "3月": 0})
 
             audit_row = row_by_label[("二、酒店暗访（次）", "")]
             self.assertEqual(audit_row.target_sample_size, 4)
             self.assertEqual(audit_row.actual_count, 1)
-            self.assertEqual(audit_row.group_counts, {"01-02": 0, "3": 0})
+            self.assertEqual(audit_row.group_counts, {"1-2月": 0, "3月": 0})
 
-            guest_row = row_by_label[("六、酒店客户", "散客-到店/网络预定")]
+            guest_row = row_by_label[("六、酒店客户", "酒店散客")]
             self.assertEqual(guest_row.actual_count, 2)
-            self.assertEqual(guest_row.group_counts, {"01-02": 1, "3": 1})
+            self.assertEqual(guest_row.group_counts, {"1-2月": 1, "3月": 1})
+
+            meeting_attendee_row = row_by_label[("六、酒店客户", "酒店参会客户")]
+            self.assertEqual(meeting_attendee_row.actual_count, 1)
+            self.assertEqual(meeting_attendee_row.group_counts, {"1-2月": 0, "3月": 1})
+
+            meeting_organizer_row = row_by_label[("六、酒店客户", "酒店会议活动主（承）办")]
+            self.assertEqual(meeting_organizer_row.actual_count, 1)
+            self.assertEqual(meeting_organizer_row.group_counts, {"1-2月": 0, "3月": 1})
 
             hotel_catering_row = row_by_label[("六、酒店客户", "酒店餐饮客户")]
             self.assertEqual(hotel_catering_row.actual_count, 4)
-            self.assertEqual(hotel_catering_row.group_counts, {"01-02": 2, "3": 2})
+            self.assertEqual(hotel_catering_row.group_counts, {"1-2月": 2, "3月": 2})
 
             research_row = row_by_label[("五、专项调研", "")]
             self.assertEqual(research_row.actual_count, 0)
-            self.assertEqual(research_row.group_counts, {"01-02": 0, "3": 0})
+            self.assertEqual(research_row.group_counts, {"1-2月": 0, "3月": 0})
 
     def test_build_sample_table_rows_uses_user_supplied_group_labels(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -110,7 +122,7 @@ class SampleTableTest(unittest.TestCase):
             organizer_row = row_by_label[("一、会展客户", "展览活动主（承）办")]
             self.assertEqual(organizer_row.group_counts, {"1-2月": 1, "3月": 0})
 
-            guest_row = row_by_label[("六、酒店客户", "散客-到店/网络预定")]
+            guest_row = row_by_label[("六、酒店客户", "酒店散客")]
             self.assertEqual(guest_row.group_counts, {"1-2月": 1, "3月": 1})
 
     def test_generate_sample_table_report_creates_standalone_workbook_with_formulas(self) -> None:
@@ -172,10 +184,22 @@ class SampleTableTest(unittest.TestCase):
             self.assertEqual(worksheet["F10"].value, "=SUM(F3:F9)")
             self.assertEqual(worksheet["G10"].value, "=SUM(G3:G9)")
 
-            self.assertEqual(worksheet["B22"].value, "散客-到店/网络预定")
+            self.assertEqual(worksheet["B22"].value, "酒店散客")
             self.assertEqual(worksheet["E22"].value, 2)
             self.assertEqual(worksheet["F22"].value, 1)
             self.assertEqual(worksheet["G22"].value, 1)
+            self.assertEqual(worksheet["B23"].value, "酒店住宿团队")
+            self.assertEqual(worksheet["E23"].value, 1)
+            self.assertEqual(worksheet["F23"].value, 0)
+            self.assertEqual(worksheet["G23"].value, 1)
+            self.assertEqual(worksheet["B24"].value, "酒店参会客户")
+            self.assertEqual(worksheet["E24"].value, 1)
+            self.assertEqual(worksheet["F24"].value, 0)
+            self.assertEqual(worksheet["G24"].value, 1)
+            self.assertEqual(worksheet["B25"].value, "酒店会议活动主（承）办")
+            self.assertEqual(worksheet["E25"].value, 1)
+            self.assertEqual(worksheet["F25"].value, 0)
+            self.assertEqual(worksheet["G25"].value, 1)
             self.assertEqual(worksheet["B26"].value, "酒店餐饮客户")
             self.assertEqual(worksheet["E26"].value, 4)
             self.assertEqual(worksheet["F26"].value, 2)

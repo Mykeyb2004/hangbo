@@ -4,7 +4,7 @@
 
 `survey_stats.py` 现在支持“统一指定目录”的批量模式。
 
-和旧的 `[[jobs]]` 显式配置相比，目录模式只需要提供一个 `input_dir`，程序会根据标准映射自动尝试发现当前已支持的 20 类模板客户，并只为真实存在数据的客户类型生成结果。
+和旧的 `[[jobs]]` 显式配置相比，目录模式只需要提供一个 `input_dir`，程序会根据 [survey_customer_category_rules.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_customer_category_rules.py) 中的客户类别规则自动发现当前已启用的客户类型，并只为真实存在数据的客户类型生成结果。
 
 标准映射表见：
 
@@ -74,7 +74,7 @@ input_dir = "datas/历史批次"
 ## 与旧 `[[jobs]]` 模式的差异
 
 - 旧模式：每个 job 手动指定 `path/template/role_name`
-- 新模式：只指定 `input_dir`，再按标准映射自动展开
+- 新模式：只指定 `input_dir`，再按客户类别规则自动展开
 - 旧模式：客户分组无匹配时仍输出空白统计结果
 - 新模式：客户类型无数据时不输出空白文件，只在结尾提示
 
