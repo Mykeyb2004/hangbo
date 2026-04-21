@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -25,6 +26,7 @@ from survey_stats import (
     CATERING_WEDDING_BANQUET_ROLE_NAME,
     CATERING_WEDDING_BANQUET_TEMPLATE,
     DEFAULT_SHEET_NAME,
+    DirectoryDiscoveryResult,
     DIRECTORY_NOTICE_REASON_MISSING_ROLE_DATA,
     DIRECTORY_NOTICE_REASON_MISSING_SOURCE_FILE,
     EXHIBITOR_ROLE_NAME,
@@ -71,6 +73,7 @@ from survey_stats import (
     generate_role_report_bundle,
     load_batch_config,
     mean_ignore_empty,
+    run_directory_batch,
     run_config_mode,
     run_single_mode,
 )
@@ -1292,6 +1295,32 @@ input_dir = "datas"
             self.assertTrue((temp_path / "exports" / "酒店餐饮客户.xlsx").exists())
             self.assertFalse((temp_path / "exports" / "酒店宴会.xlsx").exists())
             self.assertFalse((temp_path / "exports" / "酒店自助餐.xlsx").exists())
+
+    def test_run_directory_batch_uses_programmatic_directory_mode_without_config_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_dir = root / "input_dir"
+            output_dir = root / "output_dir"
+            input_dir.mkdir()
+            output_dir.mkdir()
+
+            with mock.patch("survey_stats.discover_directory_jobs") as mock_discover, mock.patch(
+                "survey_stats.generate_customer_category_report_bundle"
+            ) as mock_generate:
+                mock_discover.return_value = DirectoryDiscoveryResult(
+                    jobs=(),
+                    missing_customer_type_notices=(),
+                    preprocess_notices=(),
+                    unmapped_customer_category_notices=(),
+                )
+
+                run_directory_batch(
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                )
+
+            mock_discover.assert_called_once()
+            mock_generate.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -2142,11 +2142,21 @@ def run_legacy_batch_mode(args: argparse.Namespace) -> None:
     print_missing_group_summary(missing_group_notices)
 
 
-def run_config_mode(args: argparse.Namespace) -> None:
-    config = load_batch_config(args.config, default_sheet_name=args.sheet_name)
-    output_dir = normalize_output_dir(args.output_dir or config.output_dir)
-    global_output_format = args.output_format or config.output_format
-    calculation_mode = normalize_calculation_mode(args.calculation_mode or config.calculation_mode)
+def run_batch_config(
+    config: BatchConfig,
+    *,
+    output_dir_override: Path | None = None,
+    output_format_override: str | None = None,
+    calculation_mode_override: str | None = None,
+    selected_job_names: list[str] | tuple[str, ...] = (),
+    dry_run: bool = False,
+) -> None:
+    output_dir = normalize_output_dir(output_dir_override or config.output_dir)
+    global_output_format = output_format_override or config.output_format
+    calculation_mode = normalize_calculation_mode(
+        calculation_mode_override or config.calculation_mode
+    )
+    job_filters = list(selected_job_names)
     selected_jobs: tuple[JobConfig, ...]
     missing_group_notices: list[MissingGroupNotice] = []
     missing_customer_type_notices: list[MissingCustomerTypeNotice] = []
@@ -2154,16 +2164,16 @@ def run_config_mode(args: argparse.Namespace) -> None:
     preprocess_notice_lookup: dict[Path, str] = {}
 
     if config.input_dir is None:
-        selected_jobs = select_jobs(config.jobs, args.job)
+        selected_jobs = select_jobs(config.jobs, job_filters)
         if not selected_jobs:
             raise ValueError("筛选后没有可运行的 jobs。")
     else:
         discovery_result = discover_directory_jobs(config)
-        selected_jobs = select_jobs(discovery_result.jobs, args.job)
+        selected_jobs = select_jobs(discovery_result.jobs, job_filters)
         missing_customer_type_notices = list(
             select_missing_customer_type_notices(
                 discovery_result.missing_customer_type_notices,
-                args.job,
+                job_filters,
             )
         )
         preprocess_notice_lookup = {
@@ -2190,7 +2200,7 @@ def run_config_mode(args: argparse.Namespace) -> None:
                 sheet_name=job.sheet_name,
                 sheet_title=job.name,
                 calculation_mode=calculation_mode,
-                dry_run=args.dry_run,
+                dry_run=dry_run,
                 save_empty_report=config.input_dir is None,
             )
         else:
@@ -2201,7 +2211,7 @@ def run_config_mode(args: argparse.Namespace) -> None:
                 output_path=output_path,
                 sheet_name=job.sheet_name,
                 calculation_mode=calculation_mode,
-                dry_run=args.dry_run,
+                dry_run=dry_run,
                 save_empty_report=config.input_dir is None,
             )
         preprocess_notice = report.preprocess_notice or preprocess_notice_lookup.pop(job.path, None)
@@ -2222,16 +2232,59 @@ def run_config_mode(args: argparse.Namespace) -> None:
             job.path,
             job.name,
             report.output_path,
-            dry_run=args.dry_run,
+            dry_run=dry_run,
         )
         if report.stats.matched_row_count == 0:
-            missing_group_notices.append(MissingGroupNotice(job.name, job.path, job.sheet_name))
+            missing_group_notices.append(
+                MissingGroupNotice(job.name, job.path, job.sheet_name)
+            )
 
     if config.input_dir is None:
         print_missing_group_summary(missing_group_notices)
     else:
         print_missing_customer_type_summary(missing_customer_type_notices)
         print_unmapped_customer_category_summary(unmapped_customer_category_notices)
+
+
+def run_directory_batch(
+    *,
+    input_dir: Path,
+    output_dir: Path,
+    sheet_name: str = DEFAULT_SHEET_NAME,
+    output_format: str = DEFAULT_OUTPUT_FORMAT,
+    calculation_mode: str = DEFAULT_CALCULATION_MODE,
+    job_filters: list[str] | tuple[str, ...] = (),
+    dry_run: bool = False,
+) -> None:
+    config = BatchConfig(
+        config_path=Path("<programmatic-directory-mode>"),
+        output_dir=output_dir,
+        output_format=output_format,
+        calculation_mode=normalize_calculation_mode(calculation_mode),
+        sheet_name=sheet_name,
+        input_dir=input_dir,
+    )
+    try:
+        run_batch_config(
+            config,
+            selected_job_names=job_filters,
+            dry_run=dry_run,
+        )
+    except ValueError as exc:
+        if str(exc) != "筛选后没有可运行的 jobs。":
+            raise
+
+
+def run_config_mode(args: argparse.Namespace) -> None:
+    config = load_batch_config(args.config, default_sheet_name=args.sheet_name)
+    run_batch_config(
+        config,
+        output_dir_override=args.output_dir,
+        output_format_override=args.output_format,
+        calculation_mode_override=args.calculation_mode,
+        selected_job_names=args.job,
+        dry_run=args.dry_run,
+    )
 
 
 def parse_args() -> argparse.Namespace:
