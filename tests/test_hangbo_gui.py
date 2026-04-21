@@ -10,6 +10,7 @@ import pandas as pd
 from pptx import Presentation
 
 from hangbo_gui import (
+    BackgroundTaskRunner,
     CustomerTypePreviewRow,
     CustomerTypePreviewStatus,
     GuiBatchConfig,
@@ -24,10 +25,17 @@ from hangbo_gui import (
     WorkflowRunStatus,
     WorkflowMode,
     batch_profile_storage_path,
+    apply_fixed_pipeline_paths,
     build_ppt_thumbnail_cache_dir,
     build_gui_batch_config_text,
+    build_gui_pipeline_defaults,
     build_category_intro_slides_text,
+    build_batch_type_notice,
+    build_advanced_rerun_notice,
+    build_main_pipeline_command,
+    build_main_pipeline_stage_titles,
     build_ppt_command,
+    build_sample_table_command,
     build_stats_preview_summary_text,
     build_survey_stats_command,
     build_workflow_status_text,
@@ -46,12 +54,125 @@ from hangbo_gui import (
     load_saved_batch_profiles,
     ordered_selected_customer_types,
     parse_category_intro_slides_text,
+    parse_gui_batch_config,
     save_batch_profile,
     save_gui_session,
 )
 
 
 class GuiBatchConfigTests(unittest.TestCase):
+    def test_default_config_uses_new_pipeline_directory_contract(self) -> None:
+        config = GuiBatchConfig()
+
+        self.assertEqual(config.year_value, "2026")
+        self.assertEqual(config.batch_value, "3月")
+        self.assertEqual(config.single_input_dir, PROJECT_ROOT / "data" / "raw" / "2026" / "3月")
+        self.assertEqual(
+            config.stats_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_detail" / "2026" / "3月",
+        )
+        self.assertEqual(
+            config.summary_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_summary" / "2026" / "3月",
+        )
+        self.assertEqual(
+            config.sample_summary_output_dir,
+            PROJECT_ROOT / "data" / "sample_summary" / "2026" / "3月",
+        )
+        self.assertEqual(
+            config.output_ppt_path,
+            PROJECT_ROOT / "data" / "ppt" / "2026" / "3月" / "3月满意度报告.pptx",
+        )
+
+    def test_build_gui_pipeline_defaults_matches_pipeline_paths(self) -> None:
+        config = build_gui_pipeline_defaults("2026", "Q1")
+
+        self.assertEqual(config.batch_name, "2026年Q1")
+        self.assertEqual(config.year_value, "2026")
+        self.assertEqual(config.batch_value, "Q1")
+        self.assertEqual(config.single_input_dir, PROJECT_ROOT / "data" / "raw" / "2026" / "Q1")
+        self.assertEqual(config.merge_output_dir, PROJECT_ROOT / "data" / "raw" / "2026" / "Q1")
+        self.assertEqual(
+            config.stats_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_detail" / "2026" / "Q1",
+        )
+        self.assertEqual(
+            config.summary_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_summary" / "2026" / "Q1",
+        )
+        self.assertEqual(config.summary_output_name, "Q1客户类型满意度汇总表.xlsx")
+        self.assertEqual(
+            config.sample_summary_output_dir,
+            PROJECT_ROOT / "data" / "sample_summary" / "2026" / "Q1",
+        )
+        self.assertEqual(config.sample_summary_output_name, "Q1客户类型样本统计表.xlsx")
+        self.assertEqual(
+            config.output_ppt_path,
+            PROJECT_ROOT / "data" / "ppt" / "2026" / "Q1" / "Q1满意度报告.pptx",
+        )
+
+    def test_apply_fixed_pipeline_paths_rewrites_pipeline_directories_from_year_batch(self) -> None:
+        config = GuiBatchConfig(
+            batch_name="Q1数据",
+            year_value="2026",
+            batch_value="Q1",
+            single_input_dir=PROJECT_ROOT / "datas" / "Q1",
+            merge_output_dir=PROJECT_ROOT / "datas" / "合并结果",
+            stats_output_dir=PROJECT_ROOT / "输出结果" / "Q1",
+            summary_output_dir=PROJECT_ROOT / "汇总结果" / "Q1",
+            sample_summary_output_dir=PROJECT_ROOT / "data" / "sample_summary" / "2026" / "3月",
+            sample_summary_output_name="3月客户类型样本统计表.xlsx",
+            output_ppt_path=PROJECT_ROOT / "输出结果" / "Q1满意度报告.pptx",
+        )
+
+        normalized = apply_fixed_pipeline_paths(config)
+
+        self.assertEqual(normalized.single_input_dir, PROJECT_ROOT / "data" / "raw" / "2026" / "Q1")
+        self.assertEqual(normalized.merge_output_dir, PROJECT_ROOT / "data" / "raw" / "2026" / "Q1")
+        self.assertEqual(
+            normalized.stats_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_detail" / "2026" / "Q1",
+        )
+        self.assertEqual(
+            normalized.summary_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_summary" / "2026" / "Q1",
+        )
+        self.assertEqual(
+            normalized.sample_summary_output_dir,
+            PROJECT_ROOT / "data" / "sample_summary" / "2026" / "Q1",
+        )
+        self.assertEqual(normalized.sample_summary_output_name, "Q1客户类型样本统计表.xlsx")
+        self.assertEqual(
+            normalized.output_ppt_path,
+            PROJECT_ROOT / "data" / "ppt" / "2026" / "Q1" / "Q1满意度报告.pptx",
+        )
+
+    def test_apply_fixed_pipeline_paths_preserves_non_pipeline_fields(self) -> None:
+        config = GuiBatchConfig(
+            batch_name="季度验证",
+            year_value="2026",
+            batch_value="Q1",
+            workflow_mode=WorkflowMode.MERGED,
+            merge_input_dirs=(PROJECT_ROOT / "data" / "raw" / "2026" / "1月",),
+            sheet_name="结果页",
+            ppt_template_path=PROJECT_ROOT / "templates" / "chapter.pptx",
+            pipeline_config_path=PROJECT_ROOT / "pipeline.defaults.toml",
+            ppt_title_suffix="（验证版）",
+        )
+
+        normalized = apply_fixed_pipeline_paths(config)
+
+        self.assertEqual(normalized.batch_name, "季度验证")
+        self.assertEqual(normalized.workflow_mode, WorkflowMode.MERGED)
+        self.assertEqual(
+            normalized.merge_input_dirs,
+            (PROJECT_ROOT / "data" / "raw" / "2026" / "1月",),
+        )
+        self.assertEqual(normalized.sheet_name, "结果页")
+        self.assertEqual(normalized.ppt_template_path, PROJECT_ROOT / "templates" / "chapter.pptx")
+        self.assertEqual(normalized.pipeline_config_path, PROJECT_ROOT / "pipeline.defaults.toml")
+        self.assertEqual(normalized.ppt_title_suffix, "（验证版）")
+
     def test_effective_input_dir_uses_single_dir_for_single_mode(self) -> None:
         config = GuiBatchConfig(
             batch_name="2026年3月",
@@ -102,6 +223,81 @@ class GuiBatchConfigTests(unittest.TestCase):
 
 
 class GuiWorkflowTests(unittest.TestCase):
+    def test_build_main_pipeline_command_uses_year_batch_and_defaults_config(self) -> None:
+        config = build_gui_pipeline_defaults("2026", "3月")
+
+        command = build_main_pipeline_command(config)
+
+        self.assertEqual(
+            command,
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "main_pipeline.py"),
+                "--year",
+                "2026",
+                "--batch",
+                "3月",
+                "--config",
+                str(PROJECT_ROOT / "pipeline.defaults.toml"),
+            ],
+        )
+
+    def test_main_pipeline_stage_titles_include_precheck_sample_and_ppt(self) -> None:
+        config = build_gui_pipeline_defaults("2026", "3月")
+
+        titles = build_main_pipeline_stage_titles(config)
+
+        self.assertEqual(
+            titles,
+            (
+                "预查错",
+                "人工修正确认",
+                "满意度分项统计",
+                "满意度汇总表",
+                "样本统计表",
+                "PPT 生成",
+            ),
+        )
+
+    def test_batch_type_notice_warns_combined_batches_not_to_autofill_months(self) -> None:
+        config = build_gui_pipeline_defaults("2026", "Q1")
+
+        notice = build_batch_type_notice(config)
+
+        self.assertIn("合并批次", notice)
+        self.assertIn("不会自动补写年份/月度", notice)
+        self.assertIn("不要整批统一写成某一个月份", notice)
+
+    def test_advanced_rerun_notices_mark_pages_as_non_default_tools(self) -> None:
+        for step_key in ("stats", "summary", "sample", "ppt"):
+            notice = build_advanced_rerun_notice(step_key)
+            self.assertIn("高级重跑工具", notice)
+            self.assertIn("默认推荐", notice)
+            self.assertIn("运行主流程", notice)
+
+    def test_build_sample_table_command_uses_raw_input_and_sample_output(self) -> None:
+        config = build_gui_pipeline_defaults("2026", "Q1")
+
+        command = build_sample_table_command(config)
+
+        self.assertEqual(
+            command,
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "sample_table.py"),
+                "--input-dir",
+                str(PROJECT_ROOT / "data" / "raw" / "2026" / "Q1"),
+                "--output-dir",
+                str(PROJECT_ROOT / "data" / "sample_summary" / "2026" / "Q1"),
+                "--output-name",
+                "Q1客户类型样本统计表.xlsx",
+                "--source-sheet-name",
+                "问卷数据",
+                "--default-year",
+                "2026",
+            ],
+        )
+
     def test_single_month_workflow_order_matches_business_sequence(self) -> None:
         config = GuiBatchConfig(
             batch_name="2026年3月",
@@ -717,6 +913,99 @@ class GuiTooltipTests(unittest.TestCase):
 
 
 class GuiBatchPersistenceTests(unittest.TestCase):
+    def test_parse_gui_batch_config_migrates_legacy_old_directory_contract(self) -> None:
+        raw_data = {
+            "batch_name": "03月批次",
+            "workflow_mode": "single",
+            "single_input_dir": str(PROJECT_ROOT / "datas" / "3月"),
+            "merge_output_dir": str(PROJECT_ROOT / "datas" / "合并结果"),
+            "merge_input_dirs": [
+                str(PROJECT_ROOT / "datas" / "1-2月"),
+                str(PROJECT_ROOT / "datas" / "3月"),
+            ],
+            "sheet_name": "问卷数据",
+            "year_value": "2026",
+            "month_value": "3",
+            "stats_output_dir": str(PROJECT_ROOT / "输出结果" / "3月"),
+            "summary_output_dir": str(PROJECT_ROOT / "汇总结果" / "3月"),
+            "summary_output_name": "3月客户类型满意度汇总表.xlsx",
+            "output_ppt_path": str(PROJECT_ROOT / "输出结果" / "3月满意度报告.pptx"),
+        }
+
+        config = parse_gui_batch_config(raw_data)
+
+        self.assertEqual(config.batch_name, "03月批次")
+        self.assertEqual(config.year_value, "2026")
+        self.assertEqual(config.batch_value, "3月")
+        self.assertEqual(config.single_input_dir, PROJECT_ROOT / "data" / "raw" / "2026" / "3月")
+        self.assertEqual(config.merge_output_dir, PROJECT_ROOT / "data" / "raw" / "2026" / "3月")
+        self.assertEqual(
+            config.merge_input_dirs,
+            (
+                PROJECT_ROOT / "data" / "raw" / "2026" / "1-2月",
+                PROJECT_ROOT / "data" / "raw" / "2026" / "3月",
+            ),
+        )
+        self.assertEqual(
+            config.stats_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_detail" / "2026" / "3月",
+        )
+        self.assertEqual(
+            config.summary_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_summary" / "2026" / "3月",
+        )
+        self.assertEqual(
+            config.sample_summary_output_dir,
+            PROJECT_ROOT / "data" / "sample_summary" / "2026" / "3月",
+        )
+        self.assertEqual(
+            config.output_ppt_path,
+            PROJECT_ROOT / "data" / "ppt" / "2026" / "3月" / "3月满意度报告.pptx",
+        )
+
+    def test_parse_gui_batch_config_prefers_consistent_q1_paths_over_stale_batch_value(self) -> None:
+        raw_data = {
+            "batch_name": "Q1数据",
+            "workflow_mode": "single",
+            "single_input_dir": str(PROJECT_ROOT / "data" / "raw" / "2026" / "Q1"),
+            "merge_output_dir": str(PROJECT_ROOT / "datas" / "合并结果"),
+            "sheet_name": "问卷数据",
+            "year_value": "2026",
+            "batch_value": "3月",
+            "month_value": "3",
+            "stats_output_dir": str(PROJECT_ROOT / "输出结果" / "Q1"),
+            "summary_output_dir": str(PROJECT_ROOT / "汇总结果" / "Q1"),
+            "summary_output_name": "Q1客户类型满意度汇总表.xlsx",
+            "sample_summary_output_dir": str(PROJECT_ROOT / "data" / "sample_summary" / "2026" / "3月"),
+            "sample_summary_output_name": "3月客户类型样本统计表.xlsx",
+            "output_ppt_path": str(PROJECT_ROOT / "输出结果" / "Q1满意度报告.pptx"),
+        }
+
+        config = parse_gui_batch_config(raw_data)
+
+        self.assertEqual(config.batch_name, "Q1数据")
+        self.assertEqual(config.year_value, "2026")
+        self.assertEqual(config.batch_value, "Q1")
+        self.assertEqual(config.month_value, "")
+        self.assertEqual(config.single_input_dir, PROJECT_ROOT / "data" / "raw" / "2026" / "Q1")
+        self.assertEqual(
+            config.stats_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_detail" / "2026" / "Q1",
+        )
+        self.assertEqual(
+            config.summary_output_dir,
+            PROJECT_ROOT / "data" / "satisfaction_summary" / "2026" / "Q1",
+        )
+        self.assertEqual(
+            config.sample_summary_output_dir,
+            PROJECT_ROOT / "data" / "sample_summary" / "2026" / "Q1",
+        )
+        self.assertEqual(config.sample_summary_output_name, "Q1客户类型样本统计表.xlsx")
+        self.assertEqual(
+            config.output_ppt_path,
+            PROJECT_ROOT / "data" / "ppt" / "2026" / "Q1" / "Q1满意度报告.pptx",
+        )
+
     def test_save_and_list_batch_profiles_round_trip(self) -> None:
         config_a = GuiBatchConfig(
             batch_name="2026年3月",
@@ -1017,6 +1306,23 @@ class WorkflowRunControllerTests(unittest.TestCase):
         )
 
         self.assertEqual(failed_text, "执行失败：生成分项统计")
+
+
+class BackgroundTaskRunnerTests(unittest.TestCase):
+    def test_send_input_writes_to_running_process_stdin(self) -> None:
+        root = mock.Mock()
+        app = mock.Mock()
+        runner = BackgroundTaskRunner(root, app)
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.stdin = mock.Mock()
+        runner._process = process
+
+        sent = runner.send_input("y\\n")
+
+        self.assertTrue(sent)
+        process.stdin.write.assert_called_once_with("y\\n")
+        process.stdin.flush.assert_called_once_with()
 
 
 if __name__ == "__main__":

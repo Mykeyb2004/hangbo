@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import math
 import queue
+import re
 import shlex
 import subprocess
 import sys
@@ -17,6 +18,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from pptx import Presentation
+from pipeline_paths import build_pipeline_paths, parse_single_month_batch
 from summary_table import SUMMARY_ROW_DEFINITIONS
 from survey_customer_category_rules import DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES
 from survey_stats import (
@@ -34,6 +36,7 @@ GUI_PROFILE_DIR = LOG_DIR / "gui_profiles"
 GUI_BATCH_DIR = GUI_PROFILE_DIR / "batches"
 GUI_SESSION_PATH = GUI_PROFILE_DIR / "last_session.toml"
 DEFAULT_SHEET_NAME = "问卷数据"
+DEFAULT_PIPELINE_CONFIG_PATH = PROJECT_ROOT / "pipeline.defaults.toml"
 PHASE_PREPROCESS_SECTION_TITLE = "兼容新版调查问卷数据结构"
 PHASE_PREPROCESS_DESCRIPTION = (
     "说明：如果新版调查问卷在第三列增加了“一期/二期”等期次字段，"
@@ -117,19 +120,23 @@ class WorkflowRunStatus(str, Enum):
 class GuiBatchConfig:
     batch_name: str = "2026年3月"
     workflow_mode: WorkflowMode = WorkflowMode.SINGLE
-    single_input_dir: Path = PROJECT_ROOT / "datas" / "3月"
+    single_input_dir: Path = PROJECT_ROOT / "data" / "raw" / "2026" / "3月"
     merge_input_dirs: tuple[Path, ...] = ()
-    merge_output_dir: Path = PROJECT_ROOT / "datas" / "合并结果"
+    merge_output_dir: Path = PROJECT_ROOT / "data" / "raw" / "2026" / "3月"
     sheet_name: str = DEFAULT_SHEET_NAME
-    year_value: str = ""
-    month_value: str = ""
-    stats_output_dir: Path = PROJECT_ROOT / "输出结果" / "3月"
+    year_value: str = "2026"
+    batch_value: str = "3月"
+    month_value: str = "3"
+    stats_output_dir: Path = PROJECT_ROOT / "data" / "satisfaction_detail" / "2026" / "3月"
     calculation_mode: str = "template"
     output_format: str = "xlsx"
-    summary_output_dir: Path = PROJECT_ROOT / "汇总结果" / "3月"
+    summary_output_dir: Path = PROJECT_ROOT / "data" / "satisfaction_summary" / "2026" / "3月"
     summary_output_name: str = "3月客户类型满意度汇总表.xlsx"
+    sample_summary_output_dir: Path = PROJECT_ROOT / "data" / "sample_summary" / "2026" / "3月"
+    sample_summary_output_name: str = "3月客户类型样本统计表.xlsx"
     ppt_template_path: Path = PROJECT_ROOT / "templates" / "template.pptx"
-    output_ppt_path: Path = PROJECT_ROOT / "输出结果" / "3月满意度报告.pptx"
+    output_ppt_path: Path = PROJECT_ROOT / "data" / "ppt" / "2026" / "3月" / "3月满意度报告.pptx"
+    pipeline_config_path: Path = DEFAULT_PIPELINE_CONFIG_PATH
     ppt_file_pattern: str = PPT_DEFAULT_FILE_PATTERN
     ppt_sheet_name_mode: str = PPT_DEFAULT_SHEET_NAME_MODE
     ppt_sheet_name: str = ""
@@ -185,7 +192,183 @@ class GuiBatchConfig:
         return self.single_input_dir
 
 
-DEFAULT_GUI_BATCH_CONFIG = GuiBatchConfig()
+def build_gui_pipeline_defaults(year: str, batch: str) -> GuiBatchConfig:
+    normalized_year = str(year).strip() or "2026"
+    normalized_batch = str(batch).strip() or "3月"
+    paths = build_pipeline_paths(
+        normalized_year,
+        normalized_batch,
+        data_root=PROJECT_ROOT / "data",
+        logs_root=PROJECT_ROOT / "logs" / "pipeline",
+    )
+    single_month = parse_single_month_batch(normalized_batch)
+    month_value = str(single_month) if single_month is not None else ""
+    return GuiBatchConfig(
+        batch_name=f"{normalized_year}年{normalized_batch}",
+        workflow_mode=WorkflowMode.SINGLE,
+        single_input_dir=paths.raw_dir,
+        merge_output_dir=paths.raw_dir,
+        year_value=normalized_year,
+        batch_value=normalized_batch,
+        month_value=month_value,
+        stats_output_dir=paths.satisfaction_detail_dir,
+        summary_output_dir=paths.satisfaction_summary_dir,
+        summary_output_name=paths.summary_workbook_path.name,
+        sample_summary_output_dir=paths.sample_summary_dir,
+        sample_summary_output_name=paths.sample_workbook_path.name,
+        output_ppt_path=paths.ppt_path,
+        pipeline_config_path=DEFAULT_PIPELINE_CONFIG_PATH,
+    )
+
+
+def apply_fixed_pipeline_paths(config: GuiBatchConfig) -> GuiBatchConfig:
+    canonical_config = build_gui_pipeline_defaults(config.year_value, config.batch_value)
+    return replace(
+        config,
+        single_input_dir=canonical_config.single_input_dir,
+        merge_output_dir=canonical_config.merge_output_dir,
+        stats_output_dir=canonical_config.stats_output_dir,
+        summary_output_dir=canonical_config.summary_output_dir,
+        summary_output_name=canonical_config.summary_output_name,
+        sample_summary_output_dir=canonical_config.sample_summary_output_dir,
+        sample_summary_output_name=canonical_config.sample_summary_output_name,
+        output_ppt_path=canonical_config.output_ppt_path,
+        month_value=canonical_config.month_value,
+    )
+
+
+def build_main_pipeline_stage_titles(config: GuiBatchConfig) -> tuple[str, ...]:
+    return (
+        "预查错",
+        "人工修正确认",
+        "满意度分项统计",
+        "满意度汇总表",
+        "样本统计表",
+        "PPT 生成",
+    )
+
+
+def build_batch_type_notice(config: GuiBatchConfig) -> str:
+    single_month = parse_single_month_batch(config.batch_value)
+    if single_month is not None:
+        return f"单月批次：主流程可在缺少年份/月度列时自动补写为 {config.year_value} 年 {single_month} 月。"
+    return (
+        "合并批次：主流程不会自动补写年份/月度；请先确保原始数据逐行已有正确年月，"
+        "不要整批统一写成某一个月份。"
+    )
+
+
+def build_advanced_rerun_notice(step_key: str) -> str:
+    step_names = {
+        "stats": "满意度分项统计",
+        "summary": "满意度汇总表",
+        "sample": "样本统计表",
+        "ppt": "PPT 生成",
+    }
+    step_name = step_names.get(step_key, "当前步骤")
+    return (
+        f"高级重跑工具：仅用于在已有输入或中间结果基础上单独重跑“{step_name}”。"
+        " 默认推荐从工作台点击“运行主流程”，由 main_pipeline.py 自动完成预查错、分项、汇总、样本和 PPT。"
+    )
+
+
+def normalize_batch_text(raw_text: str) -> str | None:
+    text = str(raw_text).strip()
+    if not text:
+        return None
+    range_match = re.search(r"(\d{1,2})-(\d{1,2})月", text)
+    if range_match is not None:
+        return f"{int(range_match.group(1))}-{int(range_match.group(2))}月"
+    single_month = parse_single_month_batch(text)
+    if single_month is not None:
+        return f"{single_month}月"
+    single_month_search = re.search(r"(?<!\d)(\d{1,2})月", text)
+    if single_month_search is not None:
+        month_value = int(single_month_search.group(1))
+        if 1 <= month_value <= 12:
+            return f"{month_value}月"
+    quarter_match = re.search(r"\b(Q[1-4])\b", text, re.IGNORECASE)
+    if quarter_match is not None:
+        return quarter_match.group(1).upper()
+    return None
+
+
+def infer_batch_from_batch_name(batch_name: str) -> str | None:
+    return normalize_batch_text(batch_name)
+
+
+def resolve_gui_config_path(raw_path: str | Path) -> Path:
+    path = Path(str(raw_path))
+    if path.is_absolute():
+        return path.resolve()
+    return (PROJECT_ROOT / path).resolve()
+
+
+def extract_year_batch_from_gui_path(path: Path) -> tuple[str | None, str | None]:
+    resolved_path = resolve_gui_config_path(path)
+    try:
+        relative_parts = resolved_path.relative_to(PROJECT_ROOT).parts
+    except ValueError:
+        return None, None
+    if not relative_parts:
+        return None, None
+
+    if len(relative_parts) >= 4 and relative_parts[:2] in {
+        ("data", "raw"),
+        ("data", "satisfaction_detail"),
+        ("data", "satisfaction_summary"),
+        ("data", "sample_summary"),
+    }:
+        return relative_parts[2], normalize_batch_text(relative_parts[3]) or relative_parts[3]
+
+    if len(relative_parts) >= 5 and relative_parts[:2] == ("data", "ppt"):
+        return relative_parts[2], normalize_batch_text(relative_parts[3]) or relative_parts[3]
+
+    if len(relative_parts) >= 2 and relative_parts[0] in {"datas", "输出结果", "汇总结果"}:
+        return None, normalize_batch_text(relative_parts[1])
+
+    return None, None
+
+
+def is_legacy_gui_path(path: Path) -> bool:
+    resolved_path = resolve_gui_config_path(path)
+    try:
+        relative_parts = resolved_path.relative_to(PROJECT_ROOT).parts
+    except ValueError:
+        return False
+    return bool(relative_parts) and relative_parts[0] in {"datas", "输出结果", "汇总结果"}
+
+
+def is_standard_gui_path_with_mismatch(path: Path, year: str, batch: str) -> bool:
+    path_year, path_batch = extract_year_batch_from_gui_path(path)
+    if path_year is None and path_batch is None:
+        return False
+    if path_year is not None and path_year != year:
+        return True
+    if path_batch is not None and path_batch != batch:
+        return True
+    return False
+
+
+def normalize_merge_input_dir(path: Path, year: str) -> Path:
+    resolved_path = resolve_gui_config_path(path)
+    if is_legacy_gui_path(resolved_path):
+        batch_name = normalize_batch_text(resolved_path.name)
+        if batch_name is not None:
+            return (PROJECT_ROOT / "data" / "raw" / year / batch_name).resolve()
+    return resolved_path
+
+
+def choose_most_common_text(values: tuple[str, ...]) -> str | None:
+    if not values:
+        return None
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return max(counts, key=lambda value: (counts[value], -values.index(value)))
+
+
+DEFAULT_GUI_BATCH_CONFIG = build_gui_pipeline_defaults("2026", "3月")
 
 
 @dataclass(frozen=True)
@@ -264,10 +447,12 @@ def default_selected_customer_types(summary: StatsPreviewSummary) -> frozenset[s
 def page_key_for_task(task_key: str) -> str:
     return {
         "merge_workbooks": "data_source",
+        "main_pipeline": "dashboard",
         "phase_preprocess": "preprocess",
         "fill_year_month": "preprocess",
         "survey_stats": "stats",
         "summary_table": "summary",
+        "sample_table": "summary",
         "generate_ppt": "ppt",
     }.get(task_key, "dashboard")
 
@@ -361,14 +546,18 @@ def build_gui_batch_config_text(
         f"merge_output_dir = {toml_quote(config.merge_output_dir)}",
         f"sheet_name = {toml_quote(config.sheet_name)}",
         f"year_value = {toml_quote(config.year_value)}",
+        f"batch_value = {toml_quote(config.batch_value)}",
         f"month_value = {toml_quote(config.month_value)}",
         f"stats_output_dir = {toml_quote(config.stats_output_dir)}",
         f'calculation_mode = "{config.calculation_mode}"',
         f'output_format = "{config.output_format}"',
         f"summary_output_dir = {toml_quote(config.summary_output_dir)}",
         f"summary_output_name = {toml_quote(config.summary_output_name)}",
+        f"sample_summary_output_dir = {toml_quote(config.sample_summary_output_dir)}",
+        f"sample_summary_output_name = {toml_quote(config.sample_summary_output_name)}",
         f"ppt_template_path = {toml_quote(config.ppt_template_path)}",
         f"output_ppt_path = {toml_quote(config.output_ppt_path)}",
+        f"pipeline_config_path = {toml_quote(config.pipeline_config_path)}",
         f"ppt_file_pattern = {toml_quote(config.ppt_file_pattern)}",
         f'ppt_sheet_name_mode = "{config.ppt_sheet_name_mode}"',
         f"ppt_sheet_name = {toml_quote(config.ppt_sheet_name)}",
@@ -430,314 +619,372 @@ def _bool_value(raw_data: dict[str, object], key: str, default: bool) -> bool:
 
 
 def parse_gui_batch_config(raw_data: dict[str, object]) -> GuiBatchConfig:
+    default_config = DEFAULT_GUI_BATCH_CONFIG
     raw_merge_input_dirs = raw_data.get("merge_input_dirs", [])
     if raw_merge_input_dirs is None:
         raw_merge_input_dirs = []
     if not isinstance(raw_merge_input_dirs, list):
         raise ValueError("merge_input_dirs 必须是列表。")
-    merge_input_dirs = tuple(Path(str(value)).resolve() for value in raw_merge_input_dirs)
+    merge_input_dirs = tuple(resolve_gui_config_path(value) for value in raw_merge_input_dirs)
 
     raw_workflow_mode = _string_value(
         raw_data,
         "workflow_mode",
-        DEFAULT_GUI_BATCH_CONFIG.workflow_mode.value,
-    ).strip() or DEFAULT_GUI_BATCH_CONFIG.workflow_mode.value
+        default_config.workflow_mode.value,
+    ).strip() or default_config.workflow_mode.value
+    path_year_candidates: list[str] = []
+    path_batch_candidates: list[str] = []
+    for key in (
+        "single_input_dir",
+        "merge_output_dir",
+        "stats_output_dir",
+        "summary_output_dir",
+        "sample_summary_output_dir",
+        "output_ppt_path",
+    ):
+        raw_value = raw_data.get(key)
+        if raw_value is None:
+            continue
+        path_year, path_batch = extract_year_batch_from_gui_path(resolve_gui_config_path(raw_value))
+        if path_year is not None:
+            path_year_candidates.append(path_year)
+        if path_batch is not None:
+            path_batch_candidates.append(path_batch)
+
+    raw_year_value = _string_value(raw_data, "year_value", default_config.year_value).strip()
+    year_value = choose_most_common_text(tuple(path_year_candidates)) or raw_year_value or default_config.year_value
+
+    raw_batch_value = normalize_batch_text(_string_value(raw_data, "batch_value", ""))
+    inferred_batch_name = infer_batch_from_batch_name(_string_value(raw_data, "batch_name", ""))
+    batch_value = (
+        choose_most_common_text(tuple(path_batch_candidates))
+        or raw_batch_value
+        or inferred_batch_name
+        or default_config.batch_value
+    )
+
+    canonical_config = build_gui_pipeline_defaults(year_value, batch_value)
+
+    def normalized_standard_path(key: str, canonical_path: Path) -> Path:
+        raw_value = raw_data.get(key)
+        if raw_value is None:
+            return canonical_path
+        resolved_path = resolve_gui_config_path(raw_value)
+        if is_legacy_gui_path(resolved_path):
+            return canonical_path
+        if is_standard_gui_path_with_mismatch(resolved_path, year_value, batch_value):
+            return canonical_path
+        return resolved_path
+
+    def normalized_output_name(key: str, canonical_name: str) -> str:
+        raw_value = _string_value(raw_data, key, canonical_name).strip() or canonical_name
+        raw_batch = normalize_batch_text(raw_value)
+        if raw_batch is not None and raw_batch != batch_value:
+            return canonical_name
+        return raw_value
 
     return GuiBatchConfig(
-        batch_name=_string_value(raw_data, "batch_name", DEFAULT_GUI_BATCH_CONFIG.batch_name).strip()
-        or DEFAULT_GUI_BATCH_CONFIG.batch_name,
+        batch_name=_string_value(raw_data, "batch_name", default_config.batch_name).strip()
+        or default_config.batch_name,
         workflow_mode=WorkflowMode(raw_workflow_mode),
-        single_input_dir=_path_value(
-            raw_data,
+        single_input_dir=normalized_standard_path(
             "single_input_dir",
-            DEFAULT_GUI_BATCH_CONFIG.single_input_dir,
+            canonical_config.single_input_dir,
         ),
-        merge_input_dirs=merge_input_dirs,
-        merge_output_dir=_path_value(
-            raw_data,
+        merge_input_dirs=tuple(normalize_merge_input_dir(path, year_value) for path in merge_input_dirs),
+        merge_output_dir=normalized_standard_path(
             "merge_output_dir",
-            DEFAULT_GUI_BATCH_CONFIG.merge_output_dir,
+            canonical_config.merge_output_dir,
         ),
-        sheet_name=_string_value(raw_data, "sheet_name", DEFAULT_GUI_BATCH_CONFIG.sheet_name)
-        or DEFAULT_GUI_BATCH_CONFIG.sheet_name,
-        year_value=_string_value(raw_data, "year_value", DEFAULT_GUI_BATCH_CONFIG.year_value),
-        month_value=_string_value(raw_data, "month_value", DEFAULT_GUI_BATCH_CONFIG.month_value),
-        stats_output_dir=_path_value(
-            raw_data,
+        sheet_name=_string_value(raw_data, "sheet_name", default_config.sheet_name)
+        or default_config.sheet_name,
+        year_value=year_value,
+        batch_value=batch_value,
+        month_value=canonical_config.month_value,
+        stats_output_dir=normalized_standard_path(
             "stats_output_dir",
-            DEFAULT_GUI_BATCH_CONFIG.stats_output_dir,
+            canonical_config.stats_output_dir,
         ),
         calculation_mode=_string_value(
             raw_data,
             "calculation_mode",
-            DEFAULT_GUI_BATCH_CONFIG.calculation_mode,
+            default_config.calculation_mode,
         )
-        or DEFAULT_GUI_BATCH_CONFIG.calculation_mode,
-        output_format=_string_value(raw_data, "output_format", DEFAULT_GUI_BATCH_CONFIG.output_format)
-        or DEFAULT_GUI_BATCH_CONFIG.output_format,
-        summary_output_dir=_path_value(
-            raw_data,
+        or default_config.calculation_mode,
+        output_format=_string_value(raw_data, "output_format", default_config.output_format)
+        or default_config.output_format,
+        summary_output_dir=normalized_standard_path(
             "summary_output_dir",
-            DEFAULT_GUI_BATCH_CONFIG.summary_output_dir,
+            canonical_config.summary_output_dir,
         ),
-        summary_output_name=_string_value(
-            raw_data,
+        summary_output_name=normalized_output_name(
             "summary_output_name",
-            DEFAULT_GUI_BATCH_CONFIG.summary_output_name,
-        )
-        or DEFAULT_GUI_BATCH_CONFIG.summary_output_name,
+            canonical_config.summary_output_name,
+        ),
+        sample_summary_output_dir=normalized_standard_path(
+            "sample_summary_output_dir",
+            canonical_config.sample_summary_output_dir,
+        ),
+        sample_summary_output_name=normalized_output_name(
+            "sample_summary_output_name",
+            canonical_config.sample_summary_output_name,
+        ),
         ppt_template_path=_path_value(
             raw_data,
             "ppt_template_path",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_template_path,
+            default_config.ppt_template_path,
         ),
-        output_ppt_path=_path_value(
-            raw_data,
+        output_ppt_path=normalized_standard_path(
             "output_ppt_path",
-            DEFAULT_GUI_BATCH_CONFIG.output_ppt_path,
+            canonical_config.output_ppt_path,
+        ),
+        pipeline_config_path=_path_value(
+            raw_data,
+            "pipeline_config_path",
+            default_config.pipeline_config_path,
         ),
         ppt_file_pattern=_string_value(
             raw_data,
             "ppt_file_pattern",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_file_pattern,
+            default_config.ppt_file_pattern,
         )
-        or DEFAULT_GUI_BATCH_CONFIG.ppt_file_pattern,
+        or default_config.ppt_file_pattern,
         ppt_sheet_name_mode=_string_value(
             raw_data,
             "ppt_sheet_name_mode",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_sheet_name_mode,
+            default_config.ppt_sheet_name_mode,
         )
-        or DEFAULT_GUI_BATCH_CONFIG.ppt_sheet_name_mode,
+        or default_config.ppt_sheet_name_mode,
         ppt_sheet_name=_string_value(
             raw_data,
             "ppt_sheet_name",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_sheet_name,
+            default_config.ppt_sheet_name,
         ),
         ppt_section_mode=_string_value(
             raw_data,
             "ppt_section_mode",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_section_mode,
+            default_config.ppt_section_mode,
         )
-        or DEFAULT_GUI_BATCH_CONFIG.ppt_section_mode,
+        or default_config.ppt_section_mode,
         ppt_blank_display=_string_value(
             raw_data,
             "ppt_blank_display",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_blank_display,
+            default_config.ppt_blank_display,
         ),
         ppt_title_suffix=_string_value(
             raw_data,
             "ppt_title_suffix",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_title_suffix,
+            default_config.ppt_title_suffix,
         ),
         ppt_max_single_table_rows=_string_value(
             raw_data,
             "ppt_max_single_table_rows",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_max_single_table_rows,
+            default_config.ppt_max_single_table_rows,
         ),
         ppt_max_split_table_rows=_string_value(
             raw_data,
             "ppt_max_split_table_rows",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_max_split_table_rows,
+            default_config.ppt_max_split_table_rows,
         ),
         ppt_sort_files=_bool_value(
             raw_data,
             "ppt_sort_files",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_sort_files,
+            default_config.ppt_sort_files,
         ),
         ppt_body_font_size_pt=_string_value(
             raw_data,
             "ppt_body_font_size_pt",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_body_font_size_pt,
+            default_config.ppt_body_font_size_pt,
         ),
         ppt_header_font_size_pt=_string_value(
             raw_data,
             "ppt_header_font_size_pt",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_header_font_size_pt,
+            default_config.ppt_header_font_size_pt,
         ),
         ppt_summary_font_size_pt=_string_value(
             raw_data,
             "ppt_summary_font_size_pt",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_summary_font_size_pt,
+            default_config.ppt_summary_font_size_pt,
         ),
         ppt_template_slide_index=_string_value(
             raw_data,
             "ppt_template_slide_index",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_template_slide_index,
+            default_config.ppt_template_slide_index,
         ),
         ppt_chart_page_enabled=_bool_value(
             raw_data,
             "ppt_chart_page_enabled",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_chart_page_enabled,
+            default_config.ppt_chart_page_enabled,
         ),
         ppt_chart_placeholder_text=_string_value(
             raw_data,
             "ppt_chart_placeholder_text",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_chart_placeholder_text,
+            default_config.ppt_chart_placeholder_text,
         ),
         ppt_chart_image_dpi=_string_value(
             raw_data,
             "ppt_chart_image_dpi",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_chart_image_dpi,
+            default_config.ppt_chart_image_dpi,
         ),
         ppt_llm_notes_enabled=_bool_value(
             raw_data,
             "ppt_llm_notes_enabled",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_notes_enabled,
+            default_config.ppt_llm_notes_enabled,
         ),
         ppt_llm_env_path=_string_value(
             raw_data,
             "ppt_llm_env_path",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_env_path,
+            default_config.ppt_llm_env_path,
         ),
         ppt_llm_system_role_path=_string_value(
             raw_data,
             "ppt_llm_system_role_path",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_system_role_path,
+            default_config.ppt_llm_system_role_path,
         ),
         ppt_llm_target_chars=_string_value(
             raw_data,
             "ppt_llm_target_chars",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_target_chars,
+            default_config.ppt_llm_target_chars,
         ),
         ppt_llm_temperature=_string_value(
             raw_data,
             "ppt_llm_temperature",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_temperature,
+            default_config.ppt_llm_temperature,
         ),
         ppt_llm_max_tokens=_string_value(
             raw_data,
             "ppt_llm_max_tokens",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_max_tokens,
+            default_config.ppt_llm_max_tokens,
         ),
         ppt_llm_checkpoint_chars=_string_value(
             raw_data,
             "ppt_llm_checkpoint_chars",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_llm_checkpoint_chars,
+            default_config.ppt_llm_checkpoint_chars,
         ),
         ppt_category_intro_slides_text=_string_value(
             raw_data,
             "ppt_category_intro_slides_text",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_category_intro_slides_text,
+            default_config.ppt_category_intro_slides_text,
         ),
         ppt_layout_summary_table_left=_string_value(
             raw_data,
             "ppt_layout_summary_table_left",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_summary_table_left,
+            default_config.ppt_layout_summary_table_left,
         ),
         ppt_layout_summary_table_top=_string_value(
             raw_data,
             "ppt_layout_summary_table_top",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_summary_table_top,
+            default_config.ppt_layout_summary_table_top,
         ),
         ppt_layout_summary_table_width=_string_value(
             raw_data,
             "ppt_layout_summary_table_width",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_summary_table_width,
+            default_config.ppt_layout_summary_table_width,
         ),
         ppt_layout_summary_table_height=_string_value(
             raw_data,
             "ppt_layout_summary_table_height",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_summary_table_height,
+            default_config.ppt_layout_summary_table_height,
         ),
         ppt_layout_detail_single_table_left=_string_value(
             raw_data,
             "ppt_layout_detail_single_table_left",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_single_table_left,
+            default_config.ppt_layout_detail_single_table_left,
         ),
         ppt_layout_detail_single_table_top=_string_value(
             raw_data,
             "ppt_layout_detail_single_table_top",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_single_table_top,
+            default_config.ppt_layout_detail_single_table_top,
         ),
         ppt_layout_detail_single_table_width=_string_value(
             raw_data,
             "ppt_layout_detail_single_table_width",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_single_table_width,
+            default_config.ppt_layout_detail_single_table_width,
         ),
         ppt_layout_detail_single_table_height=_string_value(
             raw_data,
             "ppt_layout_detail_single_table_height",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_single_table_height,
+            default_config.ppt_layout_detail_single_table_height,
         ),
         ppt_layout_detail_left_table_left=_string_value(
             raw_data,
             "ppt_layout_detail_left_table_left",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_left_table_left,
+            default_config.ppt_layout_detail_left_table_left,
         ),
         ppt_layout_detail_left_table_top=_string_value(
             raw_data,
             "ppt_layout_detail_left_table_top",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_left_table_top,
+            default_config.ppt_layout_detail_left_table_top,
         ),
         ppt_layout_detail_left_table_width=_string_value(
             raw_data,
             "ppt_layout_detail_left_table_width",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_left_table_width,
+            default_config.ppt_layout_detail_left_table_width,
         ),
         ppt_layout_detail_left_table_height=_string_value(
             raw_data,
             "ppt_layout_detail_left_table_height",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_left_table_height,
+            default_config.ppt_layout_detail_left_table_height,
         ),
         ppt_layout_detail_right_table_left=_string_value(
             raw_data,
             "ppt_layout_detail_right_table_left",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_right_table_left,
+            default_config.ppt_layout_detail_right_table_left,
         ),
         ppt_layout_detail_right_table_top=_string_value(
             raw_data,
             "ppt_layout_detail_right_table_top",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_right_table_top,
+            default_config.ppt_layout_detail_right_table_top,
         ),
         ppt_layout_detail_right_table_width=_string_value(
             raw_data,
             "ppt_layout_detail_right_table_width",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_right_table_width,
+            default_config.ppt_layout_detail_right_table_width,
         ),
         ppt_layout_detail_right_table_height=_string_value(
             raw_data,
             "ppt_layout_detail_right_table_height",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_detail_right_table_height,
+            default_config.ppt_layout_detail_right_table_height,
         ),
         ppt_layout_chart_image_left=_string_value(
             raw_data,
             "ppt_layout_chart_image_left",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_image_left,
+            default_config.ppt_layout_chart_image_left,
         ),
         ppt_layout_chart_image_top=_string_value(
             raw_data,
             "ppt_layout_chart_image_top",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_image_top,
+            default_config.ppt_layout_chart_image_top,
         ),
         ppt_layout_chart_image_width=_string_value(
             raw_data,
             "ppt_layout_chart_image_width",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_image_width,
+            default_config.ppt_layout_chart_image_width,
         ),
         ppt_layout_chart_image_height=_string_value(
             raw_data,
             "ppt_layout_chart_image_height",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_image_height,
+            default_config.ppt_layout_chart_image_height,
         ),
         ppt_layout_chart_textbox_left=_string_value(
             raw_data,
             "ppt_layout_chart_textbox_left",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_textbox_left,
+            default_config.ppt_layout_chart_textbox_left,
         ),
         ppt_layout_chart_textbox_top=_string_value(
             raw_data,
             "ppt_layout_chart_textbox_top",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_textbox_top,
+            default_config.ppt_layout_chart_textbox_top,
         ),
         ppt_layout_chart_textbox_width=_string_value(
             raw_data,
             "ppt_layout_chart_textbox_width",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_textbox_width,
+            default_config.ppt_layout_chart_textbox_width,
         ),
         ppt_layout_chart_textbox_height=_string_value(
             raw_data,
             "ppt_layout_chart_textbox_height",
-            DEFAULT_GUI_BATCH_CONFIG.ppt_layout_chart_textbox_height,
+            default_config.ppt_layout_chart_textbox_height,
         ),
     )
 
@@ -1556,6 +1803,8 @@ def build_phase_preprocess_command(config: GuiBatchConfig) -> list[str]:
 def build_fill_year_month_command(config: GuiBatchConfig) -> list[str]:
     if not config.year_value.strip():
         raise ValueError("请先填写年份。")
+    if parse_single_month_batch(config.batch_value) is None:
+        raise ValueError("当前批次不是单月目录，不能整批补写同一月份；请先确认每行已有正确年月。")
     if not config.month_value.strip():
         raise ValueError("请先填写月份。")
     return build_python_command(
@@ -1568,6 +1817,24 @@ def build_fill_year_month_command(config: GuiBatchConfig) -> list[str]:
         config.month_value.strip(),
         "--sheet-name",
         config.sheet_name,
+    )
+
+
+def build_main_pipeline_command(config: GuiBatchConfig) -> list[str]:
+    year_value = config.year_value.strip()
+    batch_value = config.batch_value.strip()
+    if not year_value:
+        raise ValueError("请先填写年份。")
+    if not batch_value:
+        raise ValueError("请先填写批次。")
+    return build_python_command(
+        "main_pipeline.py",
+        "--year",
+        year_value,
+        "--batch",
+        batch_value,
+        "--config",
+        str(config.pipeline_config_path),
     )
 
 
@@ -1595,6 +1862,22 @@ def build_summary_command(config: GuiBatchConfig) -> list[str]:
         str(config.summary_output_dir),
         "--output-name",
         config.summary_output_name,
+    )
+
+
+def build_sample_table_command(config: GuiBatchConfig) -> list[str]:
+    return build_python_command(
+        "sample_table.py",
+        "--input-dir",
+        str(config.single_input_dir),
+        "--output-dir",
+        str(config.sample_summary_output_dir),
+        "--output-name",
+        config.sample_summary_output_name,
+        "--source-sheet-name",
+        config.sheet_name,
+        "--default-year",
+        config.year_value,
     )
 
 
@@ -1681,6 +1964,13 @@ class BackgroundTaskRunner:
         if self._process is not None and self._process.poll() is None:
             self._process.terminate()
 
+    def send_input(self, text: str) -> bool:
+        if self._process is None or self._process.poll() is not None or self._process.stdin is None:
+            return False
+        self._process.stdin.write(text)
+        self._process.stdin.flush()
+        return True
+
     def _run_worker(self, tasks: tuple[TaskCommand, ...]) -> None:
         success = True
         for task in tasks:
@@ -1691,6 +1981,7 @@ class BackgroundTaskRunner:
                     cwd=PROJECT_ROOT,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
+                    stdin=subprocess.PIPE,
                     text=True,
                     bufsize=1,
                 )
@@ -1745,11 +2036,12 @@ class BackgroundTaskRunner:
 class SurveyPlatformApp(tk.Tk):
     PAGE_TITLES = {
         "dashboard": "工作台总览",
-        "data_source": "数据源管理",
-        "preprocess": "预处理",
-        "stats": "分项统计",
-        "summary": "汇总统计",
-        "ppt": "PPT生成",
+        "data_source": "批次设置",
+        "precheck": "预查错",
+        "preprocess": "辅助工具",
+        "stats": "高级分项统计",
+        "summary": "高级汇总统计",
+        "ppt": "高级 PPT 生成",
         "logs": "任务日志",
     }
 
@@ -1768,9 +2060,11 @@ class SurveyPlatformApp(tk.Tk):
         self._create_variables()
         self._step_status_vars = {
             "data_source": tk.StringVar(value="待设置"),
+            "precheck": tk.StringVar(value="待执行"),
             "preprocess": tk.StringVar(value="待执行"),
             "stats": tk.StringVar(value="待执行"),
             "summary": tk.StringVar(value="待执行"),
+            "sample": tk.StringVar(value="待执行"),
             "ppt": tk.StringVar(value="待执行"),
         }
         self._task_status_label_var = tk.StringVar(value="未开始")
@@ -1778,9 +2072,11 @@ class SurveyPlatformApp(tk.Tk):
         self._raw_file_count_var = tk.StringVar(value="0")
         self._stats_file_count_var = tk.StringVar(value="0")
         self._summary_file_var = tk.StringVar(value="未生成")
+        self._sample_file_var = tk.StringVar(value="未生成")
         self._ppt_file_var = tk.StringVar(value="未生成")
         self._current_page_title_var = tk.StringVar(value=self.PAGE_TITLES["dashboard"])
         self.stats_preview_summary_var = tk.StringVar(value="未扫描客群")
+        self.batch_type_notice_var = tk.StringVar(value=build_batch_type_notice(DEFAULT_GUI_BATCH_CONFIG))
         self._task_title_lookup: dict[str, str] = {}
         self.stats_preview_summary: StatsPreviewSummary | None = None
         self.stats_preview_rows: tuple[CustomerTypePreviewRow, ...] = ()
@@ -1811,20 +2107,24 @@ class SurveyPlatformApp(tk.Tk):
         self.show_page("dashboard")
 
     def _create_variables(self) -> None:
-        self.batch_name_var = tk.StringVar(value="2026年3月")
+        self.batch_name_var = tk.StringVar(value=DEFAULT_GUI_BATCH_CONFIG.batch_name)
         self.workflow_mode_var = tk.StringVar(value=WorkflowMode.SINGLE.value)
-        self.single_input_dir_var = tk.StringVar(value=str(PROJECT_ROOT / "datas" / "3月"))
-        self.merge_output_dir_var = tk.StringVar(value=str(PROJECT_ROOT / "datas" / "合并结果"))
+        self.single_input_dir_var = tk.StringVar(value=str(DEFAULT_GUI_BATCH_CONFIG.single_input_dir))
+        self.merge_output_dir_var = tk.StringVar(value=str(DEFAULT_GUI_BATCH_CONFIG.merge_output_dir))
         self.sheet_name_var = tk.StringVar(value=DEFAULT_SHEET_NAME)
-        self.year_value_var = tk.StringVar(value="2026")
-        self.month_value_var = tk.StringVar(value="03")
-        self.stats_output_dir_var = tk.StringVar(value=str(PROJECT_ROOT / "输出结果" / "3月"))
+        self.year_value_var = tk.StringVar(value=DEFAULT_GUI_BATCH_CONFIG.year_value)
+        self.batch_value_var = tk.StringVar(value=DEFAULT_GUI_BATCH_CONFIG.batch_value)
+        self.month_value_var = tk.StringVar(value=DEFAULT_GUI_BATCH_CONFIG.month_value)
+        self.stats_output_dir_var = tk.StringVar(value=str(DEFAULT_GUI_BATCH_CONFIG.stats_output_dir))
         self.calculation_mode_var = tk.StringVar(value="template")
         self.output_format_var = tk.StringVar(value="xlsx")
-        self.summary_output_dir_var = tk.StringVar(value=str(PROJECT_ROOT / "汇总结果" / "3月"))
-        self.summary_output_name_var = tk.StringVar(value="3月客户类型满意度汇总表.xlsx")
+        self.summary_output_dir_var = tk.StringVar(value=str(DEFAULT_GUI_BATCH_CONFIG.summary_output_dir))
+        self.summary_output_name_var = tk.StringVar(value=DEFAULT_GUI_BATCH_CONFIG.summary_output_name)
+        self.sample_summary_output_dir_var = tk.StringVar(value=str(DEFAULT_GUI_BATCH_CONFIG.sample_summary_output_dir))
+        self.sample_summary_output_name_var = tk.StringVar(value=DEFAULT_GUI_BATCH_CONFIG.sample_summary_output_name)
         self.ppt_template_path_var = tk.StringVar(value=str(PROJECT_ROOT / "templates" / "template.pptx"))
-        self.output_ppt_path_var = tk.StringVar(value=str(PROJECT_ROOT / "输出结果" / "3月满意度报告.pptx"))
+        self.output_ppt_path_var = tk.StringVar(value=str(DEFAULT_GUI_BATCH_CONFIG.output_ppt_path))
+        self.pipeline_config_path_var = tk.StringVar(value=str(DEFAULT_GUI_BATCH_CONFIG.pipeline_config_path))
         self.ppt_file_pattern_var = tk.StringVar(value=PPT_DEFAULT_FILE_PATTERN)
         self.ppt_sheet_name_mode_var = tk.StringVar(value=PPT_DEFAULT_SHEET_NAME_MODE)
         self.ppt_sheet_name_var = tk.StringVar(value="")
@@ -1993,15 +2293,24 @@ class SurveyPlatformApp(tk.Tk):
         )
         delete_batch_button.grid(row=0, column=1, padx=(0, 8))
         self._add_tooltip("删除当前选中的已保存批次，不会删除已经生成的文件。", delete_batch_button)
+        continue_button = ttk.Button(
+            header_meta,
+            text="继续检查",
+            style="Secondary.TButton",
+            command=self.continue_current_task,
+        )
+        continue_button.grid(row=0, column=2, padx=(0, 8))
+        self._register_terminate_button(continue_button)
+        self._add_tooltip("主流程因预查错暂停时，向后台进程发送 y 继续检查。", continue_button)
         terminate_button = ttk.Button(header_meta, text="终止当前任务", style="Secondary.TButton", command=self.terminate_current_task)
-        terminate_button.grid(row=0, column=2, padx=(0, 8))
+        terminate_button.grid(row=0, column=3, padx=(0, 8))
         self._register_terminate_button(terminate_button)
         self._add_tooltip("向当前脚本发送终止请求，仅在任务执行中可用。", terminate_button)
-        main_workflow_button = ttk.Button(header_meta, text="一键执行主流程", style="Primary.TButton", command=self.open_main_workflow_dialog)
-        main_workflow_button.grid(row=0, column=3)
+        main_workflow_button = ttk.Button(header_meta, text="运行主流程", style="Primary.TButton", command=self.run_main_pipeline_task)
+        main_workflow_button.grid(row=0, column=4)
         self._register_start_button(main_workflow_button)
         self._add_tooltip(
-            "按业务顺序串行执行主流程：预处理、分项统计、汇总表、PPT。",
+            "按新流程运行 main_pipeline.py：预查错、分项、汇总、样本、PPT。",
             main_workflow_button,
         )
 
@@ -2035,11 +2344,12 @@ class SurveyPlatformApp(tk.Tk):
     def _build_sidebar(self, parent: ttk.Frame) -> None:
         nav_items = (
             ("dashboard", "1. 工作台总览"),
-            ("data_source", "2. 数据源管理"),
-            ("preprocess", "3. 预处理"),
-            ("stats", "4. 分项统计"),
-            ("summary", "5. 汇总统计"),
-            ("ppt", "6. PPT生成"),
+            ("data_source", "2. 批次设置"),
+            ("precheck", "3. 预查错"),
+            ("preprocess", "4. 辅助工具"),
+            ("stats", "5. 高级分项"),
+            ("summary", "6. 高级汇总"),
+            ("ppt", "7. 高级PPT"),
             ("logs", "7. 任务日志"),
         )
         for index, (page_key, label) in enumerate(nav_items):
@@ -2083,6 +2393,7 @@ class SurveyPlatformApp(tk.Tk):
         builders = {
             "dashboard": self._build_dashboard_page,
             "data_source": self._build_data_source_page,
+            "precheck": self._build_precheck_page,
             "preprocess": self._build_preprocess_page,
             "stats": self._build_stats_page,
             "summary": self._build_summary_page,
@@ -2139,7 +2450,8 @@ class SurveyPlatformApp(tk.Tk):
         top_info.columnconfigure(1, weight=1)
         info_pairs = (
             ("批次名称", self.batch_name_var),
-            ("数据模式", self.workflow_mode_var),
+            ("年份", self.year_value_var),
+            ("批次", self.batch_value_var),
             ("原始数据", self.single_input_dir_var),
             ("分项输出", self.stats_output_dir_var),
             ("汇总输出", self.summary_output_dir_var),
@@ -2153,9 +2465,11 @@ class SurveyPlatformApp(tk.Tk):
         step_frame.grid(row=2, column=0, sticky="ew", pady=(18, 12))
         steps = (
             ("数据源", "data_source"),
+            ("预查错", "precheck"),
             ("预处理", "preprocess"),
             ("分项统计", "stats"),
             ("汇总表", "summary"),
+            ("样本统计", "sample"),
             ("PPT", "ppt"),
         )
         for index, (label, key) in enumerate(steps):
@@ -2167,11 +2481,12 @@ class SurveyPlatformApp(tk.Tk):
 
         card_row = ttk.Frame(frame, style="Surface.TFrame")
         card_row.grid(row=3, column=0, sticky="ew", pady=(6, 12))
-        card_row.columnconfigure((0, 1, 2, 3), weight=1)
+        card_row.columnconfigure((0, 1, 2, 3, 4), weight=1)
         self._build_metric_card(card_row, 0, "原始文件数", self._raw_file_count_var)
         self._build_metric_card(card_row, 1, "分项文件数", self._stats_file_count_var)
         self._build_metric_card(card_row, 2, "汇总表状态", self._summary_file_var)
-        self._build_metric_card(card_row, 3, "PPT状态", self._ppt_file_var)
+        self._build_metric_card(card_row, 3, "样本表状态", self._sample_file_var)
+        self._build_metric_card(card_row, 4, "PPT状态", self._ppt_file_var)
 
         action_box = ttk.Frame(frame, style="Card.TFrame", padding=12)
         action_box.grid(row=4, column=0, sticky="ew")
@@ -2180,15 +2495,16 @@ class SurveyPlatformApp(tk.Tk):
         ttk.Label(action_box, textvariable=self._next_action_var, style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 10))
         action_buttons = (
             ("导入数据源", lambda: self.show_page("data_source")),
+            ("查看预查错", lambda: self.show_page("precheck")),
             ("执行预处理", lambda: self.show_page("preprocess")),
             ("生成分项统计", lambda: self.show_page("stats")),
-            ("生成汇总表", lambda: self.show_page("summary")),
+            ("运行主流程", self.run_main_pipeline_task),
             ("生成PPT", lambda: self.show_page("ppt")),
         )
         button_row = ttk.Frame(action_box, style="Card.TFrame")
         button_row.grid(row=2, column=0, sticky="ew")
         for index, (label, callback) in enumerate(action_buttons):
-            style_name = "Primary.TButton" if label == "生成分项统计" else "Secondary.TButton"
+            style_name = "Primary.TButton" if label == "运行主流程" else "Secondary.TButton"
             button = ttk.Button(button_row, text=label, style=style_name, command=callback)
             button.grid(row=0, column=index, padx=(0, 8))
             self._add_tooltip(f"跳转到“{label}”对应页面继续处理。", button)
@@ -2204,8 +2520,44 @@ class SurveyPlatformApp(tk.Tk):
         frame = ttk.Frame(parent, style="Surface.TFrame")
         frame.columnconfigure(0, weight=1)
 
+        batch_box = ttk.LabelFrame(frame, text="新主流程批次参数", padding=12)
+        batch_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        batch_box.columnconfigure(1, weight=1)
+        batch_box.columnconfigure(3, weight=1)
+        year_label = ttk.Label(batch_box, text="年份", style="Body.TLabel")
+        year_label.grid(row=0, column=0, sticky="w")
+        year_entry = ttk.Entry(batch_box, textvariable=self.year_value_var, width=14)
+        year_entry.grid(row=0, column=1, sticky="ew", padx=8)
+        batch_label = ttk.Label(batch_box, text="批次", style="Body.TLabel")
+        batch_label.grid(row=0, column=2, sticky="w")
+        batch_entry = ttk.Entry(batch_box, textvariable=self.batch_value_var, width=18)
+        batch_entry.grid(row=0, column=3, sticky="ew", padx=8)
+        sync_paths_button = ttk.Button(
+            batch_box,
+            text="同步新流程目录",
+            style="Secondary.TButton",
+            command=self.sync_pipeline_paths_from_inputs,
+        )
+        sync_paths_button.grid(row=0, column=4, sticky="e")
+        self._add_tooltip(
+            "按 data/raw/{year}/{batch} 等新流程目录约定同步当前路径。",
+            year_label,
+            year_entry,
+            batch_label,
+            batch_entry,
+            sync_paths_button,
+        )
+        batch_notice_label = ttk.Label(
+            batch_box,
+            textvariable=self.batch_type_notice_var,
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        )
+        batch_notice_label.grid(row=1, column=0, columnspan=5, sticky="w", pady=(8, 0))
+
         mode_box = ttk.LabelFrame(frame, text="处理方式", padding=12)
-        mode_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        mode_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         single_mode_radio = ttk.Radiobutton(
             mode_box,
             text="单个月份 / 单个批次",
@@ -2226,7 +2578,7 @@ class SurveyPlatformApp(tk.Tk):
         self._add_tooltip("适合季度等跨月场景，先合并多个目录，再继续预处理和统计。", merged_mode_radio)
 
         single_box = ttk.LabelFrame(frame, text="单月处理配置", padding=12)
-        single_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        single_box.grid(row=2, column=0, sticky="ew", pady=(0, 12))
         single_box.columnconfigure(1, weight=1)
         single_input_label = ttk.Label(single_box, text="原始数据目录", style="Body.TLabel")
         single_input_label.grid(row=0, column=0, sticky="w")
@@ -2243,7 +2595,7 @@ class SurveyPlatformApp(tk.Tk):
         self._add_tooltip("从文件夹选择器中指定单月输入目录。", single_input_browse_button)
 
         merge_box = ttk.LabelFrame(frame, text="多月合并配置", padding=12)
-        merge_box.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        merge_box.grid(row=3, column=0, sticky="ew", pady=(0, 12))
         merge_box.columnconfigure(0, weight=1)
         self.merge_listbox = tk.Listbox(merge_box, height=5, relief="flat", bg="#fffdfb", fg=self.palette.text, selectbackground=self.palette.surface_alt)
         self.merge_listbox.grid(row=0, column=0, columnspan=3, sticky="ew")
@@ -2289,7 +2641,7 @@ class SurveyPlatformApp(tk.Tk):
         self._add_tooltip("执行多月问卷合并。仅在多月模式下需要先做这一步。", merge_button)
 
         scan_box = ttk.LabelFrame(frame, text="当前输入目录与扫描结果", padding=12)
-        scan_box.grid(row=3, column=0, sticky="nsew")
+        scan_box.grid(row=4, column=0, sticky="nsew")
         scan_box.columnconfigure(0, weight=1)
         effective_input_label = ttk.Label(scan_box, text="当前生效输入目录", style="Body.TLabel")
         effective_input_label.grid(row=0, column=0, sticky="w")
@@ -2320,6 +2672,50 @@ class SurveyPlatformApp(tk.Tk):
         self.data_source_tree.column("exists", width=120, anchor="center")
         self.data_source_tree.grid(row=3, column=0, sticky="nsew")
         self._add_tooltip("显示扫描到的输入文件路径和当前状态。", self.data_source_tree)
+        return frame
+
+    def _build_precheck_page(self, parent: ttk.Frame) -> ttk.Frame:
+        frame = ttk.Frame(parent, style="Surface.TFrame")
+        frame.columnconfigure(0, weight=1)
+
+        intro_box = ttk.LabelFrame(frame, text="预查错说明", padding=12)
+        intro_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        ttk.Label(
+            intro_box,
+            text=(
+                "主流程会先检查原始目录、标准来源文件、问卷数据 sheet、Excel 是否可读、"
+                "合并批次年份/月度，以及未映射客户标签记录。"
+            ),
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            intro_box,
+            textvariable=self.batch_type_notice_var,
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        run_button = ttk.Button(
+            intro_box,
+            text="运行主流程并执行预查错",
+            style="Primary.TButton",
+            command=self.run_main_pipeline_task,
+        )
+        run_button.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        self._register_start_button(run_button)
+
+        log_box = ttk.LabelFrame(frame, text="日志位置", padding=12)
+        log_box.grid(row=1, column=0, sticky="ew")
+        self.precheck_log_paths_var = tk.StringVar(value="")
+        ttk.Label(
+            log_box,
+            textvariable=self.precheck_log_paths_var,
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w")
         return frame
 
     def _build_preprocess_page(self, parent: ttk.Frame) -> ttk.Frame:
@@ -2392,27 +2788,34 @@ class SurveyPlatformApp(tk.Tk):
         frame = ttk.Frame(parent, style="Surface.TFrame")
         frame.columnconfigure(0, weight=1)
 
-        config_box = ttk.LabelFrame(frame, text="分项统计配置", padding=12)
+        config_box = ttk.LabelFrame(frame, text="分项统计高级重跑配置", padding=12)
         config_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         config_box.columnconfigure(1, weight=1)
+        ttk.Label(
+            config_box,
+            text=build_advanced_rerun_notice("stats"),
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
         stats_input_label = ttk.Label(config_box, text="输入目录", style="Body.TLabel")
-        stats_input_label.grid(row=0, column=0, sticky="w")
+        stats_input_label.grid(row=1, column=0, sticky="w")
         self.stats_effective_input_var = tk.StringVar()
         stats_input_value = ttk.Label(
             config_box,
             textvariable=self.stats_effective_input_var,
             style="Muted.TLabel",
         )
-        stats_input_value.grid(row=0, column=1, sticky="w", padx=8)
+        stats_input_value.grid(row=1, column=1, sticky="w", padx=8)
         self._add_tooltip(
             "当前会被 survey_stats.py 读取的目录，多月模式下会自动切到合并输出目录。",
             stats_input_label,
             stats_input_value,
         )
         stats_output_label = ttk.Label(config_box, text="输出目录", style="Body.TLabel")
-        stats_output_label.grid(row=1, column=0, sticky="w")
+        stats_output_label.grid(row=2, column=0, sticky="w")
         stats_output_entry = ttk.Entry(config_box, textvariable=self.stats_output_dir_var)
-        stats_output_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=6)
+        stats_output_entry.grid(row=2, column=1, sticky="ew", padx=8, pady=6)
         self._add_tooltip(
             "survey_stats.py 的输出目录，每个客群会在这里生成一份结果文件。",
             stats_output_label,
@@ -2424,15 +2827,15 @@ class SurveyPlatformApp(tk.Tk):
             style="Secondary.TButton",
             command=lambda: self.choose_directory(self.stats_output_dir_var),
         )
-        stats_output_browse_button.grid(row=1, column=2, sticky="w")
+        stats_output_browse_button.grid(row=2, column=2, sticky="w")
         self._add_tooltip("从文件夹选择器中指定分项统计输出目录。", stats_output_browse_button)
         sheet_name_label = ttk.Label(config_box, text="sheet", style="Body.TLabel")
-        sheet_name_label.grid(row=2, column=0, sticky="w")
+        sheet_name_label.grid(row=3, column=0, sticky="w")
         sheet_name_entry = ttk.Entry(config_box, textvariable=self.sheet_name_var, width=16)
-        sheet_name_entry.grid(row=2, column=1, sticky="w", padx=8)
+        sheet_name_entry.grid(row=3, column=1, sticky="w", padx=8)
         self._add_tooltip("读取原始问卷时使用的工作表名称，默认是“问卷数据”。", sheet_name_label, sheet_name_entry)
         calculation_mode_label = ttk.Label(config_box, text="计算口径", style="Body.TLabel")
-        calculation_mode_label.grid(row=2, column=2, sticky="w")
+        calculation_mode_label.grid(row=3, column=2, sticky="w")
         calculation_mode_combobox = ttk.Combobox(
             config_box,
             textvariable=self.calculation_mode_var,
@@ -2440,14 +2843,14 @@ class SurveyPlatformApp(tk.Tk):
             width=12,
             state="readonly",
         )
-        calculation_mode_combobox.grid(row=2, column=3, sticky="w", padx=8)
+        calculation_mode_combobox.grid(row=3, column=3, sticky="w", padx=8)
         self._add_tooltip(
             "template 按模板规则统计；summary 用于汇总口径场景。",
             calculation_mode_label,
             calculation_mode_combobox,
         )
         button_row = ttk.Frame(config_box, style="Surface.TFrame")
-        button_row.grid(row=3, column=0, columnspan=4, sticky="w", pady=(10, 0))
+        button_row.grid(row=4, column=0, columnspan=4, sticky="w", pady=(10, 0))
         scan_button = ttk.Button(button_row, text="扫描可统计客群", style="Secondary.TButton", command=self.scan_stats_preview)
         scan_button.grid(row=0, column=0, padx=(0, 8))
         self._register_start_button(scan_button)
@@ -2546,18 +2949,25 @@ class SurveyPlatformApp(tk.Tk):
     def _build_summary_page(self, parent: ttk.Frame) -> ttk.Frame:
         frame = ttk.Frame(parent, style="Surface.TFrame")
         frame.columnconfigure(0, weight=1)
-        box = ttk.LabelFrame(frame, text="汇总统计配置", padding=12)
+        box = ttk.LabelFrame(frame, text="汇总统计高级重跑配置", padding=12)
         box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         box.columnconfigure(1, weight=1)
+        ttk.Label(
+            box,
+            text=build_advanced_rerun_notice("summary"),
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
         stats_output_label = ttk.Label(box, text="分项结果目录", style="Body.TLabel")
-        stats_output_label.grid(row=0, column=0, sticky="w")
+        stats_output_label.grid(row=1, column=0, sticky="w")
         stats_output_value = ttk.Label(box, textvariable=self.stats_output_dir_var, style="Muted.TLabel")
-        stats_output_value.grid(row=0, column=1, sticky="w", padx=8)
+        stats_output_value.grid(row=1, column=1, sticky="w", padx=8)
         self._add_tooltip("summary_table.py 会从这里读取分项统计结果。", stats_output_label, stats_output_value)
         summary_output_label = ttk.Label(box, text="汇总输出目录", style="Body.TLabel")
-        summary_output_label.grid(row=1, column=0, sticky="w")
+        summary_output_label.grid(row=2, column=0, sticky="w")
         summary_output_entry = ttk.Entry(box, textvariable=self.summary_output_dir_var)
-        summary_output_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=6)
+        summary_output_entry.grid(row=2, column=1, sticky="ew", padx=8, pady=6)
         self._add_tooltip("summary_table.py 的输出目录。", summary_output_label, summary_output_entry)
         summary_output_browse_button = ttk.Button(
             box,
@@ -2565,22 +2975,51 @@ class SurveyPlatformApp(tk.Tk):
             style="Secondary.TButton",
             command=lambda: self.choose_directory(self.summary_output_dir_var),
         )
-        summary_output_browse_button.grid(row=1, column=2, sticky="w")
+        summary_output_browse_button.grid(row=2, column=2, sticky="w")
         self._add_tooltip("从文件夹选择器中指定汇总表输出目录。", summary_output_browse_button)
         summary_name_label = ttk.Label(box, text="输出文件名", style="Body.TLabel")
-        summary_name_label.grid(row=2, column=0, sticky="w")
+        summary_name_label.grid(row=3, column=0, sticky="w")
         summary_name_entry = ttk.Entry(box, textvariable=self.summary_output_name_var)
-        summary_name_entry.grid(row=2, column=1, sticky="ew", padx=8)
+        summary_name_entry.grid(row=3, column=1, sticky="ew", padx=8)
         self._add_tooltip("生成的客户类型满意度汇总表文件名。", summary_name_label, summary_name_entry)
         summary_button = ttk.Button(box, text="生成汇总表", style="Primary.TButton", command=self.run_summary_task)
-        summary_button.grid(row=3, column=0, sticky="w", pady=(10, 0))
+        summary_button.grid(row=4, column=0, sticky="w", pady=(10, 0))
         self._register_start_button(summary_button)
         self._add_tooltip("根据分项统计结果生成客户类型满意度汇总表。", summary_button)
 
+        sample_box = ttk.LabelFrame(frame, text="样本统计表高级重跑", padding=12)
+        sample_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        sample_box.columnconfigure(1, weight=1)
+        ttk.Label(
+            sample_box,
+            text=build_advanced_rerun_notice("sample"),
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        sample_input_label = ttk.Label(sample_box, text="原始数据目录", style="Body.TLabel")
+        sample_input_label.grid(row=1, column=0, sticky="w")
+        sample_input_value = ttk.Label(sample_box, textvariable=self.single_input_dir_var, style="Muted.TLabel")
+        sample_input_value.grid(row=1, column=1, sticky="w", padx=8)
+        sample_output_label = ttk.Label(sample_box, text="样本输出目录", style="Body.TLabel")
+        sample_output_label.grid(row=2, column=0, sticky="w")
+        sample_output_entry = ttk.Entry(sample_box, textvariable=self.sample_summary_output_dir_var)
+        sample_output_entry.grid(row=2, column=1, sticky="ew", padx=8, pady=6)
+        sample_name_label = ttk.Label(sample_box, text="样本输出文件名", style="Body.TLabel")
+        sample_name_label.grid(row=3, column=0, sticky="w")
+        sample_name_entry = ttk.Entry(sample_box, textvariable=self.sample_summary_output_name_var)
+        sample_name_entry.grid(row=3, column=1, sticky="ew", padx=8)
+        sample_button = ttk.Button(sample_box, text="生成样本统计表", style="Primary.TButton", command=self.run_sample_table_task)
+        sample_button.grid(row=4, column=0, sticky="w", pady=(10, 0))
+        self._register_start_button(sample_button)
+        self._add_tooltip("根据原始问卷重新生成客户类型样本统计表。", sample_button)
+
         result_box = ttk.LabelFrame(frame, text="结果状态", padding=12)
-        result_box.grid(row=1, column=0, sticky="ew")
+        result_box.grid(row=2, column=0, sticky="ew")
         self.summary_status_var = tk.StringVar(value="待执行")
         ttk.Label(result_box, textvariable=self.summary_status_var, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self.sample_status_var = tk.StringVar(value="待执行")
+        ttk.Label(result_box, textvariable=self.sample_status_var, style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
         return frame
 
     def _toggle_ppt_advanced_config(self) -> None:
@@ -2966,18 +3405,25 @@ class SurveyPlatformApp(tk.Tk):
     def _build_ppt_page(self, parent: ttk.Frame) -> ttk.Frame:
         frame = ttk.Frame(parent, style="Surface.TFrame")
         frame.columnconfigure(0, weight=1)
-        box = ttk.LabelFrame(frame, text="PPT生成配置", padding=12)
+        box = ttk.LabelFrame(frame, text="PPT 高级重跑配置", padding=12)
         box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         box.columnconfigure(1, weight=1)
+        ttk.Label(
+            box,
+            text=build_advanced_rerun_notice("ppt"),
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
         ppt_input_label = ttk.Label(box, text="统计结果目录", style="Body.TLabel")
-        ppt_input_label.grid(row=0, column=0, sticky="w")
+        ppt_input_label.grid(row=1, column=0, sticky="w")
         ppt_input_value = ttk.Label(box, textvariable=self.stats_output_dir_var, style="Muted.TLabel")
-        ppt_input_value.grid(row=0, column=1, sticky="w", padx=8)
+        ppt_input_value.grid(row=1, column=1, sticky="w", padx=8)
         self._add_tooltip("generate_ppt.py 会从这里读取分项统计结果。", ppt_input_label, ppt_input_value)
         template_label = ttk.Label(box, text="模板PPT", style="Body.TLabel")
-        template_label.grid(row=1, column=0, sticky="w")
+        template_label.grid(row=2, column=0, sticky="w")
         template_entry = ttk.Entry(box, textvariable=self.ppt_template_path_var)
-        template_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=6)
+        template_entry.grid(row=2, column=1, sticky="ew", padx=8, pady=6)
         self._add_tooltip("PPT 模板文件，页面布局和占位区域会按这个模板生成。", template_label, template_entry)
         template_browse_button = ttk.Button(
             box,
@@ -2985,12 +3431,12 @@ class SurveyPlatformApp(tk.Tk):
             style="Secondary.TButton",
             command=lambda: self.choose_file(self.ppt_template_path_var, [("PowerPoint", "*.pptx")]),
         )
-        template_browse_button.grid(row=1, column=2)
+        template_browse_button.grid(row=2, column=2)
         self._add_tooltip("选择用于生成报告的 PPT 模板文件。", template_browse_button)
         output_ppt_label = ttk.Label(box, text="输出PPT", style="Body.TLabel")
-        output_ppt_label.grid(row=2, column=0, sticky="w")
+        output_ppt_label.grid(row=3, column=0, sticky="w")
         output_ppt_entry = ttk.Entry(box, textvariable=self.output_ppt_path_var)
-        output_ppt_entry.grid(row=2, column=1, sticky="ew", padx=8, pady=6)
+        output_ppt_entry.grid(row=3, column=1, sticky="ew", padx=8, pady=6)
         self._add_tooltip("最终生成的报告 PPT 文件路径。", output_ppt_label, output_ppt_entry)
         output_ppt_browse_button = ttk.Button(
             box,
@@ -3002,10 +3448,10 @@ class SurveyPlatformApp(tk.Tk):
                 [("PowerPoint", "*.pptx")],
             ),
         )
-        output_ppt_browse_button.grid(row=2, column=2)
+        output_ppt_browse_button.grid(row=3, column=2)
         self._add_tooltip("选择生成后的 PPT 保存位置。", output_ppt_browse_button)
         section_mode_label = ttk.Label(box, text="section_mode", style="Body.TLabel")
-        section_mode_label.grid(row=3, column=0, sticky="w")
+        section_mode_label.grid(row=4, column=0, sticky="w")
         section_mode_combobox = ttk.Combobox(
             box,
             textvariable=self.ppt_section_mode_var,
@@ -3013,12 +3459,12 @@ class SurveyPlatformApp(tk.Tk):
             state="readonly",
             width=12,
         )
-        section_mode_combobox.grid(row=3, column=1, sticky="w", padx=8)
+        section_mode_combobox.grid(row=4, column=1, sticky="w", padx=8)
         self._add_tooltip("控制章节划分方式，通常保持 auto 即可。", section_mode_label, section_mode_combobox)
         blank_display_label = ttk.Label(box, text="空值显示", style="Body.TLabel")
-        blank_display_label.grid(row=4, column=0, sticky="w")
+        blank_display_label.grid(row=5, column=0, sticky="w")
         blank_display_entry = ttk.Entry(box, textvariable=self.ppt_blank_display_var, width=18)
-        blank_display_entry.grid(row=4, column=1, sticky="w", padx=8, pady=6)
+        blank_display_entry.grid(row=5, column=1, sticky="w", padx=8, pady=6)
         self._add_tooltip("设置明细表中空值的替代显示文本；留空则按默认处理。", blank_display_label, blank_display_entry)
         toggle_advanced_button = ttk.Button(
             box,
@@ -3026,13 +3472,13 @@ class SurveyPlatformApp(tk.Tk):
             style="Secondary.TButton",
             command=self._toggle_ppt_advanced_config,
         )
-        toggle_advanced_button.grid(row=5, column=0, sticky="w", pady=(10, 0))
+        toggle_advanced_button.grid(row=6, column=0, sticky="w", pady=(10, 0))
         self._add_tooltip("展开图表页、备注页、客户大类封面和布局等高级配置。", toggle_advanced_button)
         self._ppt_advanced_frame = self._build_ppt_advanced_panel(box)
-        self._ppt_advanced_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        self._ppt_advanced_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self._ppt_advanced_frame.grid_remove()
         button_row = ttk.Frame(box, style="Surface.TFrame")
-        button_row.grid(row=7, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        button_row.grid(row=8, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ppt_dry_run_button = ttk.Button(button_row, text="dry-run 校验", style="Secondary.TButton", command=self.run_ppt_dry_run_task)
         ppt_dry_run_button.grid(row=0, column=0, padx=(0, 8))
         self._register_start_button(ppt_dry_run_button)
@@ -3544,14 +3990,18 @@ class SurveyPlatformApp(tk.Tk):
         self.merge_output_dir_var.set(str(config.merge_output_dir))
         self.sheet_name_var.set(config.sheet_name)
         self.year_value_var.set(config.year_value)
+        self.batch_value_var.set(config.batch_value)
         self.month_value_var.set(config.month_value)
         self.stats_output_dir_var.set(str(config.stats_output_dir))
         self.calculation_mode_var.set(config.calculation_mode)
         self.output_format_var.set(config.output_format)
         self.summary_output_dir_var.set(str(config.summary_output_dir))
         self.summary_output_name_var.set(config.summary_output_name)
+        self.sample_summary_output_dir_var.set(str(config.sample_summary_output_dir))
+        self.sample_summary_output_name_var.set(config.sample_summary_output_name)
         self.ppt_template_path_var.set(str(config.ppt_template_path))
         self.output_ppt_path_var.set(str(config.output_ppt_path))
+        self.pipeline_config_path_var.set(str(config.pipeline_config_path))
         self.ppt_file_pattern_var.set(config.ppt_file_pattern)
         self.ppt_sheet_name_mode_var.set(config.ppt_sheet_name_mode)
         self.ppt_sheet_name_var.set(config.ppt_sheet_name)
@@ -3685,7 +4135,7 @@ class SurveyPlatformApp(tk.Tk):
     def current_config(self) -> GuiBatchConfig:
         merge_dirs = tuple(Path(item) for item in self.merge_input_list)
         mode = WorkflowMode(self.workflow_mode_var.get())
-        return GuiBatchConfig(
+        config = GuiBatchConfig(
             batch_name=self.batch_name_var.get().strip() or "未命名批次",
             workflow_mode=mode,
             single_input_dir=Path(self.single_input_dir_var.get().strip() or ".").resolve(),
@@ -3693,14 +4143,21 @@ class SurveyPlatformApp(tk.Tk):
             merge_output_dir=Path(self.merge_output_dir_var.get().strip() or ".").resolve(),
             sheet_name=self.sheet_name_var.get().strip() or DEFAULT_SHEET_NAME,
             year_value=self.year_value_var.get().strip(),
+            batch_value=self.batch_value_var.get().strip(),
             month_value=self.month_value_var.get().strip(),
             stats_output_dir=Path(self.stats_output_dir_var.get().strip() or ".").resolve(),
             calculation_mode=self.calculation_mode_var.get().strip() or "template",
             output_format=self.output_format_var.get().strip() or "xlsx",
             summary_output_dir=Path(self.summary_output_dir_var.get().strip() or ".").resolve(),
             summary_output_name=self.summary_output_name_var.get().strip() or "客户类型满意度汇总表.xlsx",
+            sample_summary_output_dir=Path(
+                self.sample_summary_output_dir_var.get().strip() or "."
+            ).resolve(),
+            sample_summary_output_name=self.sample_summary_output_name_var.get().strip()
+            or "客户类型样本统计表.xlsx",
             ppt_template_path=Path(self.ppt_template_path_var.get().strip() or ".").resolve(),
             output_ppt_path=Path(self.output_ppt_path_var.get().strip() or ".").resolve(),
+            pipeline_config_path=Path(self.pipeline_config_path_var.get().strip() or DEFAULT_PIPELINE_CONFIG_PATH).resolve(),
             ppt_file_pattern=self.ppt_file_pattern_var.get().strip() or PPT_DEFAULT_FILE_PATTERN,
             ppt_sheet_name_mode=self.ppt_sheet_name_mode_var.get().strip() or PPT_DEFAULT_SHEET_NAME_MODE,
             ppt_sheet_name=self.ppt_sheet_name_var.get(),
@@ -3791,6 +4248,7 @@ class SurveyPlatformApp(tk.Tk):
             ppt_layout_chart_textbox_height=self.ppt_layout_vars["chart_textbox"]["height"].get().strip()
             or PPT_LAYOUT_DEFAULTS["chart_textbox"][3],
         )
+        return apply_fixed_pipeline_paths(config)
 
     def choose_directory(self, variable: tk.StringVar) -> None:
         initial = variable.get().strip() or str(PROJECT_ROOT)
@@ -3812,6 +4270,28 @@ class SurveyPlatformApp(tk.Tk):
         if selected:
             variable.set(selected)
             self.refresh_all_status_views()
+
+    def sync_pipeline_paths_from_inputs(self) -> None:
+        config = build_gui_pipeline_defaults(
+            self.year_value_var.get().strip() or DEFAULT_GUI_BATCH_CONFIG.year_value,
+            self.batch_value_var.get().strip() or DEFAULT_GUI_BATCH_CONFIG.batch_value,
+        )
+        self._apply_fixed_pipeline_path_vars(config)
+        self.batch_name_var.set(config.batch_name)
+        self.batch_type_notice_var.set(build_batch_type_notice(config))
+        self.refresh_all_status_views()
+
+    def _apply_fixed_pipeline_path_vars(self, config: GuiBatchConfig) -> None:
+        fixed_config = apply_fixed_pipeline_paths(config)
+        self.single_input_dir_var.set(str(fixed_config.single_input_dir))
+        self.merge_output_dir_var.set(str(fixed_config.merge_output_dir))
+        self.month_value_var.set(fixed_config.month_value)
+        self.stats_output_dir_var.set(str(fixed_config.stats_output_dir))
+        self.summary_output_dir_var.set(str(fixed_config.summary_output_dir))
+        self.summary_output_name_var.set(fixed_config.summary_output_name)
+        self.sample_summary_output_dir_var.set(str(fixed_config.sample_summary_output_dir))
+        self.sample_summary_output_name_var.set(fixed_config.sample_summary_output_name)
+        self.output_ppt_path_var.set(str(fixed_config.output_ppt_path))
 
     def add_merge_input_dir(self) -> None:
         selected = filedialog.askdirectory(initialdir=str(PROJECT_ROOT))
@@ -3835,31 +4315,63 @@ class SurveyPlatformApp(tk.Tk):
 
     def refresh_all_status_views(self) -> None:
         config = self.current_config()
+        self._apply_fixed_pipeline_path_vars(config)
+        pipeline_paths = build_pipeline_paths(
+            config.year_value or DEFAULT_GUI_BATCH_CONFIG.year_value,
+            config.batch_value or DEFAULT_GUI_BATCH_CONFIG.batch_value,
+            data_root=PROJECT_ROOT / "data",
+            logs_root=PROJECT_ROOT / "logs" / "pipeline",
+        )
         effective_input = config.effective_input_dir()
         stats_files = discover_excel_files(config.stats_output_dir)
+        sample_path = config.sample_summary_output_dir / config.sample_summary_output_name
         self.effective_input_var.set(str(effective_input))
         self.stats_effective_input_var.set(str(effective_input))
         self._raw_file_count_var.set(str(len(discover_excel_files(effective_input))))
         self._stats_file_count_var.set(str(len(stats_files)))
         summary_path = config.summary_output_dir / config.summary_output_name
         self._summary_file_var.set("已生成" if summary_path.exists() else "未生成")
+        self._sample_file_var.set("已生成" if sample_path.exists() else "未生成")
         self._ppt_file_var.set("已生成" if config.output_ppt_path.exists() else "未生成")
+        self.batch_type_notice_var.set(build_batch_type_notice(config))
 
         self._step_status_vars["data_source"].set("已完成" if effective_input.exists() else "待设置")
+        self._step_status_vars["precheck"].set("待执行")
+        self._step_status_vars["preprocess"].set("待执行")
+        self._step_status_vars["stats"].set("待执行")
+        self._step_status_vars["summary"].set("待执行")
+        self._step_status_vars["sample"].set("待执行")
+        self._step_status_vars["ppt"].set("待执行")
         if stats_files:
             self._step_status_vars["stats"].set("已完成")
         if summary_path.exists():
             self._step_status_vars["summary"].set("已完成")
+        if sample_path.exists():
+            self._step_status_vars["sample"].set("已完成")
         if config.output_ppt_path.exists():
             self._step_status_vars["ppt"].set("已完成")
+        if effective_input.exists():
+            self._step_status_vars["precheck"].set("可执行")
         self.stats_summary_var.set(
             f"输入目录：{effective_input}；输出目录：{config.stats_output_dir}；当前分项文件数：{len(stats_files)}"
         )
         self.summary_status_var.set(
             f"目标汇总表：{summary_path}"
         )
+        self.sample_status_var.set(
+            f"目标样本统计表：{sample_path}"
+        )
         self.ppt_status_var.set(
             f"模板：{config.ppt_template_path}；输出：{config.output_ppt_path}"
+        )
+        self.precheck_log_paths_var.set(
+            "\n".join(
+                [
+                    f"预查错日志：{pipeline_paths.precheck_log_path}",
+                    f"未映射日志：{pipeline_paths.unmapped_log_path}",
+                    f"主流程日志：{pipeline_paths.pipeline_log_path}",
+                ]
+            )
         )
 
         self._refresh_treeviews(config)
@@ -3887,6 +4399,9 @@ class SurveyPlatformApp(tk.Tk):
         if not config.effective_input_dir().exists():
             self._next_action_var.set("先配置并确认数据源")
             return
+        if self._step_status_vars["precheck"].get() == "可执行":
+            self._next_action_var.set("建议先运行主流程并完成预查错")
+            return
         if self._step_status_vars["preprocess"].get() == "待执行":
             self._next_action_var.set("建议先执行预处理")
             return
@@ -3895,6 +4410,9 @@ class SurveyPlatformApp(tk.Tk):
             return
         if self._step_status_vars["summary"].get() == "待执行":
             self._next_action_var.set("建议先生成汇总表")
+            return
+        if self._step_status_vars["sample"].get() == "待执行":
+            self._next_action_var.set("建议生成样本统计表")
             return
         if self._step_status_vars["ppt"].get() == "待执行":
             self._next_action_var.set("建议生成PPT")
@@ -4032,11 +4550,46 @@ class SurveyPlatformApp(tk.Tk):
         self.append_log("[INFO] 已请求终止当前任务。")
         self.runner.terminate()
 
+    def continue_current_task(self) -> None:
+        if not self.workflow_controller.terminate_enabled:
+            messagebox.showinfo("无可继续任务", "当前没有等待继续的运行中任务。")
+            return
+        if self.runner.send_input("y\n"):
+            self.append_log("[INFO] 已向后台进程发送继续检查：y")
+            return
+        messagebox.showwarning("继续失败", "当前任务不支持继续输入，或尚未进入等待确认阶段。")
+
     def append_log(self, message: str) -> None:
         self.log_text.configure(state="normal")
         self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+        if self.workflow_controller.active_step_key == "main_pipeline":
+            if "修改完成后输入 y / yes / 继续" in message:
+                self._step_status_vars["precheck"].set("等待确认")
+                self._set_workflow_progress_row("main_pipeline", "等待确认", "预查错发现阻断问题，等待继续检查")
+            elif "[PRECHECK]" in message:
+                self._step_status_vars["precheck"].set("执行中")
+                self._set_workflow_progress_row("main_pipeline", "预查错", message)
+            elif "[PIPELINE] 开始生成满意度分项统计" in message:
+                self._step_status_vars["precheck"].set("已完成")
+                self._step_status_vars["stats"].set("执行中")
+                self._set_workflow_progress_row("main_pipeline", "分项统计", message)
+            elif "[PIPELINE] 开始生成满意度汇总表" in message:
+                self._step_status_vars["stats"].set("已完成")
+                self._step_status_vars["summary"].set("执行中")
+                self._set_workflow_progress_row("main_pipeline", "汇总统计", message)
+            elif "[PIPELINE] 开始生成样本统计表" in message:
+                self._step_status_vars["summary"].set("已完成")
+                self._step_status_vars["sample"].set("执行中")
+                self._set_workflow_progress_row("main_pipeline", "样本统计", message)
+            elif "[PIPELINE] 开始生成 PPT" in message:
+                self._step_status_vars["sample"].set("已完成")
+                self._step_status_vars["ppt"].set("执行中")
+                self._set_workflow_progress_row("main_pipeline", "PPT 生成", message)
+            elif "[PIPELINE] PPT 已生成" in message:
+                self._step_status_vars["ppt"].set("已完成")
+                self._set_workflow_progress_row("main_pipeline", "已完成", message)
 
     def clear_log(self) -> None:
         self.log_text.configure(state="normal")
@@ -4099,20 +4652,28 @@ class SurveyPlatformApp(tk.Tk):
         footer.grid(row=2, column=0, columnspan=2, sticky="ew")
         footer.columnconfigure(0, weight=1)
         ttk.Button(footer, text="查看任务日志", style="Secondary.TButton", command=lambda: self.show_page("logs")).grid(row=0, column=0, sticky="w")
+        continue_button = ttk.Button(
+            footer,
+            text="继续检查",
+            style="Secondary.TButton",
+            command=self.continue_current_task,
+        )
+        continue_button.grid(row=0, column=1, padx=(0, 8))
+        self._register_terminate_button(continue_button)
         close_button = ttk.Button(
             footer,
             textvariable=self._workflow_progress_close_var,
             style="Secondary.TButton",
             command=self._hide_or_close_workflow_progress_dialog,
         )
-        close_button.grid(row=0, column=1, padx=(0, 8))
+        close_button.grid(row=0, column=2, padx=(0, 8))
         terminate_button = ttk.Button(
             footer,
             text="终止当前任务",
             style="Primary.TButton",
             command=self.terminate_current_task,
         )
-        terminate_button.grid(row=0, column=2)
+        terminate_button.grid(row=0, column=3)
         self._register_terminate_button(terminate_button)
 
         self._workflow_progress_dialog = dialog
@@ -4214,6 +4775,24 @@ class SurveyPlatformApp(tk.Tk):
         except ValueError as exc:
             messagebox.showerror("参数不完整", str(exc))
 
+    def run_main_pipeline_task(self) -> None:
+        try:
+            command = build_main_pipeline_command(self.current_config())
+        except ValueError as exc:
+            messagebox.showerror("参数不完整", str(exc))
+            return
+        stage_text = " → ".join(build_main_pipeline_stage_titles(self.current_config()))
+        self.run_task_list(
+            (
+                TaskCommand(
+                    "main_pipeline",
+                    f"运行主流程（{stage_text}）",
+                    tuple(command),
+                ),
+            ),
+            show_workflow_progress=True,
+        )
+
     def run_phase_preprocess_task(self) -> None:
         self._run_single_builder_task("phase_preprocess", PHASE_PREPROCESS_TASK_TITLE, build_phase_preprocess_command)
 
@@ -4264,6 +4843,15 @@ class SurveyPlatformApp(tk.Tk):
             )
         )
 
+    def run_sample_table_task(self) -> None:
+        self._run_single_command(
+            TaskCommand(
+                "sample_table",
+                "生成样本统计表",
+                tuple(build_sample_table_command(self.current_config())),
+            )
+        )
+
     def run_ppt_task(self) -> None:
         self._run_single_command(
             TaskCommand(
@@ -4310,7 +4898,13 @@ class SurveyPlatformApp(tk.Tk):
         if success:
             self.append_log(f"[DONE] {task.title}")
             self._set_workflow_progress_row(task.key, "已完成", "执行完成，可继续下一步")
-            if task.key in {"merge_workbooks"}:
+            if task.key == "main_pipeline":
+                self._step_status_vars["precheck"].set("已完成")
+                self._step_status_vars["stats"].set("已完成")
+                self._step_status_vars["summary"].set("已完成")
+                self._step_status_vars["sample"].set("已完成")
+                self._step_status_vars["ppt"].set("已完成")
+            elif task.key in {"merge_workbooks"}:
                 self._step_status_vars["data_source"].set("已完成")
             elif task.key in {"phase_preprocess", "fill_year_month"}:
                 self._step_status_vars["preprocess"].set("已完成")
@@ -4318,6 +4912,8 @@ class SurveyPlatformApp(tk.Tk):
                 self._step_status_vars["stats"].set("已完成")
             elif task.key == "summary_table":
                 self._step_status_vars["summary"].set("已完成")
+            elif task.key == "sample_table":
+                self._step_status_vars["sample"].set("已完成")
             elif task.key == "generate_ppt":
                 self._step_status_vars["ppt"].set("已完成")
         else:
@@ -4364,7 +4960,7 @@ class SurveyPlatformApp(tk.Tk):
             return
         config = self.current_config()
         dialog = tk.Toplevel(self)
-        dialog.title("一键执行主流程")
+        dialog.title("主流程高级编排")
         dialog.transient(self)
         dialog.grab_set()
         dialog.configure(bg=self.palette.background)

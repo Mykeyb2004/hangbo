@@ -1,595 +1,471 @@
 # Hangbo Survey Stats
 
-### 完整输出流程，从客户分组分项文件，到满意度汇总 / 样本统计
-```bash
-uv run python survey_stats.py --config job.toml --calculation-mode template
-uv run python summary_table.py --input-dir '输出结果' --output-dir '汇总结果'
-uv run python sample_table.py --input-dir 'datas/Q1' --output-dir '汇总结果/Q1'
-```
+基于会展问卷 Excel 的数据分析流水线。
 
-兼容性说明：
+当前仓库的**唯一推荐主流程**是：
 
-- 新推荐主流程使用 `main_pipeline.py`，目录约定为 `data/...`
-- 下方这组三段式命令属于兼容旧流程，目录约定仍是 `datas/ / 输出结果 / 汇总结果`
+`原始数据目录 -> 预查错 -> 人工修正确认 -> 满意度分项统计 -> 满意度汇总 -> 样本汇总 -> PPT`
 
-
-
-基于会展问卷 Excel 的统计脚本。
-
-目前支持按模板原公式计算以下群体：
-- `展览主承办`
-- `参展商`
-- `专业观众`
-- `会展服务商`
-- `会议主承办`
-- `酒店会议主承办`
-- `酒店参会客户`
-- `参会人员`
-- `旅行社工作人员`
-- `游客`
-- `散客`
-- `住宿团队`
-- `特色美食廊`
-- `商务简餐`
-- `旅游团餐`
-- `宴会`
-- `婚宴`
-- `自助餐`
-- `酒店宴会`
-- `酒店自助餐`
-
-脚本入口文件：
-- [main_pipeline.py](/Users/zhangqijin/PycharmProjects/hangbo/main_pipeline.py)
-- [hangbo_gui.py](/Users/zhangqijin/PycharmProjects/hangbo/hangbo_gui.py)
-- [phase_column_preprocess.py](/Users/zhangqijin/PycharmProjects/hangbo/phase_column_preprocess.py)
-- [survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_stats.py)
-- [summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/summary_table.py)
-- [sample_table.py](/Users/zhangqijin/PycharmProjects/hangbo/sample_table.py)
-- [check_unmapped_customer_records.py](/Users/zhangqijin/PycharmProjects/hangbo/check_unmapped_customer_records.py)
-- [check_start_time_month.py](/Users/zhangqijin/PycharmProjects/hangbo/check_start_time_month.py)
-- [fill_year_month_columns.py](/Users/zhangqijin/PycharmProjects/hangbo/fill_year_month_columns.py)
-- [merge_questionnaire_workbooks.py](/Users/zhangqijin/PycharmProjects/hangbo/merge_questionnaire_workbooks.py)
-
-依赖通过 `uv` 管理，所有命令都建议使用 `uv run`。
-
-## 新主流程入口
+主流程入口：
 
 ```bash
 uv run python main_pipeline.py --year 2026 --batch 3月
 ```
 
-固定目录约定：
+---
 
-- 输入目录：`data/raw/{year}/{batch}`
-- 输出目录：`data/satisfaction_detail/{year}/{batch}`
-- 输出目录：`data/satisfaction_summary/{year}/{batch}`
-- 输出目录：`data/sample_summary/{year}/{batch}`
-- 输出目录：`data/ppt/{year}/{batch}`
+## 核心说明
 
-说明：
+- 现在的主流程围绕 `data/...` 目录约定运行，不再以 `datas/ / 输出结果 / 汇总结果` 作为主入口。
+- 主流程会先做预查错；如果发现阻断问题，会停下来等你修改原始数据后再继续。
+- 某个月份缺少某几个客户分组来源文件是正常情况，预查错**不会**因为这类情况而阻断。
+- 对于单月批次，若缺少 `年份` / `月份` 列，主流程可以自动补齐。
+- 对于合并批次，例如 `1-2月`、`Q1`，若缺少 `年份` / `月份` 列，主流程会阻断，需要先人工准备好。
+- `Q1` 在当前新流程中是一个**已准备好的正式批次目录**，不是运行时自动由 `1-2月 + 3月` 现拼出来的。
 
-- 预查错如发现阻断问题，主流程会暂停，等待人工修正原始数据
-- 修正后会重新检查，通过后继续执行后续步骤
+---
 
 ## 安装依赖
 
-在项目根目录执行：
+项目使用 `uv` 作为包管理器。
+
+初始化环境：
 
 ```bash
 uv sync
 ```
 
-如果你只是直接运行脚本，也可以直接用 `uv run`，`uv` 会自动准备环境。
+如果只是直接运行脚本，也可以直接使用 `uv run`，`uv` 会自动准备运行环境。
 
-## Tkinter GUI
+---
 
-项目现在提供了一个基于 `Tkinter + ttk theme` 的桌面界面入口：
+## 新流程目录约定
 
-```bash
-uv run python hangbo_gui.py
-```
+### 输入目录
 
-当前 GUI 已包含这些页面骨架：
+主流程固定从以下目录读取原始数据：
 
-- 工作台总览
-- 数据源管理
-- 预处理
-- 分项统计
-- 汇总统计
-- PPT 生成
-- 任务日志
+- `data/raw/{year}/{batch}`
 
-当前已经接入的交互能力包括：
+例如：
 
-- 多月合并模式与单月模式切换
-- 顶部批次管理：批次名称编辑、已保存批次下拉、加载/新建/保存/删除
-- 关闭 GUI 后自动保存最近一次会话，下次启动自动恢复
-- 分项统计页“可统计客群”真实扫描预览
-- 分项统计页支持 `全选 / 清空 / 仅选可生成`，并可双击切换单个客群勾选
-- 运行 `survey_stats.py` 时只执行当前勾选的客群，GUI 会自动追加 `--job`
-- PPT 页支持“高级 PPT 配置”折叠区，可配置 `sheet_name_mode`、标题后缀、单双表行数、客户大类封面、图表页、备注页 LLM、布局坐标等参数；客户大类封面支持读取封面 PPT 的页面列表、按缩略图选择页面；缩略图依赖本机 `soffice` 与 `gs`
-- 一键执行主流程的进度弹窗：逐步状态明细、终止当前任务、结束后自动跳转到目标页面
-- 任务执行中的按钮禁用与“终止当前任务”
+- `data/raw/2026/3月`
+- `data/raw/2026/1-2月`
+- `data/raw/2026/Q1`
 
-它会把 `survey_stats.py`、`summary_table.py`、`generate_ppt.py` 等现有脚本作为后台任务执行，并把运行日志显示在界面右侧。
+### 输出目录
 
-当前 GUI 主流程顺序按业务流程固定为：
+主流程固定输出到：
 
-`原始问卷 -> 可选预处理 -> survey_stats.py -> summary_table.py -> sample_table.py -> generate_ppt.py`
+- `data/satisfaction_detail/{year}/{batch}`
+- `data/satisfaction_summary/{year}/{batch}`
+- `data/sample_summary/{year}/{batch}`
+- `data/ppt/{year}/{batch}`
 
-其中 `merge_questionnaire_workbooks.py` 仅在“多月合并处理”场景下按需启用，不属于单月模式默认步骤。
+例如：
 
-界面设计和流程文档见：
+- `data/satisfaction_detail/2026/3月`
+- `data/satisfaction_summary/2026/3月`
+- `data/sample_summary/2026/3月`
+- `data/ppt/2026/3月/3月满意度报告.pptx`
 
-- [docs/workflow.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/workflow.md)
-- [docs/批次管理与配置持久化.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/批次管理与配置持久化.md)
-- [docs/平台界面线框图.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/平台界面线框图.md)
-- [docs/高保真页面草图.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/高保真页面草图.md)
+### 标准来源文件
 
-## 推荐流程
+主流程按标准来源文件约定扫描批次目录：
 
-如果使用新的推荐主流程，请优先执行：
+- `展览.xlsx`
+- `会议.xlsx`
+- `酒店.xlsx`
+- `餐饮.xlsx`
+- `会展服务商.xlsx`
+- `旅游.xlsx`
+
+说明：
+
+- 某个批次目录里只存在其中一部分文件是允许的。
+- 如果整个批次目录里一个标准来源文件都没有，主流程会阻断。
+
+---
+
+## 主流程怎么跑
+
+### 单月批次
+
+例如处理 `3月`：
 
 ```bash
 uv run python main_pipeline.py --year 2026 --batch 3月
 ```
 
-该主流程固定读写 `data/raw/{year}/{batch}`、`data/satisfaction_detail/{year}/{batch}`、`data/satisfaction_summary/{year}/{batch}`、`data/sample_summary/{year}/{batch}`、`data/ppt/{year}/{batch}`。
-
-下面的命令仅用于兼容旧脚本链路，继续使用 `datas/ / 输出结果 / 汇总结果` 目录体系。
-
-典型使用顺序是先跑 [survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_stats.py)，把原始问卷 `xlsx` 计算成“单群体统计结果”；再跑 [summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/summary_table.py)，把这些单群体统计结果汇总成客户类型满意度总表。  
-如果要补一份样本统计表，再单独跑 [sample_table.py](/Users/zhangqijin/PycharmProjects/hangbo/sample_table.py)，它会直接读取原始问卷目录。
+例如处理 `4月`：
 
 ```bash
-uv run python survey_stats.py --config job.toml
-uv run python summary_table.py --input-dir 输出结果 --output-dir 汇总结果
-uv run python sample_table.py --input-dir datas/Q1 --output-dir 汇总结果/Q1
+uv run python main_pipeline.py --year 2026 --batch 4月
 ```
 
-默认推荐使用 `template` 计算模式。
+### 合并批次
 
-- `template`：按各客户群体模板原公式计算，适合当前正式流程，也是 [job.toml](/Users/zhangqijin/PycharmProjects/hangbo/job.toml) 的默认配置
-- `summary`：按汇总表实际展示维度重组后再计算，会改变部分客户群体的二级指标结构和总体分口径
+例如处理已经准备好的 `1-2月`：
+
+```bash
+uv run python main_pipeline.py --year 2026 --batch 1-2月
+```
+
+例如处理已经准备好的 `Q1`：
+
+```bash
+uv run python main_pipeline.py --year 2026 --batch Q1
+```
+
+### 主流程内部执行顺序
+
+主流程会按以下顺序自动执行：
+
+1. 预查错
+2. 人工修正后确认继续
+3. 生成满意度分项统计
+4. 生成满意度汇总表
+5. 生成样本统计表
+6. 生成 PPT
+
+---
+
+## 预查错会检查什么
+
+主流程的第一步是预查错。
+
+### 会阻断的情况
+
+- 原始批次目录不存在
+- 批次目录里完全没有标准来源文件
+- 合并批次缺少 `年份` / `月份` 列
+- 存在未映射标签记录
+- 缺少指定 `sheet`
+- Excel 文件读取失败
+
+### 不会因为这些情况阻断
+
+- 只缺少某几个来源文件
+- 某个月份没有某些客户分组数据
+
+这类情况在当前业务里是正常的。
+
+### 发现阻断问题后如何继续
+
+主流程会提示你先修改原始数据目录。
+
+修改完成后，在终端输入以下任一内容即可继续：
+
+- `y`
+- `yes`
+- `继续`
+
+如果输入：
+
+- `stop`
+- `quit`
+- `exit`
+
+主流程会终止。
+
+### 预查错日志
+
+主流程会在以下目录生成日志：
+
+- `logs/pipeline/{year}/{batch}/precheck.log`
+- `logs/pipeline/{year}/{batch}/unmapped_customer_records.log`
+
+---
+
+## 年份 / 月份是怎么处理的
+
+### 单月批次
+
+对于 `1月` 到 `12月` 这种单月批次：
+
+- 如果原始文件缺少 `年份` / `月份` 列
+- 主流程会自动调用 `fill_year_month_columns.py` 补齐
+
+例如：
+
+```bash
+uv run python main_pipeline.py --year 2026 --batch 3月
+```
+
+如果 `data/raw/2026/3月` 缺少这两列，程序会自动把所有数据行补成：
+
+- `年份 = 2026`
+- `月份 = 3`
+
+### 合并批次
+
+对于：
+
+- `1-2月`
+- `Q1`
+
+这类合并批次，程序不能自动判断每一行属于哪一个月。
+
+因此：
+
+- 缺少 `年份` / `月份` 时不会自动补
+- 必须先人工准备好后，再进入主流程
+
+### 手工补写年份 / 月份
+
+如果你要先对单月原始目录做增强，可以执行：
+
+```bash
+uv run python fill_year_month_columns.py \
+  --input-dir 'data/raw/2026/3月' \
+  --year '2026' \
+  --month '3'
+```
 
 说明：
-- [summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/summary_table.py) 的 `总分` 是直接读取输入分表中的总体满意度
-- 所以只要先用同一批分表生成汇总表，汇总表 `总分` 与对应客户分组分表的 `总分` 就会一致
-- `template` 不是“唯一能保证一致”的模式，但它是当前默认模式，也是保持“原模板公式口径”不变的推荐模式
-- 如果改用 `summary` 模式，请先重新生成 [输出结果](/Users/zhangqijin/PycharmProjects/hangbo/输出结果) 再跑汇总；这时汇总表也会与分表一致，但总分的业务口径会和 `template` 模式不同
 
-## `check_start_time_month.py` 用法
+- 这个脚本是**整文件批量写入**
+- 它会把该文件中的所有数据行写成同一个年份、同一个月份
+- 所以它适合单月目录，不适合直接拿来处理混合月份目录
 
-用途：
-- 遍历指定目录下的 `xlsx`
+---
+
+## 多月如何合并
+
+### 推荐处理方式
+
+如果要把多个月份整理成季度或合并批次，推荐顺序是：
+
+1. 先给每个单月目录补 `年份` / `月份`
+2. 再执行多月合并
+3. 把合并结果放到 `data/raw/{year}/{batch}`
+4. 最后运行主流程
+
+### 合并脚本
+
+多月合并由 `merge_questionnaire_workbooks.py` 完成。
+
+示例：
+
+```bash
+uv run python merge_questionnaire_workbooks.py \
+  --input-dir 'data/raw/2026/1月' \
+  --input-dir 'data/raw/2026/2月' \
+  --input-dir 'data/raw/2026/3月' \
+  --output-dir 'data/raw/2026/Q1'
+```
+
+### 合并规则
+
+这个脚本的逻辑是：
+
+- 按文件名分组，例如把多个目录里的 `餐饮.xlsx` 放在一起处理
 - 只读取 `问卷数据` sheet
-- 检查 `开始填表时间` 是否都属于同一个月
-- 列出每个文件对应的月份，以及字段缺失、空值、跨月情况
+- 表头按“语义”对齐，会忽略 `Q1-`、`Q2-` 这类题号前缀
+- 数据行在统一表头下直接追加到结果文件中
 
-基本用法：
+### 它不会自动做的事情
+
+多月合并脚本**不会**自动做这些事：
+
+- 不按 `提交序号` 去重
+- 不自动保留“最新”记录
+- 不自动修正客户标签
+- 不自动处理标签冲突
+
+所以它本质上是：
+
+- 同名问卷文件的表头对齐 + 行拼接工具
+
+### 关于 Q1 的当前理解
+
+在当前新流程里：
+
+- `Q1` 不是运行时动态计算概念
+- `Q1` 是一个你已经准备好的原始数据目录
+
+也就是说，只有当：
+
+- `data/raw/2026/Q1`
+
+已经准备好之后，才推荐执行：
 
 ```bash
-uv run python check_start_time_month.py --input-dir '1-2月原始数据'
+uv run python main_pipeline.py --year 2026 --batch Q1
 ```
 
-递归扫描子目录：
+---
+
+## 最终会生成什么
+
+主流程跑通后，会自动生成以下结果：
+
+### 1. 满意度分项统计
+
+目录：
+
+- `data/satisfaction_detail/{year}/{batch}`
+
+内容：
+
+- 每个客户类型一份明细统计结果 `xlsx`
+
+### 2. 满意度汇总表
+
+目录：
+
+- `data/satisfaction_summary/{year}/{batch}`
+
+内容：
+
+- `{batch}客户类型满意度汇总表.xlsx`
+
+### 3. 样本统计表
+
+目录：
+
+- `data/sample_summary/{year}/{batch}`
+
+内容：
+
+- `{batch}客户类型样本统计表.xlsx`
+
+### 4. PPT 报告
+
+目录：
+
+- `data/ppt/{year}/{batch}`
+
+内容：
+
+- `{batch}满意度报告.pptx`
+
+---
+
+## PPT 生成说明
+
+主流程最后一步会自动调用 PPT 生成。
+
+默认输出位置：
+
+- `data/ppt/{year}/{batch}/{batch}满意度报告.pptx`
+
+例如：
+
+- `data/ppt/2026/3月/3月满意度报告.pptx`
+- `data/ppt/2026/Q1/Q1满意度报告.pptx`
+
+如果 `pipeline.defaults.toml` 中开启了 `llm_notes`，则：
+
+- PPT 生成阶段会调用模型生成备注页分析
+- 运行前需确认 `.env` 和 `system_role.md` 可用
+
+---
+
+## GUI 入口
+
+如果你希望通过桌面界面操作，可以运行：
 
 ```bash
-uv run python check_start_time_month.py --input-dir '1-2月原始数据' --recursive
+uv run python hangbo_gui.py
 ```
 
-输出会包含：
-- 整体结论：是否都属于同一个月、检测到的月份
-- 文件明细：逐个文件属于哪个月，是否跨月，是否缺少字段或 sheet
+GUI 当前也围绕同一套新流程工作，主线仍然是：
 
-详细说明见：
-- [docs/开始填表时间月份检查.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/开始填表时间月份检查.md)
+- 数据源准备
+- 可选预处理
+- 预查错
+- 分项统计
+- 汇总统计
+- 样本统计
+- PPT 生成
 
-## `fill_year_month_columns.py` 用法
+其中：
 
-用途：
-- 遍历指定目录下的 `xlsx`
-- 只处理 `问卷数据` sheet
-- 写入 `年份`、`月份` 两列
-- 两列都按文本值写入；如果列已存在，则覆盖原值
+- 多月合并只在“多月模式”下按需执行
+- 不属于单月模式默认步骤
 
-基本用法：
+---
+
+## 关键脚本
+
+面向新流程，最重要的脚本如下：
+
+- `main_pipeline.py`
+  - 新主流程入口
+- `pipeline_precheck.py`
+  - 主流程预查错
+- `fill_year_month_columns.py`
+  - 单月目录补写 `年份` / `月份`
+- `merge_questionnaire_workbooks.py`
+  - 多月问卷合并
+- `survey_stats.py`
+  - 满意度分项统计引擎
+- `summary_table.py`
+  - 满意度汇总表
+- `sample_table.py`
+  - 样本统计表
+- `generate_ppt.py`
+  - PPT 生成
+
+---
+
+## 推荐操作模板
+
+### 模板 A：单月直接跑
 
 ```bash
-uv run python fill_year_month_columns.py \
-  --input-dir './datas/1-2月' \
-  --year '2026' \
-  --month '02'
+uv run python main_pipeline.py --year 2026 --batch 3月
 ```
 
-递归扫描子目录：
+适合：
+
+- 原始数据已经放在 `data/raw/2026/3月`
+- 只需要完成这个月的全流程输出
+
+### 模板 B：先合并季度，再跑季度
 
 ```bash
-uv run python fill_year_month_columns.py \
-  --input-dir './datas/1-2月' \
-  --year '2026' \
-  --month '02' \
-  --recursive
-```
+uv run python fill_year_month_columns.py --input-dir 'data/raw/2026/1月' --year '2026' --month '1'
+uv run python fill_year_month_columns.py --input-dir 'data/raw/2026/2月' --year '2026' --month '2'
+uv run python fill_year_month_columns.py --input-dir 'data/raw/2026/3月' --year '2026' --month '3'
 
-输出会包含：
-- 扫描文件数
-- 更新成功数量、跳过/失败数量
-- 每个文件是否已更新，或是否缺少 `问卷数据` sheet
-- 如果存在跳过文件，会在结尾单独列出被跳过的文件和原因
-
-详细说明见：
-- [docs/问卷数据年月填充.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/问卷数据年月填充.md)
-
-## `check_unmapped_customer_records.py` 用法
-
-用途：
-- 按 [survey_customer_category_rules.py](/Users/zhangqijin/PycharmProjects/hangbo/survey_customer_category_rules.py) 的目录模式规则
-- 扫描指定目录下原始问卷中的标准来源文件
-- 找出没有被映射规则覆盖的具体记录
-- 在终端打印排好版的明细，并把同样内容写入 `/logs`
-
-基本用法：
-
-```bash
-uv run python check_unmapped_customer_records.py \
-  --input-dir './datas/1-2月'
-```
-
-指定日志文件：
-
-```bash
-uv run python check_unmapped_customer_records.py \
-  --input-dir './datas/1-2月' \
-  --log-file './logs/1-2月未映射记录核查.log'
-```
-
-输出会包含：
-- 摘要：规则涉及来源文件数、实际检查文件数、未映射记录数
-- 未映射记录明细：文件名、Excel 行号、辅助标签、数据标签、原因
-- 附加提示：当前目录缺少哪些规则来源文件
-
-详细说明见：
-- [docs/未映射客户记录核查.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/未映射客户记录核查.md)
-
-## `merge_questionnaire_workbooks.py` 用法
-
-用途：
-- 接收多个输入目录
-- 按文件名合并这些目录中的 Excel 文件
-- 只读取并输出 `问卷数据` sheet
-- 同名列会合并到同一列
-- 不同名列会追加到结果文件末尾的新列中
-
-基本用法：
-
-```bash
 uv run python merge_questionnaire_workbooks.py \
-  --input-dir './datas/1月' \
-  --input-dir './datas/2月' \
-  --output-dir './datas/合并结果'
+  --input-dir 'data/raw/2026/1月' \
+  --input-dir 'data/raw/2026/2月' \
+  --input-dir 'data/raw/2026/3月' \
+  --output-dir 'data/raw/2026/Q1'
+
+uv run python main_pipeline.py --year 2026 --batch Q1
 ```
 
-递归扫描子目录：
+适合：
+
+- 要按规范重新准备季度批次
+- 需要确保季度数据保留正确年月信息
+
+### 模板 C：已存在历史合并批次
 
 ```bash
-uv run python merge_questionnaire_workbooks.py \
-  --input-dir './datas/1月' \
-  --input-dir './datas/2月' \
-  --output-dir './datas/合并结果' \
-  --recursive
+uv run python main_pipeline.py --year 2026 --batch 1-2月
+uv run python main_pipeline.py --year 2026 --batch Q1
 ```
 
-输出会包含：
-- 文件名分组数
-- 合并成功数量、跳过/失败数量
-- 每个同名文件是否已合并，或是否因为缺少 `问卷数据` sheet、存在重复列名而被跳过
-- 如果后续文件出现新列，这些列会按发现顺序追加到输出表头最后
+前提：
 
-详细说明见：
-- [docs/同名Excel问卷数据合并.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/同名Excel问卷数据合并.md)
+- 对应目录已经准备好
+- 合并批次中的 `年份` / `月份` 信息已经正确存在
 
-## `phase_column_preprocess.py` 用法
+---
 
-用途：
-- 检查 Excel 指定 sheet 的第三列是否存在 `一期`、`二期` 这类期次标记
-- 如果命中，就把第三列移动到最后一列并原地保存
-- 如果第三列没命中，但别的列里发现了同类期次值，会提示“可能已经处理过”
-- 在终端输出逐文件处理进度和结果提示
+## 相关文档
 
-基本用法：
+- [docs/README.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/README.md)
+- [docs/新数据分析流程说明.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/新数据分析流程说明.md)
+- [docs/数据准备与预查错.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/数据准备与预查错.md)
+- [docs/统计口径与结果说明.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/统计口径与结果说明.md)
+- [docs/PPT生成说明.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/PPT生成说明.md)
 
-```bash
-uv run python phase_column_preprocess.py 'datas/3月/展览.xlsx'
-```
+如果只记一句话，请记这句：
 
-一次处理多个文件：
-
-```bash
-uv run python phase_column_preprocess.py datas/3月/*.xlsx
-```
-
-指定其他 sheet：
-
-```bash
-uv run python phase_column_preprocess.py 'datas/3月/展览.xlsx' --sheet-name '问卷数据'
-```
-
-输出会覆盖这些情况：
-- 开始检查文件
-- 文件不存在
-- 缺少指定 sheet
-- 文件列数不足，未发现第三列
-- 第三列未检测到期次标记，但别的列发现了符合特征的值，提示可能已经处理过
-- 整张表未发现期次特征列，无需处理
-- 已完成预处理并保存
-- 处理结束汇总，会列出成功处理、疑似已处理过、不含期次特征列、列数不足、失败等分类
-
-详细说明见：
-- [docs/问卷期次列预处理.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/问卷期次列预处理.md)
-
-## `survey_stats.py` 用法
-
-用途：
-- 输入原始问卷 `xlsx`
-- 按客户群体模板计算满意度、重要性
-- 输出单群体统计结果，支持 `xlsx`、`csv`、`md`
-- 如果检测到 `问卷数据` sheet 的第三列含有 `一期`、`二期` 这类期次标记，会先把这一列移动到最后一列并原地保存，再继续统计
-
-### 1. 配置文件批量模式
-
-适合多个来源文件、多个客户群体、批量输出 10 个以上统计文件。
-
-先参考示例配置：
-- [report_jobs.example.toml](/Users/zhangqijin/PycharmProjects/hangbo/report_jobs.example.toml)
-
-运行：
-
-```bash
-uv run python survey_stats.py --config report_jobs.example.toml
-```
-
-只校验并查看处理进度，不实际写文件：
-
-```bash
-uv run python survey_stats.py --config report_jobs.example.toml --dry-run
-```
-
-终端默认只输出文件处理进度；如果运行过程中触发了上面的期次列预处理，也会额外打印一条提示，说明哪个来源文件已经被自动调整。
-
-只跑某几个 job：
-
-```bash
-uv run python survey_stats.py \
-  --config report_jobs.example.toml \
-  --job 展览主承办 \
-  --job 参展商
-```
-
-覆盖输出目录或输出格式：
-
-```bash
-uv run python survey_stats.py \
-  --config report_jobs.example.toml \
-  --output-dir 输出结果 \
-  --output-format xlsx
-```
-
-覆盖计算模式：
-
-```bash
-uv run python survey_stats.py \
-  --config report_jobs.example.toml \
-  --calculation-mode summary
-```
-
-### 2. 单任务模式
-
-适合临时只算一个群体。
-
-```bash
-uv run python survey_stats.py \
-  --input '1-2月原始数据/展览-2.xlsx' \
-  --template exhibitor \
-  --role-name '参展商' \
-  --output '输出结果/参展商.xlsx'
-```
-
-常用参数：
-- `--input`：原始问卷 Excel 文件
-- `--template`：模板类型
-- `--role-name`：来源 sheet 中用于筛选的客户分组名称
-- `--output`：输出文件路径
-- `--sheet-name`：来源 sheet 名，默认 `问卷数据`
-- `--calculation-mode`：计算口径，支持 `template`、`summary`
-- `--dry-run`：只校验并显示处理进度，不写文件
-
-可选模板：
-- `organizer`
-- `exhibitor`
-- `visitor`
-- `service_provider`
-- `meeting_organizer`
-- `hotel_meeting_organizer`
-- `hotel_meeting_attendee`
-- `meeting_attendee`
-- `hotel_individual_guest`
-- `hotel_group_guest`
-- `catering_food_hall`
-- `catering_business_meal`
-- `catering_tour_meal`
-- `catering_banquet`
-- `catering_wedding_banquet`
-- `catering_buffet`
-- `catering_hotel_banquet`
-- `catering_hotel_buffet`
-
-### 3. 兼容旧版三输入模式
-
-当三个群体分别来自不同文件时可用：
-
-```bash
-uv run python survey_stats.py \
-  --organizer-input '文件1.xlsx' \
-  --exhibitor-input '文件2.xlsx' \
-  --visitor-input '文件3.xlsx' \
-  --output-dir '输出结果'
-```
-
-### 4. 输出内容
-
-单群体统计结果默认包含：
-- 总体行
-- 一级维度行
-- 明细指标行
-
-导出为 `xlsx` 时会自动加基础样式：
-- 总体行填充橙色
-- 一级维度行填充浅绿色
-- 文本加粗并居中
-
-如果把 `--output-dir` 误传成了一个像文件名的值，例如 `输出文件.xlsx`，脚本会自动转成目录：
-
-```text
-输出文件_outputs/
-```
-
-相关说明见：
-- [docs/问卷期次列预处理.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/问卷期次列预处理.md)
-
-## `summary_table.py` 用法
-
-用途：
-- 输入 `survey_stats.py` 导出的单群体统计结果 `xlsx`
-- 按截图中的客户大类、样本类型、列映射汇总
-- 输出 `客户类型满意度汇总表.xlsx`
-
-### 1. 基本用法
-
-```bash
-uv run python summary_table.py \
-  --input-dir '输出结果' \
-  --output-dir '汇总结果'
-```
-
-### 2. 自定义输出文件名
-
-```bash
-uv run python summary_table.py \
-  --input-dir '输出结果' \
-  --output-dir '汇总结果' \
-  --output-name '2026年1-2月客户类型汇总表.xlsx'
-```
-
-### 3. 递归扫描子目录
-
-```bash
-uv run python summary_table.py \
-  --input-dir '输出结果' \
-  --output-dir '汇总结果' \
-  --recursive
-```
-
-### 4. 输入要求
-
-- 输入目录中的文件需要是单群体统计结果 `xlsx`
-- 第一行表头至少包含 `指标`、`满意度`
-- 最稳妥的输入来源，就是直接使用 `survey_stats.py` 导出的 `xlsx`
-- 汇总脚本会自动跳过不符合该结构的 `xlsx`
-
-### 5. 输出规则
-
-- 输出文件默认名为 `客户类型满意度汇总表.xlsx`
-- 工作表名为 `汇总表`
-- 顶部标题为 `杭博客户类型满意度情况表`
-- 数值单元格固定显示 2 位小数
-- `专项调研` 保留空行，当前不做数据匹配
-
-映射规则见：
-- [docs/客户类型汇总表.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/客户类型汇总表.md)
-- [docs/汇总文件对应关系.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/汇总文件对应关系.md)
-
-## 配置文件说明
-
-推荐把批量任务写进 TOML 配置文件。
-
-最小示例：
-
-```toml
-output_dir = "输出结果"
-output_format = "xlsx"
-
-[[jobs]]
-name = "展览主承办"
-path = "1-2月原始数据/展览-2.xlsx"
-sheet = "问卷数据"
-template = "organizer"
-role_name = "展览主承办"
-
-[[jobs]]
-name = "参展商"
-path = "1-2月原始数据/展览-2.xlsx"
-sheet = "问卷数据"
-template = "exhibitor"
-role_name = "参展商"
-
-[[jobs]]
-name = "专业观众"
-path = "1-2月原始数据/展览-2.xlsx"
-sheet = "问卷数据"
-template = "visitor"
-role_name = "专业观众"
-
-[[jobs]]
-name = "会展服务商"
-path = "1-2月原始数据/7月会展服务商.xlsx"
-sheet = "问卷数据"
-template = "service_provider"
-role_name = "会展服务商"
-```
-
-字段说明：
-- `output_dir`：输出目录
-- `output_format`：默认输出格式，支持 `xlsx`、`csv`、`md`
-- `calculation_mode`：计算口径，支持 `template`、`summary`；默认 `template`
-- `jobs[].name`：任务名，同时默认作为输出文件名和 sheet 名
-- `jobs[].path`：该统计表对应的来源 Excel 文件
-- `jobs[].sheet`：该统计表对应的来源 sheet
-- `jobs[].template`：使用哪套统计模板
-- `jobs[].role_name`：按来源 sheet 中哪个身份值筛选
-- `jobs[].output_name`：可选，单独指定输出文件名
-- `jobs[].output_format`：可选，覆盖全局输出格式
-
-## 计算规则
-
-统计逻辑按模板原公式实现：
-- 从来源文件的 `问卷数据` sheet 读取数据
-- 按身份字段分组
-- 只统计分值 `>0` 且 `<11` 的记录
-- 明细指标先算平均值
-- 一级维度再对明细指标求平均
-- 总体满意度和重要性对一级维度求平均
-
-注意：
-- `参展商` 和 `专业观众` 当前是按模板原公式原样实现
-- `会展服务商` 也按模板原公式原样实现
-- `会议` 4 个客户分组按你确认后的修正版公式映射实现
-- `酒店住宿` 2 个客户分组按最新版 `酒店过程分析.xlsx` 的公式映射实现
-- `餐饮` 8 个客户分组按最新版 `餐饮过程分析.xlsx` 的公式映射实现
-- 如果配置里指定了某个客户分组，但来源 `问卷数据` 中完全没有该分组记录，脚本会照常输出空白结果，并在全部任务结束后统一提示
-- 其中包含模板本身已有的一些特殊列引用，没有做纠正
-
-两种计算模式的差异见：
-- [docs/survey_stats计算模式.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/survey_stats计算模式.md)
-
-## 测试
-
-运行测试：
-
-```bash
-uv run python -m unittest discover -s tests
-```
-
-测试文件：
-- [tests/test_survey_stats.py](/Users/zhangqijin/PycharmProjects/hangbo/tests/test_survey_stats.py)
-- [tests/test_summary_table.py](/Users/zhangqijin/PycharmProjects/hangbo/tests/test_summary_table.py)
+**单月直接跑 `main_pipeline.py`；多月先补年月、再合并、最后再跑 `main_pipeline.py`。**
