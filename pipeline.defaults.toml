@@ -1,0 +1,31 @@
+sheet_name = "问卷数据"
+calculation_mode = "template"
+sample_config_path = "sample_table.default.toml"
+
+[ppt]
+template_path = "templates/template.pptx"
+sheet_name_mode = "first"
+section_mode = "auto"
+blank_display = ""
+title_suffix = ""
+max_single_table_rows = 18
+max_split_table_rows = 19
+sort_files = true
+body_font_size_pt = 10.5
+header_font_size_pt = 11.0
+summary_font_size_pt = 12.0
+template_slide_index = 0
+
+[ppt.chart_page]
+enabled = true
+placeholder_text = "图表分析内容待补充。后续将在此处补充该客户分组二级指标的整体解读、优势项与待提升项。"
+image_dpi = 220
+
+[ppt.llm_notes]
+enabled = true
+env_path = ".env"
+system_role_path = "system_role.md"
+target_chars = 300
+temperature = 0.6
+max_tokens = 500
+checkpoint_chars = 80

@@ -2,13 +2,32 @@
 
 本文把当前代码库中的脚本按“真实业务流水线”重新整理，方便后续整合成带界面的整体平台。
 
+## 新 CLI 主流程
+
+```bash
+uv run python main_pipeline.py --year 2026 --batch 3月
+```
+
+执行顺序：
+
+1. 预查错
+2. 人工修正后确认继续
+3. 满意度分项统计
+4. 满意度汇总
+5. 样本汇总
+6. PPT 生成
+
 ## 一句话结论
 
-当前业务上的主干执行顺序应理解为：
+当前推荐主干执行顺序应理解为：
 
-`原始问卷 Excel -> 可选预处理 -> survey_stats.py -> summary_table.py -> generate_ppt.py`
+`原始问卷 Excel -> 预查错 -> 人工修正确认 -> survey_stats.py -> summary_table.py -> sample_table.py -> generate_ppt.py`
 
-也就是说，从“操作顺序”上看，是先生成分项统计结果，再生成汇总表，最后再生成 PPT。
+也就是说，从“操作顺序”上看，是先完成预查错和人工确认，再生成分项统计结果、满意度汇总、样本汇总，最后再生成 PPT。
+
+旧脚本链路可理解为兼容子流程：
+
+`survey_stats.py -> summary_table.py -> sample_table.py -> generate_ppt.py`
 
 ## 当前模块分层
 
@@ -62,17 +81,21 @@
 
 ```mermaid
 flowchart TD
-    A["原始问卷 Excel"] --> B["可选预处理"]
-    B --> C["survey_stats.py<br/>生成单客群统计结果"]
-    C --> D["summary_table.py<br/>生成客户类型汇总表"]
-    D --> E["generate_ppt.py<br/>生成 PPT"]
+    A["原始问卷 Excel"] --> B["预查错"]
+    B --> C["人工修正后确认继续"]
+    C --> D["survey_stats.py<br/>生成单客群统计结果"]
+    D --> E["summary_table.py<br/>生成客户类型汇总表"]
+    E --> F["sample_table.py<br/>生成样本统计表"]
+    F --> G["generate_ppt.py<br/>生成 PPT"]
 ```
 
 ## 详细顺序
 
 ### 第 0 步：准备原始数据目录
 
-输入通常是按月份或批次整理好的原始问卷目录，例如：
+新 CLI 主流程下，输入目录固定为 `data/raw/{year}/{batch}`。
+
+兼容旧脚本链路时，输入通常是按月份或批次整理好的原始问卷目录，例如：
 
 - `datas/1-2月`
 - `datas/3月`
