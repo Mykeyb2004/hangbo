@@ -81,17 +81,6 @@ def run_precheck(
                 path=paths.raw_dir,
             )
         )
-    for source_path in paths.standard_source_paths:
-        if source_path.exists() and source_path.is_file():
-            continue
-        blocking_issues.append(
-            PipelineIssue(
-                severity="blocking",
-                code="missing_source_file",
-                message=f"缺少来源文件：{source_path.name}",
-                path=source_path,
-            )
-        )
 
     if present_source_paths:
         missing_year_month_paths: list[Path] = []

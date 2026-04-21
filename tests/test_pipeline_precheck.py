@@ -51,7 +51,7 @@ class PipelinePrecheckTest(unittest.TestCase):
             self.assertFalse(result.warning_issues)
             self.assertFalse(result.should_autofill_year_month)
 
-    def test_missing_standard_sources_returns_aggregate_and_per_file_issues(self) -> None:
+    def test_empty_raw_dir_returns_missing_standard_sources_issue(self) -> None:
         with TemporaryDirectory() as temp_dir:
             paths = build_pipeline_paths(
                 "2026",
@@ -63,14 +63,34 @@ class PipelinePrecheckTest(unittest.TestCase):
 
             result = run_precheck(paths, sheet_name="问卷数据", single_month=3)
 
-            issue_codes = [issue.code for issue in result.blocking_issues]
-            self.assertEqual(issue_codes.count("missing_standard_sources"), 1)
-            self.assertEqual(
-                issue_codes.count("missing_source_file"),
-                len(STANDARD_SOURCE_FILE_NAMES),
-            )
+            self.assertEqual(len(result.blocking_issues), 1)
+            self.assertEqual(result.blocking_issues[0].code, "missing_standard_sources")
             self.assertFalse(result.warning_issues)
             self.assertFalse(result.should_autofill_year_month)
+
+    def test_partial_missing_standard_sources_do_not_block_precheck(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            paths = build_pipeline_paths(
+                "2026",
+                "1-2月",
+                data_root=Path(temp_dir) / "data",
+                logs_root=Path(temp_dir) / "logs",
+            )
+            write_workbook(
+                paths.raw_dir / STANDARD_SOURCE_FILE_NAMES[0],
+                ["年份", "月份", "客户"],
+            )
+
+            with patch(
+                "pipeline_precheck.run_unmapped_audit",
+                return_value=(0, paths.unmapped_log_path),
+            ) as audit_mock:
+                result = run_precheck(paths, sheet_name="问卷数据", single_month=None)
+
+            self.assertFalse(result.blocking_issues)
+            self.assertFalse(result.warning_issues)
+            self.assertFalse(result.should_autofill_year_month)
+            audit_mock.assert_called_once()
 
     def test_single_month_missing_year_month_columns_warns_and_enables_autofill(self) -> None:
         with TemporaryDirectory() as temp_dir:
