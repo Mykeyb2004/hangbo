@@ -8,14 +8,21 @@ from main_pipeline import main, parse_args
 
 
 class MainPipelineCliTest(unittest.TestCase):
-    def test_parse_args_reads_year_batch_and_config(self) -> None:
+    def test_parse_args_uses_default_config_when_omitted(self) -> None:
+        args = parse_args(["--year", "2026", "--batch", "3月"])
+
+        self.assertEqual(args.year, "2026")
+        self.assertEqual(args.batch, "3月")
+        self.assertEqual(args.config, Path("pipeline.defaults.toml"))
+
+    def test_parse_args_keeps_config_override_for_advanced_use(self) -> None:
         args = parse_args(
-            ["--year", "2026", "--batch", "3月", "--config", "pipeline.defaults.toml"]
+            ["--year", "2026", "--batch", "3月", "--config", "pipeline.no-llm.toml"]
         )
 
         self.assertEqual(args.year, "2026")
         self.assertEqual(args.batch, "3月")
-        self.assertEqual(str(args.config), "pipeline.defaults.toml")
+        self.assertEqual(args.config, Path("pipeline.no-llm.toml"))
 
     @mock.patch("main_pipeline.run_pipeline")
     @mock.patch("main_pipeline.load_pipeline_defaults")

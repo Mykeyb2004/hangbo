@@ -250,15 +250,15 @@ class GeneratePptTest(unittest.TestCase):
         self.assertIn("二级标题:会展服务 | 9.86 | 9.9", prompt)
         self.assertIn("指标:工作人员仪容仪表 | 10 | 10", prompt)
 
-    def test_project_batch_configs_use_balanced_llm_notes_settings(self) -> None:
+    def test_project_pipeline_defaults_use_balanced_ppt_llm_notes_settings(self) -> None:
+        from pipeline_config import load_pipeline_defaults
+
         repo_root = Path(__file__).resolve().parents[1]
+        defaults = load_pipeline_defaults(repo_root / "pipeline.defaults.toml")
 
-        for config_name in ("report_jobs.3月.toml", "report_jobs.Q1.toml", "report_jobs.1-2月.toml"):
-            config = load_batch_config(repo_root / config_name)
-
-            self.assertEqual(config.llm_notes.target_chars, 120, msg=config_name)
-            self.assertEqual(config.llm_notes.temperature, 0.4, msg=config_name)
-            self.assertEqual(config.llm_notes.max_tokens, 200, msg=config_name)
+        self.assertEqual(defaults.ppt.llm_notes.target_chars, 120)
+        self.assertEqual(defaults.ppt.llm_notes.temperature, 0.4)
+        self.assertEqual(defaults.ppt.llm_notes.max_tokens, 200)
 
     def test_build_section_blocks_groups_rows_by_second_level_titles(self) -> None:
         rows = [
@@ -451,7 +451,7 @@ class GeneratePptTest(unittest.TestCase):
         chapter_template_path = repo_root / "templates" / "chapter.pptx"
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            config_path = temp_path / "ppt-job.toml"
+            config_path = temp_path / "ppt-config.toml"
             config_path.write_text(
                 "\n".join(
                     [

@@ -62,13 +62,14 @@ PPT 生成脚本：
 - `chart_page.enabled`：是否在数据页后生成图表页
 - `llm_notes.enabled`：是否生成备注页分析
 
-如需临时使用另一套默认配置：
+如需临时覆盖默认配置（高级用法）：
+先复制 `pipeline.defaults.toml` 为新文件并按需修改，再通过 `--config` 传入该副本。
 
 ```bash
 uv run python main_pipeline.py \
   --year 2026 \
   --batch 3月 \
-  --config pipeline.defaults.toml
+  --config pipeline.3月.no-llm.toml
 ```
 
 ---
@@ -215,17 +216,13 @@ uv run python generate_ppt.py \
   --output-ppt data/ppt/2026/3月/3月满意度报告.pptx
 ```
 
-使用配置文件：
-
-```bash
-uv run python generate_ppt.py --config ppt_job.example.toml
-```
-
 临时覆盖配置：
 
 ```bash
 uv run python generate_ppt.py \
-  --config ppt_job.example.toml \
+  --template-path templates/template.pptx \
+  --input-dir data/satisfaction_detail/2026/3月 \
+  --output-ppt data/ppt/2026/3月/3月满意度报告.summary.pptx \
   --section-mode summary \
   --blank-display '--'
 ```
@@ -234,7 +231,9 @@ uv run python generate_ppt.py \
 
 ```bash
 uv run python generate_ppt.py \
-  --config ppt_job.example.toml \
+  --template-path templates/template.pptx \
+  --input-dir data/satisfaction_detail/2026/3月 \
+  --output-ppt data/ppt/2026/3月/3月满意度报告.dryrun.pptx \
   --dry-run
 ```
 
