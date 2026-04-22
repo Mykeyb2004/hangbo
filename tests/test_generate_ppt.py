@@ -106,10 +106,9 @@ class FakeStreamChunk:
 
 class FakeChatCompletions:
     RESPONSE_TEXT = (
-        "本页数据显示，整体满意度和重要性均处于较高水平，说明当前客户体验基础较稳。"
-        "从分项看，会展服务与硬件设施相关指标表现较好，多数条目维持在较高分值，反映基础服务与现场保障较为成熟。"
-        "相较之下，部分细分指标表现存在一定差异，后续可持续关注相对低分项的变化。"
-        "后续建议持续关注相对低分项的波动，并结合后续月份数据判断是否形成稳定改进方向。"
+        "总体判断：本页客户体验主要由会展服务支撑，配套与动线体验形成拖累。\n"
+        "亮点：会展服务表现突出，接待引导服务保持满分。\n"
+        "关注点：园区停车方便和展会路线安排偏弱，且路线安排与重要性存在明显差距。"
     )
 
     def __init__(self, outer) -> None:
@@ -119,13 +118,12 @@ class FakeChatCompletions:
         self.outer.create_calls.append(kwargs)
         if kwargs.get("stream"):
             return [
-                FakeStreamChunk("本页数据显示，整体满意度和重要性均处于较高水平，"),
-                FakeStreamChunk("说明当前客户体验基础较稳。"),
-                FakeStreamChunk("从分项看，会展服务与硬件设施相关指标表现较好，"),
-                FakeStreamChunk("多数条目维持在较高分值，反映基础服务与现场保障较为成熟。"),
-                FakeStreamChunk("相较之下，个别配套服务和智慧场馆细项存在空值，"),
-                FakeStreamChunk("说明这些项目当前暂无有效评价，解读时应避免过度延伸。"),
-                FakeStreamChunk("后续建议持续关注相对低分项的波动，并结合后续月份数据判断是否形成稳定改进方向。"),
+                FakeStreamChunk("总体判断：本页客户体验主要由会展服务支撑，"),
+                FakeStreamChunk("配套与动线体验形成拖累。\n"),
+                FakeStreamChunk("亮点：会展服务表现突出，"),
+                FakeStreamChunk("接待引导服务保持满分。\n"),
+                FakeStreamChunk("关注点：园区停车方便和展会路线安排偏弱，"),
+                FakeStreamChunk("且路线安排与重要性存在明显差距。"),
                 FakeStreamChunk(None),
             ]
         return FakeCompletionResponse(self.RESPONSE_TEXT)
@@ -204,6 +202,18 @@ class GeneratePptTest(unittest.TestCase):
         self.assertNotIn("注意层级用markdown标注", system_role_text)
         self.assertNotIn("第一层级到第四层级分别为：一、（一）1. （1）", system_role_text)
 
+    def test_system_role_guides_ppt_short_comments_without_report_template(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        system_role_text = (repo_root / "system_role.md").read_text(encoding="utf-8")
+
+        self.assertIn("PPT备注页、图表页说明或管理短评", system_role_text)
+        self.assertIn("全表数据是判断依据，不是覆盖清单", system_role_text)
+        self.assertIn("避免在多页报告中反复使用相同开头、连接句和收尾句", system_role_text)
+        self.assertNotIn("当用户要求分析、总结或报告类内容时，优先按以下逻辑组织", system_role_text)
+        self.assertNotIn("执行摘要", system_role_text)
+        self.assertIn("总体判断：", system_role_text)
+        self.assertIn("关注点：", system_role_text)
+
     def test_build_notes_prompt_limits_gap_analysis_to_secondary_and_tertiary_metrics(self) -> None:
         rows = [
             ("专业观众", 9.93, 10.0),
@@ -229,8 +239,13 @@ class GeneratePptTest(unittest.TestCase):
             "目标是让管理层在较短时间内抓住重点，而不是完整复述表格。",
             prompt,
         )
-        self.assertIn("建议 2-3 句完成。", prompt)
+        self.assertIn("严格按以下结构逐行输出", prompt)
+        self.assertIn("总体判断：", prompt)
+        self.assertIn("关注点：", prompt)
         self.assertIn("不逐项复述表格，不追求覆盖全面", prompt)
+        self.assertIn("避免多页报告中反复使用相同开头、连接句和收尾句", prompt)
+        self.assertIn("不要使用“本页”", prompt)
+        self.assertIn("不要使用“整体评价较高”", prompt)
         self.assertIn("总体:专业观众 | 9.93 | 10", prompt)
         self.assertIn("二级标题:会展服务 | 9.86 | 9.9", prompt)
         self.assertIn("指标:工作人员仪容仪表 | 10 | 10", prompt)
@@ -241,9 +256,9 @@ class GeneratePptTest(unittest.TestCase):
         for config_name in ("report_jobs.3月.toml", "report_jobs.Q1.toml", "report_jobs.1-2月.toml"):
             config = load_batch_config(repo_root / config_name)
 
-            self.assertEqual(config.llm_notes.target_chars, 180, msg=config_name)
+            self.assertEqual(config.llm_notes.target_chars, 120, msg=config_name)
             self.assertEqual(config.llm_notes.temperature, 0.4, msg=config_name)
-            self.assertEqual(config.llm_notes.max_tokens, 260, msg=config_name)
+            self.assertEqual(config.llm_notes.max_tokens, 200, msg=config_name)
 
     def test_build_section_blocks_groups_rows_by_second_level_titles(self) -> None:
         rows = [
@@ -783,10 +798,22 @@ class GeneratePptTest(unittest.TestCase):
             presentation = Presentation(output_path)
             notes_text = presentation.slides[0].notes_slide.notes_text_frame.text
             chart_texts = collect_slide_texts(presentation.slides[1])
+            textbox_shape = next(
+                shape
+                for shape in presentation.slides[1].shapes
+                if shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX
+            )
 
             self.assertEqual(len(presentation.slides), 2)
             self.assertTrue(notes_text)
-            self.assertIn(notes_text, chart_texts)
+            for line in notes_text.splitlines():
+                self.assertIn(line, chart_texts)
+            self.assertEqual(len(textbox_shape.text_frame.paragraphs), 3)
+            for paragraph in textbox_shape.text_frame.paragraphs:
+                self.assertEqual(
+                    paragraph._p.pPr.get("indent"),
+                    str(Pt(CHART_TEXTBOX_FIRST_LINE_INDENT_PT)),
+                )
             self.assertNotIn("图表分析内容待补充。", chart_texts)
 
     def test_generate_presentation_skips_sections_when_all_metric_satisfaction_values_are_empty(self) -> None:
@@ -920,12 +947,15 @@ class GeneratePptTest(unittest.TestCase):
 
             presentation = Presentation(output_path)
             notes_text = presentation.slides[0].notes_slide.notes_text_frame.text
-            self.assertIn("整体满意度和重要性均处于较高水平", notes_text)
+            self.assertIn("总体判断：", notes_text)
+            self.assertIn("关注点：", notes_text)
+            self.assertNotIn("本页", notes_text)
+            self.assertIn("专业观众", notes_text)
 
             progress_output = stdout_buffer.getvalue()
             self.assertIn("[1/1] 正在生成备注页分析：会展客户——专业观众", progress_output)
             self.assertIn("[1/1] 流式输出：", progress_output)
-            self.assertIn("本页数据显示，整体满意度和重要性均处于较高水平", progress_output)
+            self.assertNotIn("本页", progress_output)
             self.assertIn("[1/1] 备注页分析完成：会展客户——专业观众", progress_output)
 
     def test_generate_presentation_preserves_checkpoint_when_llm_is_interrupted(self) -> None:

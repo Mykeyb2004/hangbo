@@ -46,9 +46,9 @@ BODY_FILL_COLOR = "F4E8EA"
 BORDER_COLOR = "FFFFFF"
 HEADER_TEXT_COLOR = "FFFFFF"
 BODY_TEXT_COLOR = "4D5874"
-DEFAULT_NOTES_TARGET_CHARS = 300
+DEFAULT_NOTES_TARGET_CHARS = 120
 DEFAULT_NOTES_TEMPERATURE = 0.4
-DEFAULT_NOTES_MAX_TOKENS = 500
+DEFAULT_NOTES_MAX_TOKENS = 200
 DEFAULT_NOTES_CHECKPOINT_CHARS = 80
 DEFAULT_CHART_PLACEHOLDER_TEXT = (
     "图表分析内容待补充。\n"
@@ -59,9 +59,10 @@ CHART_TEXTBOX_FILL_COLOR = "F7E8EC"
 CHART_TEXTBOX_TEXT_COLOR = "5D667A"
 CHART_TEXTBOX_BORDER_COLOR = "E8D5DA"
 CHART_TEXTBOX_FONT_NAME = "Kaiti SC"
-CHART_TEXTBOX_FONT_SIZE_PT = 14
+CHART_TEXTBOX_FONT_SIZE_PT = 18
 CHART_TEXTBOX_LINE_SPACING = 1.3
 CHART_TEXTBOX_FIRST_LINE_INDENT_PT = 28
+FORBIDDEN_PAGE_REFERENCES = ("本页", "该页", "当前页面", "当前页")
 
 
 @dataclass(frozen=True)
@@ -786,25 +787,38 @@ def build_notes_prompt(
             f"{row_type}:{label} | {format_report_value(satisfaction)} | {format_report_value(importance)}"
         )
 
-    min_chars = max(120, target_chars - 20)
+    min_chars = max(90, target_chars - 20)
     max_chars = target_chars + 20
     return (
         f"请基于以下客户满意度表格数据，撰写一段用于 PPT 备注页的中文管理短评。目标是让管理层在较短时间内抓住重点，而不是完整复述表格。\n"
         f"要求：\n"
         f"1. 严格基于数据本身，不虚构原因，不编造样本量和同比环比。\n"
-        f"2. 先给出总体判断，再点出 1 个最值得强调的亮点，以及 1 个最需要关注的短板或风险点。\n"
-        f"3. 不逐项复述表格，不追求覆盖全面；如果亮点或短板不明显，可弱化其中一项，不强行展开。\n"
-        f"4. 二级指标或三级指标若无有效分值，直接忽略，不要单独提及空值、未评价项或缺失项。\n"
-        f"5. 如需进行满意度与重要性差异分析，仅针对二级、三级指标，不对总体行或页面标题做此类分析。\n"
-        f"6. 语言面向管理层，结论先行，简洁、正式、可直接用于备注页。\n"
-        f"7. 只输出一段话，不要标题，不要项目符号，不要 Markdown，不要分析过程。\n"
-        f"8. 控制在约 {target_chars} 字，尽量落在 {min_chars}-{max_chars} 字之间，建议 2-3 句完成。\n"
-        f"9. 减少“说明、反映、表明、从xx看、后续持续关注”等套话，优先直接表达“整体判断 + 重点发现 + 关注点”。\n\n"
-        f"不要输出Markdown的任何标记，只输出正文。整体的重要性分值不要涉及。\n\n"
+        f"2. 严格按以下结构逐行输出，不要合并为自然段：\n"
+        f"总体判断：...\n"
+        f"亮点：...\n"
+        f"关注点：...\n"
+        f"3. “总体判断”必须写，“关注点”必须写；若没有足够明显的亮点，可省略“亮点：”这一行，不要写“亮点：无”。\n"
+        f"4. 不逐项复述表格，不追求覆盖全面；只提炼最重要的判断。总体判断要直接说明该客户群体的体验由什么支撑、被什么拖累，不要写空泛总结。\n"
+        f"5. 二级指标或三级指标若无有效分值，直接忽略，不要单独提及空值、未评价项或缺失项。\n"
+        f"6. 如需进行满意度与重要性差异分析，仅针对二级、三级指标，不对总体行或页面标题做此类分析。\n"
+        f"7. 提及对象时，必须直接使用客户群体名称“{overall_label}”，不要使用“本页”“该页”“当前页面”等指代。\n"
+        f"8. 语言面向管理层，结论先行，简洁、正式、可直接用于备注页和图表页。\n"
+        f"9. 不要使用“整体评价较高”“保持高位”“当前更需关注”“最值得强调的是”“说明”“反映”“表明”“从xx看”等重复模板化表达。\n"
+        f"10. 避免多页报告中反复使用相同开头、连接句和收尾句，不要写出明显重复的 AI 模板化表达。\n"
+        f"11. 控制在约 {target_chars} 字，尽量落在 {min_chars}-{max_chars} 字之间，通常为 2-3 行。\n\n"
+        f"不要输出 Markdown、项目符号、序号、分析过程或额外结尾。整体的重要性分值不要涉及。\n\n"
+        f"客户群体名称：{overall_label}\n"
         f"页面标题：{title}\n"
         f"总体行：{overall_label}，满意度 {format_report_value(overall_satisfaction)}，重要性 {format_report_value(overall_importance)}\n"
         f"表格数据：\n" + "\n".join(table_lines)
     )
+
+
+def normalize_generated_notes_text(text: str, customer_name: str) -> str:
+    normalized = text.replace("\r\n", "\n").strip()
+    for forbidden_reference in FORBIDDEN_PAGE_REFERENCES:
+        normalized = normalized.replace(forbidden_reference, customer_name)
+    return normalized
 
 
 def extract_completion_text(response) -> str:
@@ -857,6 +871,7 @@ def generate_notes_text(
     runtime: LlmRuntimeConfig,
     on_text_update=None,
 ) -> str:
+    customer_name = report_rows[0][0]
     prompt = build_notes_prompt(
         title=title,
         report_rows=report_rows,
@@ -877,17 +892,21 @@ def generate_notes_text(
     )
 
     fragments: list[str] = []
+    last_normalized_text = ""
     for chunk in stream:
         piece = extract_stream_chunk_text(chunk)
         if not piece:
             continue
         fragments.append(piece)
-        current_text = "".join(fragments)
+        current_text = normalize_generated_notes_text("".join(fragments), customer_name)
         if on_text_update is not None:
             on_text_update(current_text, False)
-        print(piece, end="", flush=True)
+        incremental_piece = current_text[len(last_normalized_text):]
+        if incremental_piece:
+            print(incremental_piece, end="", flush=True)
+            last_normalized_text = current_text
 
-    text = "".join(fragments).strip()
+    text = normalize_generated_notes_text("".join(fragments), customer_name)
     if text:
         if on_text_update is not None:
             on_text_update(text, True)
@@ -899,7 +918,7 @@ def generate_notes_text(
         temperature=runtime.temperature,
         max_tokens=runtime.max_tokens,
     )
-    text = extract_completion_text(response)
+    text = normalize_generated_notes_text(extract_completion_text(response), customer_name)
     if not text:
         raise ValueError(f"{title} 的备注页分析未返回有效文本")
     if on_text_update is not None:

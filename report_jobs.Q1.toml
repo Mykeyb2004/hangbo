@@ -50,9 +50,9 @@ image_dpi = 220
 enabled = true
 env_path = ".env"
 system_role_path = "system_role.md"
-target_chars = 180
+target_chars = 120
 temperature = 0.4
-max_tokens = 260
+max_tokens = 200
 checkpoint_chars = 80
 
 [layout.summary_table]
