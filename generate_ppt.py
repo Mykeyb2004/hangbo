@@ -77,6 +77,7 @@ CHART_TEXTBOX_MIN_PARAGRAPH_SPACE_AFTER_PT = 2
 CHART_TEXTBOX_MARGIN_PT = 18
 CHART_TEXTBOX_HEIGHT_SAFETY_PT = 10
 CHART_TEXTBOX_LINE_HEIGHT_SAFETY_FACTOR = 1.13
+CHART_TEXTBOX_BOTTOM_SAFE_MARGIN_IN = 0.45
 FORBIDDEN_PAGE_REFERENCES = ("本页", "该页", "当前页面", "当前页")
 
 
@@ -1207,7 +1208,13 @@ def render_chart_textbox(
     region: TableRegion,
     text: str,
 ) -> None:
-    left, top, width, height = region.emu()
+    max_height_region = build_chart_textbox_max_height_region(slide, region)
+    text_style = resolve_chart_textbox_style(text, max_height_region)
+    textbox_height = resolve_chart_textbox_height_inches(text, max_height_region, text_style)
+    left = Inches(region.left)
+    top = Inches(region.top)
+    width = Inches(region.width)
+    height = Inches(textbox_height)
     textbox = slide.shapes.add_textbox(left, top, width, height)
     textbox.fill.solid()
     textbox.fill.fore_color.rgb = RGBColor.from_string(CHART_TEXTBOX_FILL_COLOR)
@@ -1222,7 +1229,6 @@ def render_chart_textbox(
     text_frame.margin_right = Pt(CHART_TEXTBOX_MARGIN_PT)
     text_frame.margin_top = Pt(CHART_TEXTBOX_MARGIN_PT)
     text_frame.margin_bottom = Pt(CHART_TEXTBOX_MARGIN_PT)
-    text_style = resolve_chart_textbox_style(text, region)
 
     for paragraph_index, line in enumerate(text.splitlines()):
         paragraph = text_frame.paragraphs[0] if paragraph_index == 0 else text_frame.add_paragraph()
@@ -1260,6 +1266,30 @@ def build_chart_textbox_style(line_spacing: float) -> ChartTextboxStyle:
         first_line_indent_pt=CHART_TEXTBOX_FIRST_LINE_INDENT_PT,
         paragraph_space_after_pt=paragraph_space_after_pt,
     )
+
+
+def build_chart_textbox_max_height_region(slide, region: TableRegion) -> TableRegion:
+    slide_height_inches = slide.part.package.presentation_part.presentation.slide_height / 914400
+    max_height_inches = max(
+        0.1,
+        slide_height_inches - region.top - CHART_TEXTBOX_BOTTOM_SAFE_MARGIN_IN,
+    )
+    return TableRegion(
+        left=region.left,
+        top=region.top,
+        width=region.width,
+        height=max_height_inches,
+    )
+
+
+def resolve_chart_textbox_height_inches(
+    text: str,
+    region: TableRegion,
+    text_style: ChartTextboxStyle,
+) -> float:
+    estimated_height_pt = estimate_chart_textbox_height_pt(text, region, text_style)
+    box_height_pt = estimated_height_pt + CHART_TEXTBOX_MARGIN_PT * 2 + CHART_TEXTBOX_HEIGHT_SAFETY_PT
+    return min(region.height, box_height_pt / 72)
 
 
 def available_chart_textbox_width_pt(region: TableRegion) -> float:
