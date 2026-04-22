@@ -5,6 +5,7 @@ import math
 import re
 import time
 import tomllib
+import unicodedata
 from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -53,6 +54,7 @@ DEFAULT_NOTES_MAX_TOKENS = 200
 DEFAULT_NOTES_CHECKPOINT_CHARS = 80
 DEFAULT_LLM_STREAM_RETRY_DELAYS_SECONDS = (1.0, 3.0, 5.0, 8.0, 13.0, 21.0)
 DEFAULT_LLM_STREAM_RETRY_TIMEOUT_SECONDS = 90.0
+DEFAULT_LLM_FAILURE_LOG_SUFFIX = ".llm_failures.log"
 DEFAULT_CHART_PLACEHOLDER_TEXT = (
     "图表分析内容待补充。\n"
     "后续将在此处补充该客户分组二级指标的整体解读、优势项与待提升项。"
@@ -64,7 +66,11 @@ CHART_TEXTBOX_BORDER_COLOR = "E8D5DA"
 CHART_TEXTBOX_FONT_NAME = "Kaiti SC"
 CHART_TEXTBOX_FONT_SIZE_PT = 18
 CHART_TEXTBOX_LINE_SPACING = 1.3
+CHART_TEXTBOX_MIN_LINE_SPACING = 0.96
 CHART_TEXTBOX_FIRST_LINE_INDENT_PT = 28
+CHART_TEXTBOX_PARAGRAPH_SPACE_AFTER_PT = 6
+CHART_TEXTBOX_MIN_PARAGRAPH_SPACE_AFTER_PT = 2
+CHART_TEXTBOX_MARGIN_PT = 18
 FORBIDDEN_PAGE_REFERENCES = ("本页", "该页", "当前页面", "当前页")
 
 
@@ -192,11 +198,28 @@ class WorkbookDisplayMeta:
 
 
 @dataclass(frozen=True)
+class LlmFailureRecord:
+    workbook_name: str
+    title: str
+    error_type: str
+    error_message: str
+
+
+@dataclass(frozen=True)
 class RenderedWorkbookSlide:
     title: str
     chart_points: tuple[ChartPoint, ...] = ()
     overall_satisfaction: float | None = None
     notes_text: str | None = None
+    llm_failure: LlmFailureRecord | None = None
+
+
+@dataclass(frozen=True)
+class ChartTextboxStyle:
+    font_size_pt: float
+    line_spacing: float
+    first_line_indent_pt: float
+    paragraph_space_after_pt: float
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -434,6 +457,10 @@ def resolve_workbook_display_meta(workbook_name: str) -> WorkbookDisplayMeta:
 
 def build_partial_output_path(output_ppt: Path) -> Path:
     return output_ppt.with_name(f"{output_ppt.stem}.partial{output_ppt.suffix}")
+
+
+def build_llm_failure_log_path(output_ppt: Path) -> Path:
+    return output_ppt.with_name(f"{output_ppt.stem}{DEFAULT_LLM_FAILURE_LOG_SUFFIX}")
 
 
 def discover_input_files(config: PptBatchConfig) -> list[Path]:
@@ -957,6 +984,14 @@ def write_notes_text(slide, text: str) -> None:
     text_frame.text = text
 
 
+def build_llm_failure_placeholder(title: str) -> str:
+    return (
+        f"总体判断：{title}的大模型分析暂未生成，需人工补充管理短评。\n"
+        f"亮点：对应数据表、图表和分项结果已生成，可直接作为人工补写依据。\n"
+        f"关注点：请优先结合满意度与重要性结果复核低分项，并补写最终备注。"
+    )
+
+
 def ensure_parent_dir(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -973,6 +1008,22 @@ def remove_file_if_exists(path: Path | None) -> None:
         path.unlink()
     except FileNotFoundError:
         return
+
+
+def write_llm_failure_log(output_path: Path, failures: Sequence[LlmFailureRecord]) -> None:
+    ensure_parent_dir(output_path)
+    lines = ["LLM 失败清单", ""]
+    for index, failure in enumerate(failures, start=1):
+        lines.extend(
+            [
+                f"{index}. 标题：{failure.title}",
+                f"   工作簿：{failure.workbook_name}",
+                f"   错误类型：{failure.error_type}",
+                f"   错误信息：{failure.error_message}",
+                "",
+            ]
+        )
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def find_title_shape(slide):
@@ -1161,22 +1212,117 @@ def render_chart_textbox(
     text_frame.clear()
     text_frame.word_wrap = True
     text_frame.vertical_anchor = MSO_ANCHOR.TOP
-    text_frame.margin_left = Pt(18)
-    text_frame.margin_right = Pt(18)
-    text_frame.margin_top = Pt(18)
-    text_frame.margin_bottom = Pt(18)
+    text_frame.margin_left = Pt(CHART_TEXTBOX_MARGIN_PT)
+    text_frame.margin_right = Pt(CHART_TEXTBOX_MARGIN_PT)
+    text_frame.margin_top = Pt(CHART_TEXTBOX_MARGIN_PT)
+    text_frame.margin_bottom = Pt(CHART_TEXTBOX_MARGIN_PT)
+    text_style = resolve_chart_textbox_style(text, region)
 
     for paragraph_index, line in enumerate(text.splitlines()):
         paragraph = text_frame.paragraphs[0] if paragraph_index == 0 else text_frame.add_paragraph()
         paragraph.alignment = PP_ALIGN.LEFT
-        paragraph.line_spacing = CHART_TEXTBOX_LINE_SPACING
-        paragraph._p.get_or_add_pPr().set("indent", str(Pt(CHART_TEXTBOX_FIRST_LINE_INDENT_PT)))
+        paragraph.line_spacing = text_style.line_spacing
+        paragraph._p.get_or_add_pPr().set("indent", str(Pt(text_style.first_line_indent_pt)))
         run = paragraph.add_run()
         run.text = line
-        run.font.size = Pt(CHART_TEXTBOX_FONT_SIZE_PT)
+        run.font.size = Pt(text_style.font_size_pt)
         run.font.color.rgb = RGBColor.from_string(CHART_TEXTBOX_TEXT_COLOR)
         apply_run_font_name(run, CHART_TEXTBOX_FONT_NAME)
-        paragraph.space_after = Pt(6)
+        paragraph.space_after = Pt(text_style.paragraph_space_after_pt)
+
+
+def resolve_chart_textbox_style(text: str, region: TableRegion) -> ChartTextboxStyle:
+    for line_spacing in (1.30, 1.22, 1.14, 1.08, 1.02, 0.96):
+        text_style = build_chart_textbox_style(line_spacing)
+        if estimate_chart_textbox_height_pt(text, region, text_style) <= available_chart_textbox_height_pt(
+            region
+        ):
+            return text_style
+    return build_chart_textbox_style(CHART_TEXTBOX_MIN_LINE_SPACING)
+
+
+def build_chart_textbox_style(line_spacing: float) -> ChartTextboxStyle:
+    normalized_line_spacing = max(CHART_TEXTBOX_MIN_LINE_SPACING, line_spacing)
+    spacing_scale = normalized_line_spacing / CHART_TEXTBOX_LINE_SPACING
+    paragraph_space_after_pt = max(
+        CHART_TEXTBOX_MIN_PARAGRAPH_SPACE_AFTER_PT,
+        CHART_TEXTBOX_PARAGRAPH_SPACE_AFTER_PT * spacing_scale,
+    )
+    return ChartTextboxStyle(
+        font_size_pt=CHART_TEXTBOX_FONT_SIZE_PT,
+        line_spacing=normalized_line_spacing,
+        first_line_indent_pt=CHART_TEXTBOX_FIRST_LINE_INDENT_PT,
+        paragraph_space_after_pt=paragraph_space_after_pt,
+    )
+
+
+def available_chart_textbox_width_pt(region: TableRegion) -> float:
+    return max(1.0, region.width * 72 - CHART_TEXTBOX_MARGIN_PT * 2)
+
+
+def available_chart_textbox_height_pt(region: TableRegion) -> float:
+    return max(1.0, region.height * 72 - CHART_TEXTBOX_MARGIN_PT * 2)
+
+
+def estimate_chart_textbox_height_pt(
+    text: str,
+    region: TableRegion,
+    text_style: ChartTextboxStyle,
+) -> float:
+    available_width_pt = available_chart_textbox_width_pt(region)
+    paragraphs = text.splitlines() or [text]
+    line_height_pt = text_style.font_size_pt * text_style.line_spacing
+    total_height_pt = 0.0
+    for paragraph_text in paragraphs:
+        total_height_pt += estimate_wrapped_line_count(
+            paragraph_text,
+            available_width_pt=available_width_pt,
+            font_size_pt=text_style.font_size_pt,
+            first_line_indent_pt=text_style.first_line_indent_pt,
+        ) * line_height_pt
+    total_height_pt += max(0, len(paragraphs) - 1) * text_style.paragraph_space_after_pt
+    return total_height_pt
+
+
+def estimate_wrapped_line_count(
+    text: str,
+    *,
+    available_width_pt: float,
+    font_size_pt: float,
+    first_line_indent_pt: float,
+) -> int:
+    if not text:
+        return 1
+    default_line_capacity = max(1.0, available_width_pt / font_size_pt)
+    first_line_capacity = max(1.0, (available_width_pt - first_line_indent_pt) / font_size_pt)
+    current_capacity = first_line_capacity
+    current_units = 0.0
+    line_count = 1
+
+    for char in text:
+        char_units = estimate_text_width_units(char)
+        if current_units > 0 and current_units + char_units > current_capacity:
+            line_count += 1
+            current_capacity = default_line_capacity
+            current_units = 0.0
+        current_units += char_units
+    return line_count
+
+
+def estimate_text_width_units(text: str) -> float:
+    total_units = 0.0
+    for char in text:
+        if char.isspace():
+            total_units += 0.35
+            continue
+        east_asian_width = unicodedata.east_asian_width(char)
+        if east_asian_width in {"W", "F"}:
+            total_units += 1.15
+        elif char.isalnum():
+            total_units += 0.72
+        else:
+            total_units += 0.65
+    return total_units
 
 
 def apply_run_font_name(run, font_name: str) -> None:
@@ -1201,6 +1347,8 @@ def generate_presentation(
     presentation = Presentation(str(config.template_path))
     llm_runtime = None
     partial_output_path = None
+    llm_failure_log_path = build_llm_failure_log_path(config.output_ppt)
+    llm_failures: list[LlmFailureRecord] = []
     if config.llm_notes.enabled and not dry_run:
         llm_runtime = prepare_llm_runtime(config.llm_notes, client_factory=llm_client_factory)
         partial_output_path = build_partial_output_path(config.output_ppt)
@@ -1240,6 +1388,8 @@ def generate_presentation(
                 slide_index=index + 1,
                 total_slides=total_files,
             )
+            if rendered_slide.llm_failure is not None:
+                llm_failures.append(rendered_slide.llm_failure)
             if config.chart_page.enabled and len(rendered_slide.chart_points) >= 2:
                 chart_slide = presentation.slides.add_slide(template_layout)
                 render_chart_slide(
@@ -1262,6 +1412,14 @@ def generate_presentation(
 
         ensure_parent_dir(config.output_ppt)
         presentation.save(str(config.output_ppt))
+        if llm_failures:
+            write_llm_failure_log(llm_failure_log_path, llm_failures)
+            print(
+                f"[WARN] LLM 失败清单已写入：{llm_failure_log_path}",
+                flush=True,
+            )
+        else:
+            remove_file_if_exists(llm_failure_log_path)
         remove_file_if_exists(partial_output_path)
         return config.output_ppt
     except BaseException:
@@ -1290,6 +1448,7 @@ def render_workbook_slide(
 ) -> RenderedWorkbookSlide:
     title = resolve_workbook_display_meta(workbook_path.stem).title + config.title_suffix
     notes_text: str | None = None
+    llm_failure: LlmFailureRecord | None = None
     apply_title(slide, title)
 
     report_rows = read_report_rows(
@@ -1386,25 +1545,42 @@ def render_workbook_slide(
                 save_presentation_checkpoint(presentation, checkpoint_output_path)
                 checkpoint_state["last_saved_length"] = len(current_text)
 
-        notes_text = generate_notes_text(
-            title=title,
-            report_rows=[overall_row, *detail_rows],
-            role_definition=role_definition,
-            runtime=llm_runtime,
-            on_text_update=handle_notes_update,
-        )
-        print("", flush=True)
-        write_notes_text(slide, notes_text)
-        print(
-            f"{progress_prefix}备注页分析完成：{title}（{len(notes_text)}字）",
-            flush=True,
-        )
+        try:
+            notes_text = generate_notes_text(
+                title=title,
+                report_rows=[overall_row, *detail_rows],
+                role_definition=role_definition,
+                runtime=llm_runtime,
+                on_text_update=handle_notes_update,
+            )
+            print("", flush=True)
+            write_notes_text(slide, notes_text)
+            print(
+                f"{progress_prefix}备注页分析完成：{title}（{len(notes_text)}字）",
+                flush=True,
+            )
+        except Exception as error:
+            print("", flush=True)
+            notes_text = build_llm_failure_placeholder(title)
+            handle_notes_update(notes_text, True)
+            llm_failure = LlmFailureRecord(
+                workbook_name=workbook_path.name,
+                title=title,
+                error_type=type(error).__name__,
+                error_message=str(error),
+            )
+            print(
+                f"{progress_prefix}[WARN] 备注页分析失败，已使用占位文本：{title}"
+                f"（{llm_failure.error_type}: {llm_failure.error_message}）",
+                flush=True,
+            )
 
     return RenderedWorkbookSlide(
         title=title,
         chart_points=chart_points,
         overall_satisfaction=overall_row[1],
         notes_text=notes_text,
+        llm_failure=llm_failure,
     )
 
 

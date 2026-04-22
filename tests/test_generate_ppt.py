@@ -19,6 +19,7 @@ from generate_ppt import (
     BODY_TEXT_COLOR,
     BORDER_COLOR,
     build_notes_prompt,
+    build_llm_failure_log_path,
     CategoryIntroSlideConfig,
     ChartPageConfig,
     CHART_TEXTBOX_FIRST_LINE_INDENT_PT,
@@ -40,6 +41,7 @@ from generate_ppt import (
     format_report_value,
     generate_presentation,
     load_batch_config,
+    render_chart_textbox,
     resolve_section_definition,
     resolve_workbook_display_meta,
 )
@@ -234,11 +236,36 @@ class FakeFlakyOpenAI:
         self.__class__.instances.append(self)
 
 
+class FakeAlwaysFailChatCompletions:
+    def __init__(self, outer) -> None:
+        self.outer = outer
+
+    def create(self, **kwargs):
+        self.outer.create_calls.append(kwargs)
+        raise RuntimeError("upstream llm unavailable")
+
+
+class FakeAlwaysFailChat:
+    def __init__(self, outer) -> None:
+        self.completions = FakeAlwaysFailChatCompletions(outer)
+
+
+class FakeAlwaysFailOpenAI:
+    instances: list["FakeAlwaysFailOpenAI"] = []
+
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+        self.create_calls: list[dict[str, object]] = []
+        self.chat = FakeAlwaysFailChat(self)
+        self.__class__.instances.append(self)
+
+
 class GeneratePptTest(unittest.TestCase):
     def setUp(self) -> None:
         FakeOpenAI.instances.clear()
         FakeInterruptedOpenAI.instances.clear()
         FakeFlakyOpenAI.instances.clear()
+        FakeAlwaysFailOpenAI.instances.clear()
 
     def test_system_role_file_no_longer_requires_markdown_hierarchy(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -785,6 +812,41 @@ class GeneratePptTest(unittest.TestCase):
                 str(Pt(CHART_TEXTBOX_FIRST_LINE_INDENT_PT)),
             )
 
+    def test_render_chart_textbox_reduces_line_spacing_for_long_text(self) -> None:
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        long_text = (
+            "总体判断：会议主承办满意度主要由会展服务支撑，现场对接、工作人员服务及整体协同均处高分；"
+            "硬件设施与智慧场馆相对偏弱，拉低综合体验，其中标识标牌、设施设备齐全度更需留意。\n"
+            "亮点：会展服务表现最突出，现场对接协调沟通、工作人员仪容仪表和服务态度均为满分，"
+            "配套服务中的客房服务、保洁服务也有较强支撑。\n"
+            "关注点：硬件设施是会议主承办体验短板，标识标牌清晰度得分最低，设施设备齐全、"
+            "休息空间、餐饮服务分值也偏低；同时会后回访低于会展服务板块多数触点。"
+        )
+
+        render_chart_textbox(
+            slide,
+            TableRegion(6.55, 1.58, 5.50, 5.10),
+            long_text,
+        )
+
+        textbox_shape = next(
+            shape for shape in slide.shapes if shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX
+        )
+        font_sizes = {
+            run.font.size.pt
+            for paragraph in textbox_shape.text_frame.paragraphs
+            for run in paragraph.runs
+            if run.text.strip()
+        }
+
+        self.assertEqual(len(font_sizes), 1)
+        self.assertEqual(font_sizes.pop(), CHART_TEXTBOX_FONT_SIZE_PT)
+        self.assertLess(
+            textbox_shape.text_frame.paragraphs[0].line_spacing,
+            CHART_TEXTBOX_LINE_SPACING,
+        )
+
     def test_generate_presentation_reuses_llm_notes_in_chart_slide_textbox(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         template_path = repo_root / "templates" / "template.pptx"
@@ -1058,6 +1120,100 @@ class GeneratePptTest(unittest.TestCase):
             notes_text = presentation.slides[0].notes_slide.notes_text_frame.text
             self.assertIn("总体判断：", notes_text)
             self.assertIn("关注点：", notes_text)
+
+    def test_generate_presentation_falls_back_to_placeholder_and_writes_failure_log(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "notes-report.pptx"
+            failure_log_path = build_llm_failure_log_path(output_path)
+            env_path = temp_path / ".env"
+            system_role_path = temp_path / "system_role.md"
+
+            env_path.write_text(
+                "OPENAI_API_KEY=test-key\n"
+                "OPENAI_BASE_URL=https://example.com/v1\n"
+                "OPENAI_MODEL=fake-model\n",
+                encoding="utf-8",
+            )
+            system_role_path.write_text("你是测试用分析助手。", encoding="utf-8")
+
+            create_report_workbook(
+                input_dir / "专业观众.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("专业观众", 9.93, 10.0),
+                    ("会展服务", 10.0, 10.0),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                    ("配套服务", 9.2, 9.8),
+                    ("餐饮服务", 8.8, 9.6),
+                ],
+            )
+            create_report_workbook(
+                input_dir / "参展商.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("参展商", 9.58, 9.81),
+                    ("会场服务", 10.0, 10.0),
+                    ("工作人员服务态度", 10.0, 10.0),
+                    ("硬件设施", 8.0, 9.5),
+                    ("园区停车方便", 8.0, 9.6),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                chart_page=ChartPageConfig(
+                    enabled=True,
+                    placeholder_text="图表分析内容待补充。",
+                    image_dpi=120,
+                ),
+                llm_notes=LlmNotesConfig(
+                    enabled=True,
+                    env_path=env_path,
+                    system_role_path=system_role_path,
+                    target_chars=120,
+                    temperature=0.2,
+                    max_tokens=200,
+                ),
+            )
+
+            stdout_buffer = io.StringIO()
+            with (
+                mock.patch.object(
+                    generate_ppt_module,
+                    "DEFAULT_LLM_STREAM_RETRY_TIMEOUT_SECONDS",
+                    0.0,
+                ),
+                redirect_stdout(stdout_buffer),
+            ):
+                generate_presentation(config, llm_client_factory=FakeAlwaysFailOpenAI)
+
+            presentation = Presentation(output_path)
+            self.assertEqual(len(presentation.slides), 4)
+            first_notes = presentation.slides[0].notes_slide.notes_text_frame.text
+            second_notes = presentation.slides[2].notes_slide.notes_text_frame.text
+            self.assertIn("大模型分析暂未生成", first_notes)
+            self.assertIn("大模型分析暂未生成", second_notes)
+            self.assertIn(
+                "大模型分析暂未生成",
+                "\n".join(collect_slide_texts(presentation.slides[1])),
+            )
+            self.assertTrue(failure_log_path.exists())
+            failure_log_text = failure_log_path.read_text(encoding="utf-8")
+            self.assertIn("会展客户——专业观众", failure_log_text)
+            self.assertIn("会展客户——参展商", failure_log_text)
+            self.assertIn("RuntimeError", failure_log_text)
+
+            progress_output = stdout_buffer.getvalue()
+            self.assertIn("备注页分析失败，已使用占位文本", progress_output)
+            self.assertIn("LLM 失败清单已写入", progress_output)
 
     def test_generate_presentation_preserves_checkpoint_when_llm_is_interrupted(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
