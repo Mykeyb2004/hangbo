@@ -12,7 +12,7 @@ from openpyxl import Workbook
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx import Presentation
 from pptx.oxml.ns import qn
-from pptx.util import Pt
+from pptx.util import Inches, Pt
 
 from generate_ppt import (
     BODY_FILL_COLOR,
@@ -577,6 +577,19 @@ class GeneratePptTest(unittest.TestCase):
         self.assertEqual(config.layout.detail_left_table.height, 5.25)
         self.assertEqual(config.layout.detail_right_table.height, 5.25)
 
+    def test_ppt_batch_config_defaults_move_tables_up_for_taller_tables(self) -> None:
+        config = PptBatchConfig(
+            template_path=Path("templates/template.pptx"),
+            input_dir=Path("input"),
+            output_ppt=Path("output/report.pptx"),
+        )
+
+        self.assertEqual(config.layout.summary_table.top, 1.25)
+        self.assertEqual(config.layout.detail_single_table.top, 1.90)
+        self.assertEqual(config.layout.detail_left_table.top, 1.90)
+        self.assertEqual(config.layout.detail_right_table.top, 1.90)
+        self.assertLess(config.layout.detail_single_table.top + config.layout.detail_single_table.height, 7.5)
+
     def test_render_table_uses_kaiti_for_text_and_times_for_numbers(self) -> None:
         presentation = Presentation()
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
@@ -890,6 +903,56 @@ class GeneratePptTest(unittest.TestCase):
         self.assertEqual(len(font_sizes), 1)
         self.assertEqual(font_sizes.pop(), CHART_TEXTBOX_FONT_SIZE_PT)
         self.assertLess(
+            textbox_shape.text_frame.paragraphs[0].line_spacing,
+            CHART_TEXTBOX_LINE_SPACING,
+        )
+
+    def test_render_chart_textbox_shrinks_box_height_for_short_text(self) -> None:
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        region = TableRegion(6.55, 1.58, 5.50, 5.10)
+        text = "总体判断：整体体验稳定，核心服务表现较好。"
+
+        render_chart_textbox(
+            slide,
+            region,
+            text,
+        )
+
+        textbox_shape = next(
+            shape for shape in slide.shapes if shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX
+        )
+
+        self.assertLess(textbox_shape.height, Inches(region.height))
+        self.assertEqual(
+            textbox_shape.text_frame.paragraphs[0].line_spacing,
+            CHART_TEXTBOX_LINE_SPACING,
+        )
+
+    def test_render_chart_textbox_expands_height_before_reducing_line_spacing(self) -> None:
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        region = TableRegion(6.55, 1.58, 5.50, 5.10)
+        text = "\n".join(
+            [
+                "总体判断：会议体验整体稳定，现场对接、人员服务、流程协同保持较好水平，"
+                "硬件设施与动线体验仍需持续优化。"
+            ]
+            * 3
+        )
+
+        render_chart_textbox(
+            slide,
+            region,
+            text,
+        )
+
+        textbox_shape = next(
+            shape for shape in slide.shapes if shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX
+        )
+
+        self.assertGreater(textbox_shape.height, Inches(region.height))
+        self.assertEqual(
             textbox_shape.text_frame.paragraphs[0].line_spacing,
             CHART_TEXTBOX_LINE_SPACING,
         )

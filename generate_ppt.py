@@ -99,16 +99,16 @@ class TableRegion:
 @dataclass(frozen=True)
 class PptLayoutConfig:
     summary_table: TableRegion = field(
-        default_factory=lambda: TableRegion(0.73, 1.45, 11.87, 0.62)
+        default_factory=lambda: TableRegion(0.73, 1.25, 11.87, 0.62)
     )
     detail_single_table: TableRegion = field(
-        default_factory=lambda: TableRegion(0.73, 2.10, 11.87, 5.25)
+        default_factory=lambda: TableRegion(0.73, 1.90, 11.87, 5.25)
     )
     detail_left_table: TableRegion = field(
-        default_factory=lambda: TableRegion(0.73, 2.10, 5.78, 5.25)
+        default_factory=lambda: TableRegion(0.73, 1.90, 5.78, 5.25)
     )
     detail_right_table: TableRegion = field(
-        default_factory=lambda: TableRegion(6.82, 2.10, 5.78, 5.25)
+        default_factory=lambda: TableRegion(6.82, 1.90, 5.78, 5.25)
     )
     chart_image: TableRegion = field(
         default_factory=lambda: TableRegion(0.78, 1.58, 5.55, 5.10)
@@ -365,19 +365,19 @@ def load_layout_config(raw: dict[str, object]) -> PptLayoutConfig:
     return PptLayoutConfig(
         summary_table=load_table_region(
             raw.get("summary_table"),
-            TableRegion(0.73, 1.45, 11.87, 0.62),
+            TableRegion(0.73, 1.25, 11.87, 0.62),
         ),
         detail_single_table=load_table_region(
             raw.get("detail_single_table"),
-            TableRegion(0.73, 2.10, 11.87, 5.25),
+            TableRegion(0.73, 1.90, 11.87, 5.25),
         ),
         detail_left_table=load_table_region(
             raw.get("detail_left_table"),
-            TableRegion(0.73, 2.10, 5.78, 5.25),
+            TableRegion(0.73, 1.90, 5.78, 5.25),
         ),
         detail_right_table=load_table_region(
             raw.get("detail_right_table"),
-            TableRegion(6.82, 2.10, 5.78, 5.25),
+            TableRegion(6.82, 1.90, 5.78, 5.25),
         ),
         chart_image=load_table_region(
             raw.get("chart_image"),

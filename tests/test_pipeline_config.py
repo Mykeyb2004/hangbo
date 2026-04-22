@@ -9,6 +9,14 @@ from pipeline_config import load_pipeline_defaults
 
 
 class PipelineConfigTest(unittest.TestCase):
+    def test_project_pipeline_defaults_use_15pt_table_fonts(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        defaults = load_pipeline_defaults(repo_root / "pipeline.defaults.toml")
+
+        self.assertEqual(defaults.ppt.body_font_size_pt, 15.0)
+        self.assertEqual(defaults.ppt.header_font_size_pt, 15.0)
+        self.assertEqual(defaults.ppt.summary_font_size_pt, 15.0)
+
     def test_project_pipeline_defaults_use_balanced_llm_notes_settings(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         defaults = load_pipeline_defaults(repo_root / "pipeline.defaults.toml")
