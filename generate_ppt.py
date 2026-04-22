@@ -48,6 +48,10 @@ BODY_FILL_COLOR = "F4E8EA"
 BORDER_COLOR = "FFFFFF"
 HEADER_TEXT_COLOR = "FFFFFF"
 BODY_TEXT_COLOR = "4D5874"
+TABLE_TEXT_FONT_NAME = "楷体"
+TABLE_NUMBER_FONT_NAME = "Times New Roman"
+TABLE_FONT_SIZE_PT = 14.0
+TABLE_VERTICAL_MARGIN_PT = 1
 DEFAULT_NOTES_TARGET_CHARS = 120
 DEFAULT_NOTES_TEMPERATURE = 0.4
 DEFAULT_NOTES_MAX_TOKENS = 200
@@ -71,6 +75,8 @@ CHART_TEXTBOX_FIRST_LINE_INDENT_PT = 28
 CHART_TEXTBOX_PARAGRAPH_SPACE_AFTER_PT = 6
 CHART_TEXTBOX_MIN_PARAGRAPH_SPACE_AFTER_PT = 2
 CHART_TEXTBOX_MARGIN_PT = 18
+CHART_TEXTBOX_HEIGHT_SAFETY_PT = 10
+CHART_TEXTBOX_LINE_HEIGHT_SAFETY_FACTOR = 1.13
 FORBIDDEN_PAGE_REFERENCES = ("本页", "该页", "当前页面", "当前页")
 
 
@@ -93,16 +99,16 @@ class TableRegion:
 @dataclass(frozen=True)
 class PptLayoutConfig:
     summary_table: TableRegion = field(
-        default_factory=lambda: TableRegion(0.73, 1.45, 11.87, 0.56)
+        default_factory=lambda: TableRegion(0.73, 1.45, 11.87, 0.62)
     )
     detail_single_table: TableRegion = field(
-        default_factory=lambda: TableRegion(0.73, 2.10, 11.87, 4.95)
+        default_factory=lambda: TableRegion(0.73, 2.10, 11.87, 5.25)
     )
     detail_left_table: TableRegion = field(
-        default_factory=lambda: TableRegion(0.73, 2.10, 5.78, 4.95)
+        default_factory=lambda: TableRegion(0.73, 2.10, 5.78, 5.25)
     )
     detail_right_table: TableRegion = field(
-        default_factory=lambda: TableRegion(6.82, 2.10, 5.78, 4.95)
+        default_factory=lambda: TableRegion(6.82, 2.10, 5.78, 5.25)
     )
     chart_image: TableRegion = field(
         default_factory=lambda: TableRegion(0.78, 1.58, 5.55, 5.10)
@@ -163,9 +169,9 @@ class PptBatchConfig:
     sort_files: bool = True
     layout: PptLayoutConfig = field(default_factory=PptLayoutConfig)
     llm_notes: LlmNotesConfig = field(default_factory=LlmNotesConfig)
-    body_font_size_pt: float = 10.5
-    header_font_size_pt: float = 11.0
-    summary_font_size_pt: float = 12.0
+    body_font_size_pt: float = TABLE_FONT_SIZE_PT
+    header_font_size_pt: float = TABLE_FONT_SIZE_PT
+    summary_font_size_pt: float = TABLE_FONT_SIZE_PT
     template_slide_index: int = 0
     category_intro_slides: dict[str, CategoryIntroSlideConfig] = field(default_factory=dict)
     chart_page: ChartPageConfig = field(default_factory=ChartPageConfig)
@@ -277,9 +283,9 @@ def load_batch_config(
         sort_files=bool(raw.get("sort_files", True)),
         layout=layout,
         llm_notes=llm_notes,
-        body_font_size_pt=float(raw.get("body_font_size_pt", 10.5)),
-        header_font_size_pt=float(raw.get("header_font_size_pt", 11.0)),
-        summary_font_size_pt=float(raw.get("summary_font_size_pt", 12.0)),
+        body_font_size_pt=float(raw.get("body_font_size_pt", TABLE_FONT_SIZE_PT)),
+        header_font_size_pt=float(raw.get("header_font_size_pt", TABLE_FONT_SIZE_PT)),
+        summary_font_size_pt=float(raw.get("summary_font_size_pt", TABLE_FONT_SIZE_PT)),
         template_slide_index=int(raw.get("template_slide_index", 0)),
         category_intro_slides=category_intro_slides,
         chart_page=chart_page,
@@ -359,19 +365,19 @@ def load_layout_config(raw: dict[str, object]) -> PptLayoutConfig:
     return PptLayoutConfig(
         summary_table=load_table_region(
             raw.get("summary_table"),
-            TableRegion(0.73, 1.45, 11.87, 0.56),
+            TableRegion(0.73, 1.45, 11.87, 0.62),
         ),
         detail_single_table=load_table_region(
             raw.get("detail_single_table"),
-            TableRegion(0.73, 2.10, 11.87, 4.95),
+            TableRegion(0.73, 2.10, 11.87, 5.25),
         ),
         detail_left_table=load_table_region(
             raw.get("detail_left_table"),
-            TableRegion(0.73, 2.10, 5.78, 4.95),
+            TableRegion(0.73, 2.10, 5.78, 5.25),
         ),
         detail_right_table=load_table_region(
             raw.get("detail_right_table"),
-            TableRegion(6.82, 2.10, 5.78, 4.95),
+            TableRegion(6.82, 2.10, 5.78, 5.25),
         ),
         chart_image=load_table_region(
             raw.get("chart_image"),
@@ -1261,7 +1267,10 @@ def available_chart_textbox_width_pt(region: TableRegion) -> float:
 
 
 def available_chart_textbox_height_pt(region: TableRegion) -> float:
-    return max(1.0, region.height * 72 - CHART_TEXTBOX_MARGIN_PT * 2)
+    return max(
+        1.0,
+        region.height * 72 - CHART_TEXTBOX_MARGIN_PT * 2 - CHART_TEXTBOX_HEIGHT_SAFETY_PT,
+    )
 
 
 def estimate_chart_textbox_height_pt(
@@ -1271,7 +1280,11 @@ def estimate_chart_textbox_height_pt(
 ) -> float:
     available_width_pt = available_chart_textbox_width_pt(region)
     paragraphs = text.splitlines() or [text]
-    line_height_pt = text_style.font_size_pt * text_style.line_spacing
+    line_height_pt = (
+        text_style.font_size_pt
+        * text_style.line_spacing
+        * CHART_TEXTBOX_LINE_HEIGHT_SAFETY_FACTOR
+    )
     total_height_pt = 0.0
     for paragraph_text in paragraphs:
         total_height_pt += estimate_wrapped_line_count(
@@ -1280,7 +1293,7 @@ def estimate_chart_textbox_height_pt(
             font_size_pt=text_style.font_size_pt,
             first_line_indent_pt=text_style.first_line_indent_pt,
         ) * line_height_pt
-    total_height_pt += max(0, len(paragraphs) - 1) * text_style.paragraph_space_after_pt
+    total_height_pt += len(paragraphs) * text_style.paragraph_space_after_pt
     return total_height_pt
 
 
@@ -1609,6 +1622,7 @@ def render_table(
             bold=True,
             align=PP_ALIGN.CENTER,
             font_size_pt=header_font_size_pt,
+            font_name=TABLE_TEXT_FONT_NAME,
             fill_color=HEADER_FILL_COLOR,
             text_color=HEADER_TEXT_COLOR,
         )
@@ -1638,6 +1652,11 @@ def render_table(
                 bold=bold,
                 align=PP_ALIGN.CENTER,
                 font_size_pt=body_font_size_pt,
+                font_name=(
+                    TABLE_TEXT_FONT_NAME
+                    if column_index == 0
+                    else TABLE_NUMBER_FONT_NAME
+                ),
                 fill_color=fill_color,
                 text_color=BODY_TEXT_COLOR,
             )
@@ -1659,6 +1678,7 @@ def set_cell_text(
     bold: bool,
     align,
     font_size_pt: float,
+    font_name: str,
     fill_color: str,
     text_color: str,
 ) -> None:
@@ -1668,8 +1688,8 @@ def set_cell_text(
     cell.vertical_anchor = MSO_ANCHOR.MIDDLE
     cell.margin_left = Pt(4)
     cell.margin_right = Pt(4)
-    cell.margin_top = Pt(2)
-    cell.margin_bottom = Pt(2)
+    cell.margin_top = Pt(TABLE_VERTICAL_MARGIN_PT)
+    cell.margin_bottom = Pt(TABLE_VERTICAL_MARGIN_PT)
 
     text_frame = cell.text_frame
     text_frame.clear()
@@ -1680,6 +1700,7 @@ def set_cell_text(
     run.font.bold = bold
     run.font.size = Pt(font_size_pt)
     run.font.color.rgb = RGBColor.from_string(text_color)
+    apply_run_font_name(run, font_name)
 
 
 def set_cell_border(cell, color: str, width: int = 12700) -> None:

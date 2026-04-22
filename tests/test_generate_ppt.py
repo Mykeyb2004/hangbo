@@ -41,7 +41,9 @@ from generate_ppt import (
     format_report_value,
     generate_presentation,
     load_batch_config,
+    render_table,
     render_chart_textbox,
+    resolve_chart_textbox_style,
     resolve_section_definition,
     resolve_workbook_display_meta,
 )
@@ -560,6 +562,51 @@ class GeneratePptTest(unittest.TestCase):
             self.assertEqual(config.chart_page.placeholder_text, "图表解读待补充")
             self.assertEqual(config.chart_page.image_dpi, 180)
 
+    def test_ppt_batch_config_defaults_use_14pt_table_fonts(self) -> None:
+        config = PptBatchConfig(
+            template_path=Path("templates/template.pptx"),
+            input_dir=Path("input"),
+            output_ppt=Path("output/report.pptx"),
+        )
+
+        self.assertEqual(config.body_font_size_pt, 14.0)
+        self.assertEqual(config.header_font_size_pt, 14.0)
+        self.assertEqual(config.summary_font_size_pt, 14.0)
+        self.assertEqual(config.layout.summary_table.height, 0.62)
+        self.assertEqual(config.layout.detail_single_table.height, 5.25)
+        self.assertEqual(config.layout.detail_left_table.height, 5.25)
+        self.assertEqual(config.layout.detail_right_table.height, 5.25)
+
+    def test_render_table_uses_kaiti_for_text_and_times_for_numbers(self) -> None:
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+        render_table(
+            slide,
+            TableRegion(0.73, 1.45, 11.87, 0.62),
+            [("专业观众", 9.93, 10.0)],
+            blank_display="",
+            section_names=set(),
+            overall_label=None,
+            header_font_size_pt=14.0,
+            body_font_size_pt=14.0,
+        )
+
+        table = next(shape.table for shape in slide.shapes if getattr(shape, "has_table", False))
+        header_run = table.cell(0, 0).text_frame.paragraphs[0].runs[0]
+        label_run = table.cell(1, 0).text_frame.paragraphs[0].runs[0]
+        satisfaction_run = table.cell(1, 1).text_frame.paragraphs[0].runs[0]
+        importance_run = table.cell(1, 2).text_frame.paragraphs[0].runs[0]
+
+        self.assertEqual(header_run.font.size, Pt(14.0))
+        self.assertEqual(label_run.font.size, Pt(14.0))
+        self.assertEqual(satisfaction_run.font.size, Pt(14.0))
+        self.assertEqual(importance_run.font.size, Pt(14.0))
+        self.assertEqual(header_run.font.name, "楷体")
+        self.assertEqual(label_run.font.name, "楷体")
+        self.assertEqual(satisfaction_run.font.name, "Times New Roman")
+        self.assertEqual(importance_run.font.name, "Times New Roman")
+
     def test_generate_presentation_creates_single_and_double_table_slides(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         template_path = repo_root / "templates" / "template.pptx"
@@ -846,6 +893,40 @@ class GeneratePptTest(unittest.TestCase):
             textbox_shape.text_frame.paragraphs[0].line_spacing,
             CHART_TEXTBOX_LINE_SPACING,
         )
+
+    def test_resolve_chart_textbox_style_reduces_spacing_for_meeting_page_text(self) -> None:
+        text = (
+            "总体判断：会议主承办满意度主要由会展服务和配套服务支撑，现场对接、工作人员服务、"
+            "客房与保洁评价突出；硬件设施相对承压，尤其标识标牌、设施设备齐全度及交通流线拉低体验。\n"
+            "亮点：会展服务中现场对接协调沟通、工作人员服务态度与仪容仪表均获满分，"
+            "配套服务中的客房服务和保洁服务也处于高分。\n"
+            "关注点：会议主承办对硬件设施更敏感，标识标牌清晰、设施设备齐全、交通便利与"
+            "交通流线等指标满意度低于其重要性，餐饮服务得分也偏低。"
+        )
+
+        text_style = resolve_chart_textbox_style(
+            text,
+            TableRegion(6.55, 1.58, 5.50, 5.10),
+        )
+
+        self.assertLess(text_style.line_spacing, CHART_TEXTBOX_LINE_SPACING)
+
+    def test_resolve_chart_textbox_style_uses_tighter_spacing_for_q1_meeting_chart_text(self) -> None:
+        text = (
+            "总体判断：会议主承办满意度主要由会展服务支撑，现场对接、人员服务态度与效率等环节"
+            "评分突出；拖累项集中在硬件设施，尤其标识标牌、设施设备齐全度及休息空间，拉低整体体验。\n"
+            "亮点：会展服务表现最强，现场对接协调沟通、工作人员仪容仪表和服务态度均为满分，"
+            "配套服务中的客房服务、保洁服务也维持较好水平。\n"
+            "关注点：硬件设施短板更集中，标识标牌清晰度为各项最低，设施设备齐全、交通流线及"
+            "交通便利性与重要性相比仍有提升空间；配套服务中的餐饮服务评分也偏低。"
+        )
+
+        text_style = resolve_chart_textbox_style(
+            text,
+            TableRegion(6.55, 1.58, 5.50, 5.10),
+        )
+
+        self.assertLessEqual(text_style.line_spacing, 1.02)
 
     def test_generate_presentation_reuses_llm_notes_in_chart_slide_textbox(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
