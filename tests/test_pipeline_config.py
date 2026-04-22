@@ -9,6 +9,14 @@ from pipeline_config import load_pipeline_defaults
 
 
 class PipelineConfigTest(unittest.TestCase):
+    def test_project_pipeline_defaults_use_balanced_llm_notes_settings(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        defaults = load_pipeline_defaults(repo_root / "pipeline.defaults.toml")
+
+        self.assertEqual(defaults.ppt.llm_notes.target_chars, 180)
+        self.assertEqual(defaults.ppt.llm_notes.temperature, 0.4)
+        self.assertEqual(defaults.ppt.llm_notes.max_tokens, 260)
+
     def test_load_pipeline_defaults_reads_required_fields_and_resolves_relative_paths(self) -> None:
         with TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir)

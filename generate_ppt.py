@@ -786,20 +786,21 @@ def build_notes_prompt(
             f"{row_type}:{label} | {format_report_value(satisfaction)} | {format_report_value(importance)}"
         )
 
-    min_chars = max(180, target_chars - 40)
-    max_chars = target_chars + 40
+    min_chars = max(120, target_chars - 20)
+    max_chars = target_chars + 20
     return (
-        f"请基于以下客户满意度表格数据，撰写一段用于 PPT 备注页的中文分析描述。\n"
+        f"请基于以下客户满意度表格数据，撰写一段用于 PPT 备注页的中文管理短评。目标是让管理层在较短时间内抓住重点，而不是完整复述表格。\n"
         f"要求：\n"
         f"1. 严格基于数据本身，不虚构原因，不编造样本量和同比环比。\n"
-        f"2. 概述总体满意度水平，再指出表现较好的部分与相对偏弱的部分。\n"
-        f"3. 二级指标或三级指标若无有效分值，直接忽略，不要单独提及空值、未评价项或缺失项。\n"
-        f"4. 语言面向管理层，简洁、正式、可直接用于备注页。\n"
-        f"5. 只输出一段话，不要标题，不要项目符号。\n"
-        f"6. 控制在约 {target_chars} 字，尽量落在 {min_chars}-{max_chars} 字之间。\n\n"
+        f"2. 先给出总体判断，再点出 1 个最值得强调的亮点，以及 1 个最需要关注的短板或风险点。\n"
+        f"3. 不逐项复述表格，不追求覆盖全面；如果亮点或短板不明显，可弱化其中一项，不强行展开。\n"
+        f"4. 二级指标或三级指标若无有效分值，直接忽略，不要单独提及空值、未评价项或缺失项。\n"
+        f"5. 如需进行满意度与重要性差异分析，仅针对二级、三级指标，不对总体行或页面标题做此类分析。\n"
+        f"6. 语言面向管理层，结论先行，简洁、正式、可直接用于备注页。\n"
+        f"7. 只输出一段话，不要标题，不要项目符号，不要 Markdown，不要分析过程。\n"
+        f"8. 控制在约 {target_chars} 字，尽量落在 {min_chars}-{max_chars} 字之间，建议 2-3 句完成。\n"
+        f"9. 减少“说明、反映、表明、从xx看、后续持续关注”等套话，优先直接表达“整体判断 + 重点发现 + 关注点”。\n\n"
         f"不要输出Markdown的任何标记，只输出正文。整体的重要性分值不要涉及。\n\n"
-        f"可以做适当的进行满意度与重要性差异分析。\n\n"
-        f"开头不要千篇一律地写从xxx看。减少“说明、反映、表明、从xx看”等套话，优先使用“总体平稳、维持高位、局部承压、短板集中在、后续需重点关注”等报告化表达。\n\n"
         f"页面标题：{title}\n"
         f"总体行：{overall_label}，满意度 {format_report_value(overall_satisfaction)}，重要性 {format_report_value(overall_importance)}\n"
         f"表格数据：\n" + "\n".join(table_lines)

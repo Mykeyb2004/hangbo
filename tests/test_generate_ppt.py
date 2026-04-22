@@ -18,6 +18,7 @@ from generate_ppt import (
     BODY_FILL_COLOR,
     BODY_TEXT_COLOR,
     BORDER_COLOR,
+    build_notes_prompt,
     CategoryIntroSlideConfig,
     ChartPageConfig,
     CHART_TEXTBOX_FIRST_LINE_INDENT_PT,
@@ -195,6 +196,54 @@ class GeneratePptTest(unittest.TestCase):
     def setUp(self) -> None:
         FakeOpenAI.instances.clear()
         FakeInterruptedOpenAI.instances.clear()
+
+    def test_system_role_file_no_longer_requires_markdown_hierarchy(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        system_role_text = (repo_root / "system_role.md").read_text(encoding="utf-8")
+
+        self.assertNotIn("注意层级用markdown标注", system_role_text)
+        self.assertNotIn("第一层级到第四层级分别为：一、（一）1. （1）", system_role_text)
+
+    def test_build_notes_prompt_limits_gap_analysis_to_secondary_and_tertiary_metrics(self) -> None:
+        rows = [
+            ("专业观众", 9.93, 10.0),
+            ("会展服务", 9.86, 9.90),
+            ("工作人员仪容仪表", 10.0, 10.0),
+            ("硬件设施", 9.31, 9.89),
+            ("展会路线安排", 9.20, 9.80),
+        ]
+
+        prompt = build_notes_prompt(
+            title="会展客户——专业观众",
+            report_rows=rows,
+            role_definition=resolve_section_definition("专业观众", rows),
+            target_chars=300,
+        )
+
+        self.assertIn(
+            "如需进行满意度与重要性差异分析，仅针对二级、三级指标，不对总体行或页面标题做此类分析。",
+            prompt,
+        )
+        self.assertNotIn("可以做适当的进行满意度与重要性差异分析。", prompt)
+        self.assertIn(
+            "目标是让管理层在较短时间内抓住重点，而不是完整复述表格。",
+            prompt,
+        )
+        self.assertIn("建议 2-3 句完成。", prompt)
+        self.assertIn("不逐项复述表格，不追求覆盖全面", prompt)
+        self.assertIn("总体:专业观众 | 9.93 | 10", prompt)
+        self.assertIn("二级标题:会展服务 | 9.86 | 9.9", prompt)
+        self.assertIn("指标:工作人员仪容仪表 | 10 | 10", prompt)
+
+    def test_project_batch_configs_use_balanced_llm_notes_settings(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+
+        for config_name in ("report_jobs.3月.toml", "report_jobs.Q1.toml", "report_jobs.1-2月.toml"):
+            config = load_batch_config(repo_root / config_name)
+
+            self.assertEqual(config.llm_notes.target_chars, 180, msg=config_name)
+            self.assertEqual(config.llm_notes.temperature, 0.4, msg=config_name)
+            self.assertEqual(config.llm_notes.max_tokens, 260, msg=config_name)
 
     def test_build_section_blocks_groups_rows_by_second_level_titles(self) -> None:
         rows = [
