@@ -55,6 +55,7 @@ PPT 生成脚本：
 - `template_path`：PPT 模板路径
 - `sheet_name_mode`：读取 Excel sheet 的方式，默认 `first`
 - `section_mode`：二级标题识别口径，默认 `auto`
+- `category_intro_slides`：按客户大类插入章节页的配置
 - `blank_display`：空值展示文本，默认空字符串
 - `max_single_table_rows`：单表最大明细行数
 - `max_split_table_rows`：左右双表每侧最大明细行数
@@ -86,6 +87,7 @@ PPT 默认适配 `survey_stats.py` 产出的分项统计 Excel。
 
 页面规则：
 
+- 若配置了 `category_intro_slides`，每个客户大类首次出现前会先插入 1 页章节页
 - 每个客户类型 Excel 生成 1 页数据页
 - 页面顺序优先按 `survey_customer_category_rules.py` 中的展示顺序
 - 页面标题使用 `客户大类——客户类型`

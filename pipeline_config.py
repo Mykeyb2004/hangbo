@@ -37,6 +37,12 @@ DEFAULT_LLM_NOTES_CHECKPOINT_CHARS = 80
 
 
 @dataclass(frozen=True)
+class PipelineCategoryIntroSlideDefaults:
+    ppt_path: Path
+    slide_number: int
+
+
+@dataclass(frozen=True)
 class PipelineLlmNotesDefaults:
     enabled: bool
     env_path: Path
@@ -68,6 +74,7 @@ class PipelinePptDefaults:
     header_font_size_pt: float
     summary_font_size_pt: float
     template_slide_index: int
+    category_intro_slides: dict[str, PipelineCategoryIntroSlideDefaults]
     chart_page: PipelineChartPageDefaults
     llm_notes: PipelineLlmNotesDefaults
 
@@ -87,6 +94,37 @@ def resolve_config_path(config_dir: Path, raw_path: str | Path) -> Path:
     return config_dir / path
 
 
+def load_category_intro_slides_defaults(
+    config_dir: Path,
+    raw: object,
+) -> dict[str, PipelineCategoryIntroSlideDefaults]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("ppt.category_intro_slides 必须是对象")
+
+    intro_slides: dict[str, PipelineCategoryIntroSlideDefaults] = {}
+    for category_label, item in raw.items():
+        if not isinstance(category_label, str) or not category_label.strip():
+            raise ValueError("ppt.category_intro_slides 的键必须是非空客户大类名称")
+        if not isinstance(item, dict):
+            raise ValueError(f"{category_label} 的章节页配置必须是对象")
+        if "ppt_path" not in item:
+            raise ValueError(f"{category_label} 缺少 ppt_path")
+        if "slide_number" not in item:
+            raise ValueError(f"{category_label} 缺少 slide_number")
+
+        slide_number = int(item["slide_number"])
+        if slide_number < 1:
+            raise ValueError(f"{category_label} 的 slide_number 必须从 1 开始")
+
+        intro_slides[category_label] = PipelineCategoryIntroSlideDefaults(
+            ppt_path=resolve_config_path(config_dir, item["ppt_path"]),
+            slide_number=slide_number,
+        )
+    return intro_slides
+
+
 def load_pipeline_defaults(
     config_path: Path = Path("pipeline.defaults.toml"),
 ) -> PipelineDefaults:
@@ -99,6 +137,10 @@ def load_pipeline_defaults(
     ppt_raw = raw.get("ppt", {})
     chart_page_raw = ppt_raw.get("chart_page", {})
     llm_notes_raw = ppt_raw.get("llm_notes", {})
+    category_intro_slides = load_category_intro_slides_defaults(
+        config_dir,
+        ppt_raw.get("category_intro_slides"),
+    )
 
     return PipelineDefaults(
         sheet_name=str(raw.get("sheet_name", DEFAULT_SHEET_NAME)),
@@ -148,6 +190,7 @@ def load_pipeline_defaults(
                     DEFAULT_PPT_TEMPLATE_SLIDE_INDEX,
                 )
             ),
+            category_intro_slides=category_intro_slides,
             chart_page=PipelineChartPageDefaults(
                 enabled=bool(
                     chart_page_raw.get("enabled", DEFAULT_CHART_PAGE_ENABLED)

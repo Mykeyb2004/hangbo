@@ -190,10 +190,55 @@ class FakeInterruptedOpenAI:
         self.__class__.instances.append(self)
 
 
+class FakeFlakyChatCompletions:
+    RESPONSE_TEXT = (
+        "总体判断：专业观众整体体验由会展服务支撑，硬件与配套服务形成拖累。\n"
+        "亮点：接待引导服务和工作人员仪容仪表保持高分。\n"
+        "关注点：园区停车方便和餐饮服务偏弱，需优先补强。"
+    )
+
+    def __init__(self, outer) -> None:
+        self.outer = outer
+        self.stream_calls = 0
+
+    def create(self, **kwargs):
+        self.outer.create_calls.append(kwargs)
+        if not kwargs.get("stream"):
+            return FakeCompletionResponse(self.RESPONSE_TEXT)
+
+        self.stream_calls += 1
+        if self.stream_calls < 3:
+            raise RuntimeError("transient llm failure")
+
+        return [
+            FakeStreamChunk("总体判断：专业观众整体体验由会展服务支撑，"),
+            FakeStreamChunk("硬件与配套服务形成拖累。\n"),
+            FakeStreamChunk("亮点：接待引导服务和工作人员仪容仪表保持高分。\n"),
+            FakeStreamChunk("关注点：园区停车方便和餐饮服务偏弱，需优先补强。"),
+            FakeStreamChunk(None),
+        ]
+
+
+class FakeFlakyChat:
+    def __init__(self, outer) -> None:
+        self.completions = FakeFlakyChatCompletions(outer)
+
+
+class FakeFlakyOpenAI:
+    instances: list["FakeFlakyOpenAI"] = []
+
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+        self.create_calls: list[dict[str, object]] = []
+        self.chat = FakeFlakyChat(self)
+        self.__class__.instances.append(self)
+
+
 class GeneratePptTest(unittest.TestCase):
     def setUp(self) -> None:
         FakeOpenAI.instances.clear()
         FakeInterruptedOpenAI.instances.clear()
+        FakeFlakyOpenAI.instances.clear()
 
     def test_system_role_file_no_longer_requires_markdown_hierarchy(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -957,6 +1002,62 @@ class GeneratePptTest(unittest.TestCase):
             self.assertIn("[1/1] 流式输出：", progress_output)
             self.assertNotIn("本页", progress_output)
             self.assertIn("[1/1] 备注页分析完成：会展客户——专业观众", progress_output)
+
+    def test_generate_presentation_retries_transient_llm_stream_failures(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "notes-report.pptx"
+            env_path = temp_path / ".env"
+            system_role_path = temp_path / "system_role.md"
+
+            env_path.write_text(
+                "OPENAI_API_KEY=test-key\n"
+                "OPENAI_BASE_URL=https://example.com/v1\n"
+                "OPENAI_MODEL=fake-model\n",
+                encoding="utf-8",
+            )
+            system_role_path.write_text("你是测试用分析助手。", encoding="utf-8")
+
+            create_report_workbook(
+                input_dir / "专业观众.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("专业观众", 9.93, 10.0),
+                    ("会展服务", 10.0, 10.0),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                    ("配套服务", 9.2, 9.8),
+                    ("餐饮服务", 8.8, 9.6),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                llm_notes=LlmNotesConfig(
+                    enabled=True,
+                    env_path=env_path,
+                    system_role_path=system_role_path,
+                    target_chars=120,
+                    temperature=0.2,
+                    max_tokens=200,
+                ),
+            )
+
+            generate_presentation(config, llm_client_factory=FakeFlakyOpenAI)
+
+            self.assertEqual(len(FakeFlakyOpenAI.instances), 1)
+            fake_client = FakeFlakyOpenAI.instances[0]
+            self.assertEqual(len(fake_client.create_calls), 3)
+            presentation = Presentation(output_path)
+            notes_text = presentation.slides[0].notes_slide.notes_text_frame.text
+            self.assertIn("总体判断：", notes_text)
+            self.assertIn("关注点：", notes_text)
 
     def test_generate_presentation_preserves_checkpoint_when_llm_is_interrupted(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

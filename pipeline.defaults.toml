@@ -16,6 +16,22 @@ header_font_size_pt = 11.0
 summary_font_size_pt = 12.0
 template_slide_index = 0
 
+[ppt.category_intro_slides."一、会展客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 3
+
+[ppt.category_intro_slides."二、餐饮客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 4
+
+[ppt.category_intro_slides."三、G20峰会体验馆"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 6
+
+[ppt.category_intro_slides."五、酒店客户"]
+ppt_path = "templates/chapter.pptx"
+slide_number = 5
+
 [ppt.chart_page]
 enabled = true
 placeholder_text = "图表分析内容待补充。后续将在此处补充该客户分组二级指标的整体解读、优势项与待提升项。"

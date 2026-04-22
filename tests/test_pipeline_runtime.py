@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from pipeline_config import (
+    PipelineCategoryIntroSlideDefaults,
     PipelineChartPageDefaults,
     PipelineDefaults,
     PipelineLlmNotesDefaults,
@@ -35,6 +36,12 @@ def build_defaults() -> PipelineDefaults:
             header_font_size_pt=11.0,
             summary_font_size_pt=12.0,
             template_slide_index=0,
+            category_intro_slides={
+                "一、会展客户": PipelineCategoryIntroSlideDefaults(
+                    Path("templates/chapter.pptx"),
+                    3,
+                )
+            },
             chart_page=PipelineChartPageDefaults(
                 True,
                 "图表分析内容待补充。",
@@ -150,6 +157,14 @@ class PipelineRuntimeTest(unittest.TestCase):
             self.assertEqual(ppt_config.output_ppt, paths.ppt_path)
             self.assertEqual(ppt_config.sheet_name_mode, defaults.ppt.sheet_name_mode)
             self.assertEqual(ppt_config.section_mode, defaults.ppt.section_mode)
+            self.assertEqual(
+                ppt_config.category_intro_slides["一、会展客户"].ppt_path,
+                defaults.ppt.category_intro_slides["一、会展客户"].ppt_path,
+            )
+            self.assertEqual(
+                ppt_config.category_intro_slides["一、会展客户"].slide_number,
+                defaults.ppt.category_intro_slides["一、会展客户"].slide_number,
+            )
             self.assertEqual(ppt_config.chart_page.enabled, defaults.ppt.chart_page.enabled)
             self.assertEqual(
                 ppt_config.chart_page.placeholder_text,

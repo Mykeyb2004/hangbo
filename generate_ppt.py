@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import math
 import re
+import time
 import tomllib
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -50,6 +51,8 @@ DEFAULT_NOTES_TARGET_CHARS = 120
 DEFAULT_NOTES_TEMPERATURE = 0.4
 DEFAULT_NOTES_MAX_TOKENS = 200
 DEFAULT_NOTES_CHECKPOINT_CHARS = 80
+DEFAULT_LLM_STREAM_RETRY_DELAYS_SECONDS = (1.0, 3.0, 5.0, 8.0, 13.0, 21.0)
+DEFAULT_LLM_STREAM_RETRY_TIMEOUT_SECONDS = 90.0
 DEFAULT_CHART_PLACEHOLDER_TEXT = (
     "图表分析内容待补充。\n"
     "后续将在此处补充该客户分组二级指标的整体解读、优势项与待提升项。"
@@ -883,34 +886,53 @@ def generate_notes_text(
         {"role": "user", "content": prompt},
     ]
 
-    stream = runtime.client.chat.completions.create(
-        model=runtime.model,
-        messages=messages,
-        temperature=runtime.temperature,
-        max_tokens=runtime.max_tokens,
-        stream=True,
-    )
+    llm_request_started_at = time.monotonic()
+    attempt_index = 0
+    while True:
+        try:
+            stream = runtime.client.chat.completions.create(
+                model=runtime.model,
+                messages=messages,
+                temperature=runtime.temperature,
+                max_tokens=runtime.max_tokens,
+                stream=True,
+            )
 
-    fragments: list[str] = []
-    last_normalized_text = ""
-    for chunk in stream:
-        piece = extract_stream_chunk_text(chunk)
-        if not piece:
-            continue
-        fragments.append(piece)
-        current_text = normalize_generated_notes_text("".join(fragments), customer_name)
-        if on_text_update is not None:
-            on_text_update(current_text, False)
-        incremental_piece = current_text[len(last_normalized_text):]
-        if incremental_piece:
-            print(incremental_piece, end="", flush=True)
-            last_normalized_text = current_text
+            fragments: list[str] = []
+            last_normalized_text = ""
+            for chunk in stream:
+                piece = extract_stream_chunk_text(chunk)
+                if not piece:
+                    continue
+                fragments.append(piece)
+                current_text = normalize_generated_notes_text("".join(fragments), customer_name)
+                if on_text_update is not None:
+                    on_text_update(current_text, False)
+                incremental_piece = current_text[len(last_normalized_text):]
+                if incremental_piece:
+                    print(incremental_piece, end="", flush=True)
+                    last_normalized_text = current_text
 
-    text = normalize_generated_notes_text("".join(fragments), customer_name)
-    if text:
-        if on_text_update is not None:
-            on_text_update(text, True)
-        return text
+            text = normalize_generated_notes_text("".join(fragments), customer_name)
+            if text:
+                if on_text_update is not None:
+                    on_text_update(text, True)
+                return text
+            break
+        except Exception as error:
+            retry_delay = DEFAULT_LLM_STREAM_RETRY_DELAYS_SECONDS[
+                min(attempt_index, len(DEFAULT_LLM_STREAM_RETRY_DELAYS_SECONDS) - 1)
+            ]
+            elapsed_seconds = time.monotonic() - llm_request_started_at
+            if elapsed_seconds + retry_delay > DEFAULT_LLM_STREAM_RETRY_TIMEOUT_SECONDS:
+                raise
+            print(
+                f"\n[LLM] 备注页分析请求失败，{retry_delay:.0f}s 后重试：{title}"
+                f"（{type(error).__name__}: {error}）",
+                flush=True,
+            )
+            time.sleep(retry_delay)
+            attempt_index += 1
 
     response = runtime.client.chat.completions.create(
         model=runtime.model,

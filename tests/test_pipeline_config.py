@@ -17,6 +17,25 @@ class PipelineConfigTest(unittest.TestCase):
         self.assertEqual(defaults.ppt.llm_notes.temperature, 0.4)
         self.assertEqual(defaults.ppt.llm_notes.max_tokens, 200)
 
+    def test_project_pipeline_defaults_restore_category_intro_slides(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        defaults = load_pipeline_defaults(repo_root / "pipeline.defaults.toml")
+
+        self.assertIn("一、会展客户", defaults.ppt.category_intro_slides)
+        self.assertIn("五、酒店客户", defaults.ppt.category_intro_slides)
+        self.assertEqual(
+            defaults.ppt.category_intro_slides["一、会展客户"].ppt_path,
+            repo_root / "templates" / "chapter.pptx",
+        )
+        self.assertEqual(
+            defaults.ppt.category_intro_slides["一、会展客户"].slide_number,
+            3,
+        )
+        self.assertEqual(
+            defaults.ppt.category_intro_slides["五、酒店客户"].slide_number,
+            5,
+        )
+
     def test_load_pipeline_defaults_reads_required_fields_and_resolves_relative_paths(self) -> None:
         with TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir)
@@ -57,6 +76,10 @@ class PipelineConfigTest(unittest.TestCase):
                         'temperature = 0.4',
                         'max_tokens = 500',
                         'checkpoint_chars = 80',
+                        '',
+                        '[ppt.category_intro_slides."一、会展客户"]',
+                        'ppt_path = "templates/chapter.pptx"',
+                        'slide_number = 3',
                     ]
                 ),
                 encoding="utf-8",
@@ -88,6 +111,14 @@ class PipelineConfigTest(unittest.TestCase):
             self.assertEqual(
                 defaults.ppt.llm_notes.system_role_path,
                 resolved_nested_dir / "system_role.md",
+            )
+            self.assertEqual(
+                defaults.ppt.category_intro_slides["一、会展客户"].ppt_path,
+                resolved_nested_dir / "templates/chapter.pptx",
+            )
+            self.assertEqual(
+                defaults.ppt.category_intro_slides["一、会展客户"].slide_number,
+                3,
             )
 
     def test_load_pipeline_defaults_rejects_invalid_calculation_mode(self) -> None:

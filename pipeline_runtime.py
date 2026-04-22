@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fill_year_month_columns import apply_year_month_to_directory
 from generate_ppt import (
+    CategoryIntroSlideConfig,
     ChartPageConfig,
     LlmNotesConfig,
     PptBatchConfig,
@@ -91,6 +92,13 @@ def build_ppt_batch_config(paths, defaults) -> PptBatchConfig:
         header_font_size_pt=defaults.ppt.header_font_size_pt,
         summary_font_size_pt=defaults.ppt.summary_font_size_pt,
         template_slide_index=defaults.ppt.template_slide_index,
+        category_intro_slides={
+            category_label: CategoryIntroSlideConfig(
+                ppt_path=intro_config.ppt_path,
+                slide_number=intro_config.slide_number,
+            )
+            for category_label, intro_config in defaults.ppt.category_intro_slides.items()
+        },
         chart_page=ChartPageConfig(
             enabled=defaults.ppt.chart_page.enabled,
             placeholder_text=defaults.ppt.chart_page.placeholder_text,
