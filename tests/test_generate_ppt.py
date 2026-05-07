@@ -26,9 +26,11 @@ from generate_ppt import (
     CHART_TEXTBOX_FONT_SIZE_PT,
     CHART_TEXTBOX_FONT_NAME,
     CHART_TEXTBOX_LINE_SPACING,
+    finalize_generated_notes_text,
     HEADER_FILL_COLOR,
     HEADER_TEXT_COLOR,
     LlmNotesConfig,
+    NotesExpressionBatchState,
     OVERALL_FILL_COLOR,
     PptBatchConfig,
     PptLayoutConfig,
@@ -283,6 +285,7 @@ class GeneratePptTest(unittest.TestCase):
         self.assertIn("PPT备注页、图表页说明或管理短评", system_role_text)
         self.assertIn("全表数据是判断依据，不是覆盖清单", system_role_text)
         self.assertIn("避免在多页报告中反复使用相同开头、连接句和收尾句", system_role_text)
+        self.assertIn("不要使用“拖累”或“拖累项”", system_role_text)
         self.assertNotIn("当用户要求分析、总结或报告类内容时，优先按以下逻辑组织", system_role_text)
         self.assertNotIn("执行摘要", system_role_text)
         self.assertIn("总体判断：", system_role_text)
@@ -318,6 +321,8 @@ class GeneratePptTest(unittest.TestCase):
         self.assertIn("关注点：", prompt)
         self.assertIn("不逐项复述表格，不追求覆盖全面", prompt)
         self.assertIn("避免多页报告中反复使用相同开头、连接句和收尾句", prompt)
+        self.assertIn("总体满意度低于 9.6 时，必须省略“亮点：”", prompt)
+        self.assertIn("不要使用“拖累”或“拖累项”", prompt)
         self.assertIn("不要使用“本页”", prompt)
         self.assertIn("不要使用“整体评价较高”", prompt)
         self.assertIn("总体:专业观众 | 9.93 | 10", prompt)
@@ -333,6 +338,58 @@ class GeneratePptTest(unittest.TestCase):
         self.assertEqual(defaults.ppt.llm_notes.target_chars, 120)
         self.assertEqual(defaults.ppt.llm_notes.temperature, 0.4)
         self.assertEqual(defaults.ppt.llm_notes.max_tokens, 200)
+        self.assertEqual(defaults.ppt.llm_notes.highlight_threshold, 9.6)
+
+    def test_finalize_generated_notes_text_replaces_forbidden_terms_and_removes_low_score_highlight(self) -> None:
+        text = (
+            "总体判断：本页体验由会展服务支撑，硬件设施形成拖累。\n"
+            "亮点：接待引导服务表现突出。\n"
+            "关注点：拖累项集中在餐饮服务。"
+        )
+
+        normalized = finalize_generated_notes_text(
+            text,
+            customer_name="参展商",
+            overall_satisfaction=9.58,
+            highlight_threshold=9.6,
+        )
+
+        self.assertNotIn("本页", normalized)
+        self.assertNotIn("拖累", normalized)
+        self.assertNotIn("亮点：", normalized)
+        self.assertIn("参展商", normalized)
+        self.assertIn("弱势项", normalized)
+
+    def test_notes_expression_batch_state_rotates_style_and_tracks_used_openings(self) -> None:
+        rows = [
+            ("参展商", 9.58, 9.81),
+            ("会场服务", 10.0, 10.0),
+            ("工作人员服务态度", 10.0, 10.0),
+            ("硬件设施", 8.0, 9.5),
+        ]
+
+        state = NotesExpressionBatchState()
+        first_guidance = state.next_guidance()
+        state.remember(
+            "总体判断：专业观众客户体验主要由会展服务支撑，硬件与配套服务形成相对弱势。\n"
+            "关注点：餐饮服务偏弱。"
+        )
+        second_guidance = state.next_guidance()
+        prompt = build_notes_prompt(
+            title="会展客户——参展商",
+            report_rows=rows,
+            role_definition=resolve_section_definition("参展商", rows),
+            target_chars=120,
+            expression_guidance=second_guidance,
+        )
+
+        self.assertNotEqual(first_guidance.style_name, second_guidance.style_name)
+        self.assertIn(
+            "专业观众客户体验主要由会展服务支撑",
+            second_guidance.used_opening_summaries,
+        )
+        self.assertIn("本批次前文已使用过的总体判断开头摘要", prompt)
+        self.assertIn("专业观众客户体验主要由会展服务支撑", prompt)
 
     def test_build_section_blocks_groups_rows_by_second_level_titles(self) -> None:
         rows = [
@@ -545,6 +602,10 @@ class GeneratePptTest(unittest.TestCase):
                         "enabled = true",
                         'placeholder_text = "图表解读待补充"',
                         "image_dpi = 180",
+                        "",
+                        "[llm_notes]",
+                        "enabled = true",
+                        "highlight_threshold = 9.75",
                     ]
                 ),
                 encoding="utf-8",
@@ -561,6 +622,7 @@ class GeneratePptTest(unittest.TestCase):
             self.assertTrue(config.chart_page.enabled)
             self.assertEqual(config.chart_page.placeholder_text, "图表解读待补充")
             self.assertEqual(config.chart_page.image_dpi, 180)
+            self.assertEqual(config.llm_notes.highlight_threshold, 9.75)
 
     def test_ppt_batch_config_defaults_use_14pt_table_fonts(self) -> None:
         config = PptBatchConfig(
@@ -787,21 +849,31 @@ class GeneratePptTest(unittest.TestCase):
 
             presentation = Presentation(output_path)
             slide_texts = [collect_slide_texts(slide) for slide in presentation.slides]
+            exhibition_intro_title = next(
+                text
+                for text in slide_texts[0]
+                if text in {"会展区客户满意度", "会展类客户满意度"}
+            )
+            catering_intro_title = next(
+                text
+                for text in slide_texts[3]
+                if text in {"餐饮区客户满意度", "餐饮类客户满意度"}
+            )
 
             self.assertEqual(len(presentation.slides), 5)
-            self.assertIn("会展区客户满意度", slide_texts[0])
+            self.assertIn(exhibition_intro_title, slide_texts[0])
             self.assertEqual(len(presentation.slides[0].placeholders), 0)
             self.assertEqual(presentation.slides[1].shapes.title.text, "会展客户——参展商")
             self.assertEqual(presentation.slides[2].shapes.title.text, "会展客户——会议活动主（承）办")
-            self.assertIn("餐饮区客户满意度", slide_texts[3])
+            self.assertIn(catering_intro_title, slide_texts[3])
             self.assertEqual(len(presentation.slides[3].placeholders), 0)
             self.assertEqual(presentation.slides[4].shapes.title.text, "餐饮客户——自助餐")
             self.assertEqual(
-                sum("会展区客户满意度" in texts for texts in slide_texts),
+                sum(exhibition_intro_title in texts for texts in slide_texts),
                 1,
             )
             self.assertEqual(
-                sum("餐饮区客户满意度" in texts for texts in slide_texts),
+                sum(catering_intro_title in texts for texts in slide_texts),
                 1,
             )
             self.assertFalse(
@@ -1208,6 +1280,76 @@ class GeneratePptTest(unittest.TestCase):
             self.assertIn("[1/1] 流式输出：", progress_output)
             self.assertNotIn("本页", progress_output)
             self.assertIn("[1/1] 备注页分析完成：会展客户——专业观众", progress_output)
+
+    def test_generate_presentation_injects_batch_opening_guidance_into_later_prompts(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "notes-report.pptx"
+            env_path = temp_path / ".env"
+            system_role_path = temp_path / "system_role.md"
+
+            env_path.write_text(
+                "OPENAI_API_KEY=test-key\n"
+                "OPENAI_BASE_URL=https://example.com/v1\n"
+                "OPENAI_MODEL=fake-model\n",
+                encoding="utf-8",
+            )
+            system_role_path.write_text("你是测试用分析助手。", encoding="utf-8")
+
+            create_report_workbook(
+                input_dir / "专业观众.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("专业观众", 9.93, 10.0),
+                    ("会展服务", 10.0, 10.0),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                    ("配套服务", 9.2, 9.8),
+                ],
+            )
+            create_report_workbook(
+                input_dir / "参展商.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("参展商", 9.58, 9.81),
+                    ("会场服务", 10.0, 10.0),
+                    ("工作人员服务态度", 10.0, 10.0),
+                    ("硬件设施", 8.0, 9.5),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                llm_notes=LlmNotesConfig(
+                    enabled=True,
+                    env_path=env_path,
+                    system_role_path=system_role_path,
+                    target_chars=120,
+                    temperature=0.2,
+                    max_tokens=200,
+                ),
+            )
+
+            generate_presentation(config, llm_client_factory=FakeOpenAI)
+
+            fake_client = FakeOpenAI.instances[0]
+            first_prompt = fake_client.create_calls[0]["messages"][1]["content"]
+            second_prompt = fake_client.create_calls[1]["messages"][1]["content"]
+            first_customer_name = "参展商" if "客户群体名称：参展商" in first_prompt else "专业观众"
+
+            self.assertIn("本页优先采用以下表达风格", first_prompt)
+            self.assertIn("本页优先采用以下表达风格", second_prompt)
+            self.assertIn("本批次前文已使用过的总体判断开头摘要", second_prompt)
+            self.assertIn(
+                f"{first_customer_name}客户体验主要由会展服务支撑",
+                second_prompt,
+            )
 
     def test_generate_presentation_retries_transient_llm_stream_failures(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

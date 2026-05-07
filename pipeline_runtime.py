@@ -87,6 +87,7 @@ def build_ppt_batch_config(paths, defaults) -> PptBatchConfig:
             temperature=defaults.ppt.llm_notes.temperature,
             max_tokens=defaults.ppt.llm_notes.max_tokens,
             checkpoint_chars=defaults.ppt.llm_notes.checkpoint_chars,
+            highlight_threshold=defaults.ppt.llm_notes.highlight_threshold,
         ),
         body_font_size_pt=defaults.ppt.body_font_size_pt,
         header_font_size_pt=defaults.ppt.header_font_size_pt,

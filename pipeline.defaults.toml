@@ -45,3 +45,4 @@ target_chars = 120
 temperature = 0.4
 max_tokens = 200
 checkpoint_chars = 80
+highlight_threshold = 9.6

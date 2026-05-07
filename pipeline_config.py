@@ -34,6 +34,7 @@ DEFAULT_LLM_NOTES_TARGET_CHARS = 120
 DEFAULT_LLM_NOTES_TEMPERATURE = 0.6
 DEFAULT_LLM_NOTES_MAX_TOKENS = 200
 DEFAULT_LLM_NOTES_CHECKPOINT_CHARS = 80
+DEFAULT_LLM_NOTES_HIGHLIGHT_THRESHOLD = 9.6
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ class PipelineLlmNotesDefaults:
     temperature: float
     max_tokens: int
     checkpoint_chars: int
+    highlight_threshold: float
 
 
 @dataclass(frozen=True)
@@ -231,6 +233,12 @@ def load_pipeline_defaults(
                     llm_notes_raw.get(
                         "checkpoint_chars",
                         DEFAULT_LLM_NOTES_CHECKPOINT_CHARS,
+                    )
+                ),
+                highlight_threshold=float(
+                    llm_notes_raw.get(
+                        "highlight_threshold",
+                        DEFAULT_LLM_NOTES_HIGHLIGHT_THRESHOLD,
                     )
                 ),
             ),

@@ -55,6 +55,7 @@ def build_defaults() -> PipelineDefaults:
                 0.4,
                 500,
                 80,
+                9.6,
             ),
         ),
     )
@@ -192,6 +193,10 @@ class PipelineRuntimeTest(unittest.TestCase):
             self.assertEqual(
                 ppt_config.llm_notes.checkpoint_chars,
                 defaults.ppt.llm_notes.checkpoint_chars,
+            )
+            self.assertEqual(
+                ppt_config.llm_notes.highlight_threshold,
+                defaults.ppt.llm_notes.highlight_threshold,
             )
 
         self.assertEqual(mock_run_precheck.call_count, 2)

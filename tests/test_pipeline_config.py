@@ -24,6 +24,7 @@ class PipelineConfigTest(unittest.TestCase):
         self.assertEqual(defaults.ppt.llm_notes.target_chars, 120)
         self.assertEqual(defaults.ppt.llm_notes.temperature, 0.4)
         self.assertEqual(defaults.ppt.llm_notes.max_tokens, 200)
+        self.assertEqual(defaults.ppt.llm_notes.highlight_threshold, 9.6)
 
     def test_project_pipeline_defaults_restore_category_intro_slides(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -84,6 +85,7 @@ class PipelineConfigTest(unittest.TestCase):
                         'temperature = 0.4',
                         'max_tokens = 500',
                         'checkpoint_chars = 80',
+                        'highlight_threshold = 9.75',
                         '',
                         '[ppt.category_intro_slides."一、会展客户"]',
                         'ppt_path = "templates/chapter.pptx"',
@@ -128,6 +130,7 @@ class PipelineConfigTest(unittest.TestCase):
                 defaults.ppt.category_intro_slides["一、会展客户"].slide_number,
                 3,
             )
+            self.assertEqual(defaults.ppt.llm_notes.highlight_threshold, 9.75)
 
     def test_load_pipeline_defaults_rejects_invalid_calculation_mode(self) -> None:
         with TemporaryDirectory() as temp_dir:

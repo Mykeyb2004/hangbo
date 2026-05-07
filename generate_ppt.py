@@ -56,6 +56,7 @@ DEFAULT_NOTES_TARGET_CHARS = 120
 DEFAULT_NOTES_TEMPERATURE = 0.4
 DEFAULT_NOTES_MAX_TOKENS = 200
 DEFAULT_NOTES_CHECKPOINT_CHARS = 80
+DEFAULT_NOTES_HIGHLIGHT_THRESHOLD = 9.6
 DEFAULT_LLM_STREAM_RETRY_DELAYS_SECONDS = (1.0, 3.0, 5.0, 8.0, 13.0, 21.0)
 DEFAULT_LLM_STREAM_RETRY_TIMEOUT_SECONDS = 90.0
 DEFAULT_LLM_FAILURE_LOG_SUFFIX = ".llm_failures.log"
@@ -79,6 +80,45 @@ CHART_TEXTBOX_HEIGHT_SAFETY_PT = 10
 CHART_TEXTBOX_LINE_HEIGHT_SAFETY_FACTOR = 1.13
 CHART_TEXTBOX_BOTTOM_SAFE_MARGIN_IN = 0.45
 FORBIDDEN_PAGE_REFERENCES = ("本页", "该页", "当前页面", "当前页")
+NOTES_TERM_REPLACEMENTS = (
+    ("拖累项", "弱势项"),
+    ("形成拖累", "形成相对弱势"),
+    ("造成拖累", "形成相对弱势"),
+    ("拖累", "偏弱影响"),
+)
+
+
+@dataclass(frozen=True)
+class NotesExpressionStyle:
+    name: str
+    instruction: str
+
+
+@dataclass(frozen=True)
+class NotesExpressionGuidance:
+    style_name: str
+    style_instruction: str
+    used_opening_summaries: tuple[str, ...] = ()
+
+
+NOTES_EXPRESSION_STYLES = (
+    NotesExpressionStyle(
+        name="支撑-弱势",
+        instruction="先概括体验支撑面，再点出相对弱势项，句式保持紧凑直接。",
+    ),
+    NotesExpressionStyle(
+        name="基础-提升",
+        instruction="先写整体基础，再转入仍有提升空间的环节，避免沿用上一页开头。",
+    ),
+    NotesExpressionStyle(
+        name="优势-关注",
+        instruction="从稳定优势切入，再落到需要优先关注的环节，连接句保持克制。",
+    ),
+    NotesExpressionStyle(
+        name="表现-短板",
+        instruction="先写整体表现特征，再指出相对偏弱的板块，用词务必避免模板化。",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -128,6 +168,7 @@ class LlmNotesConfig:
     temperature: float = DEFAULT_NOTES_TEMPERATURE
     max_tokens: int = DEFAULT_NOTES_MAX_TOKENS
     checkpoint_chars: int = DEFAULT_NOTES_CHECKPOINT_CHARS
+    highlight_threshold: float = DEFAULT_NOTES_HIGHLIGHT_THRESHOLD
 
 
 @dataclass(frozen=True)
@@ -139,6 +180,30 @@ class LlmRuntimeConfig:
     temperature: float
     max_tokens: int
     checkpoint_chars: int
+    highlight_threshold: float
+
+
+@dataclass
+class NotesExpressionBatchState:
+    _next_style_index: int = 0
+    used_opening_summaries: list[str] = field(default_factory=list)
+
+    def next_guidance(self) -> NotesExpressionGuidance:
+        style = NOTES_EXPRESSION_STYLES[self._next_style_index % len(NOTES_EXPRESSION_STYLES)]
+        self._next_style_index += 1
+        return NotesExpressionGuidance(
+            style_name=style.name,
+            style_instruction=style.instruction,
+            used_opening_summaries=tuple(self.used_opening_summaries[-3:]),
+        )
+
+    def remember(self, text: str) -> None:
+        opening_summary = extract_overall_opening_summary(text)
+        if not opening_summary or opening_summary in self.used_opening_summaries:
+            return
+        self.used_opening_summaries.append(opening_summary)
+        if len(self.used_opening_summaries) > 6:
+            del self.used_opening_summaries[:-6]
 
 
 @dataclass(frozen=True)
@@ -309,6 +374,9 @@ def load_llm_notes_config(config_dir: Path, raw: object) -> LlmNotesConfig:
         temperature=float(raw.get("temperature", DEFAULT_NOTES_TEMPERATURE)),
         max_tokens=int(raw.get("max_tokens", DEFAULT_NOTES_MAX_TOKENS)),
         checkpoint_chars=int(raw.get("checkpoint_chars", DEFAULT_NOTES_CHECKPOINT_CHARS)),
+        highlight_threshold=float(
+            raw.get("highlight_threshold", DEFAULT_NOTES_HIGHLIGHT_THRESHOLD)
+        ),
     )
 
 
@@ -797,6 +865,7 @@ def prepare_llm_runtime(
         temperature=temperature,
         max_tokens=config.max_tokens,
         checkpoint_chars=config.checkpoint_chars,
+        highlight_threshold=config.highlight_threshold,
     )
 
 
@@ -806,6 +875,8 @@ def build_notes_prompt(
     report_rows: Sequence[tuple[str, float | None, float | None]],
     role_definition: RoleDefinition | None,
     target_chars: int,
+    highlight_threshold: float = DEFAULT_NOTES_HIGHLIGHT_THRESHOLD,
+    expression_guidance: NotesExpressionGuidance | None = None,
 ) -> str:
     overall_label, overall_satisfaction, overall_importance = report_rows[0]
     section_names = (
@@ -826,7 +897,23 @@ def build_notes_prompt(
 
     min_chars = max(90, target_chars - 20)
     max_chars = target_chars + 20
-    return (
+    threshold_text = format_report_value(highlight_threshold)
+    expression_lines = []
+    if expression_guidance is not None:
+        expression_lines.append(
+            f"12. 本页优先采用以下表达风格：{expression_guidance.style_instruction}"
+        )
+        if expression_guidance.used_opening_summaries:
+            expression_lines.append(
+                "13. 本批次前文已使用过的总体判断开头摘要："
+                + "；".join(expression_guidance.used_opening_summaries)
+                + "。请避免重复这些开头、连接句和收尾句。"
+            )
+        else:
+            expression_lines.append(
+                "13. 本批次前文已使用过的总体判断开头摘要：暂无。请从当前风格出发，避免写成固定模板句。"
+            )
+    requirements_text = (
         f"请基于以下客户满意度表格数据，撰写一段用于 PPT 备注页的中文管理短评。目标是让管理层在较短时间内抓住重点，而不是完整复述表格。\n"
         f"要求：\n"
         f"1. 严格基于数据本身，不虚构原因，不编造样本量和同比环比。\n"
@@ -834,21 +921,28 @@ def build_notes_prompt(
         f"总体判断：...\n"
         f"亮点：...\n"
         f"关注点：...\n"
-        f"3. “总体判断”必须写，“关注点”必须写；若没有足够明显的亮点，可省略“亮点：”这一行，不要写“亮点：无”。\n"
-        f"4. 不逐项复述表格，不追求覆盖全面；只提炼最重要的判断。总体判断要直接说明该客户群体的体验由什么支撑、被什么拖累，不要写空泛总结。\n"
+        f"3. “总体判断”必须写，“关注点”必须写；仅当总体满意度达到或高于 {threshold_text} 时，才允许输出“亮点：”这一行；总体满意度低于 {threshold_text} 时，必须省略“亮点：”，不要写“亮点：无”。\n"
+        f"4. 不逐项复述表格，不追求覆盖全面；只提炼最重要的判断。总体判断要直接说明该客户群体的体验由什么支撑、哪些方面属于弱势项或相对偏弱，不要写空泛总结，也不要使用“拖累”或“拖累项”。\n"
         f"5. 二级指标或三级指标若无有效分值，直接忽略，不要单独提及空值、未评价项或缺失项。\n"
         f"6. 如需进行满意度与重要性差异分析，仅针对二级、三级指标，不对总体行或页面标题做此类分析。\n"
         f"7. 提及对象时，必须直接使用客户群体名称“{overall_label}”，不要使用“本页”“该页”“当前页面”等指代。\n"
         f"8. 语言面向管理层，结论先行，简洁、正式、可直接用于备注页和图表页。\n"
         f"9. 不要使用“整体评价较高”“保持高位”“当前更需关注”“最值得强调的是”“说明”“反映”“表明”“从xx看”等重复模板化表达。\n"
         f"10. 避免多页报告中反复使用相同开头、连接句和收尾句，不要写出明显重复的 AI 模板化表达。\n"
-        f"11. 控制在约 {target_chars} 字，尽量落在 {min_chars}-{max_chars} 字之间，通常为 2-3 行。\n\n"
+        f"11. 控制在约 {target_chars} 字，尽量落在 {min_chars}-{max_chars} 字之间，通常为 2-3 行。\n"
+    )
+    if expression_lines:
+        requirements_text += "\n".join(expression_lines) + "\n"
+    requirements_text += (
+        "\n"
         f"不要输出 Markdown、项目符号、序号、分析过程或额外结尾。整体的重要性分值不要涉及。\n\n"
         f"客户群体名称：{overall_label}\n"
         f"页面标题：{title}\n"
         f"总体行：{overall_label}，满意度 {format_report_value(overall_satisfaction)}，重要性 {format_report_value(overall_importance)}\n"
-        f"表格数据：\n" + "\n".join(table_lines)
+        "表格数据：\n"
+        + "\n".join(table_lines)
     )
+    return requirements_text
 
 
 def normalize_generated_notes_text(text: str, customer_name: str) -> str:
@@ -856,6 +950,44 @@ def normalize_generated_notes_text(text: str, customer_name: str) -> str:
     for forbidden_reference in FORBIDDEN_PAGE_REFERENCES:
         normalized = normalized.replace(forbidden_reference, customer_name)
     return normalized
+
+
+def extract_overall_opening_summary(text: str) -> str:
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("总体判断："):
+            continue
+        content = line.split("：", 1)[1].strip()
+        if not content:
+            return ""
+        return re.split(r"[，。；]", content, maxsplit=1)[0].strip()
+    return ""
+
+
+def finalize_generated_notes_text(
+    text: str,
+    *,
+    customer_name: str,
+    overall_satisfaction: float | None,
+    highlight_threshold: float,
+) -> str:
+    normalized = normalize_generated_notes_text(text, customer_name)
+    for source_text, target_text in NOTES_TERM_REPLACEMENTS:
+        normalized = normalized.replace(source_text, target_text)
+
+    lines: list[str] = []
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if (
+            line.startswith("亮点：")
+            and overall_satisfaction is not None
+            and overall_satisfaction < highlight_threshold
+        ):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def extract_completion_text(response) -> str:
@@ -906,14 +1038,21 @@ def generate_notes_text(
     report_rows: Sequence[tuple[str, float | None, float | None]],
     role_definition: RoleDefinition | None,
     runtime: LlmRuntimeConfig,
+    expression_state: NotesExpressionBatchState | None = None,
     on_text_update=None,
 ) -> str:
     customer_name = report_rows[0][0]
+    overall_satisfaction = report_rows[0][1]
+    expression_guidance = (
+        expression_state.next_guidance() if expression_state is not None else None
+    )
     prompt = build_notes_prompt(
         title=title,
         report_rows=report_rows,
         role_definition=role_definition,
         target_chars=runtime.target_chars,
+        highlight_threshold=runtime.highlight_threshold,
+        expression_guidance=expression_guidance,
     )
     messages = [
         {"role": "system", "content": runtime.system_role},
@@ -947,10 +1086,17 @@ def generate_notes_text(
                     print(incremental_piece, end="", flush=True)
                     last_normalized_text = current_text
 
-            text = normalize_generated_notes_text("".join(fragments), customer_name)
+            text = finalize_generated_notes_text(
+                "".join(fragments),
+                customer_name=customer_name,
+                overall_satisfaction=overall_satisfaction,
+                highlight_threshold=runtime.highlight_threshold,
+            )
             if text:
                 if on_text_update is not None:
                     on_text_update(text, True)
+                if expression_state is not None:
+                    expression_state.remember(text)
                 return text
             break
         except Exception as error:
@@ -974,11 +1120,18 @@ def generate_notes_text(
         temperature=runtime.temperature,
         max_tokens=runtime.max_tokens,
     )
-    text = normalize_generated_notes_text(extract_completion_text(response), customer_name)
+    text = finalize_generated_notes_text(
+        extract_completion_text(response),
+        customer_name=customer_name,
+        overall_satisfaction=overall_satisfaction,
+        highlight_threshold=runtime.highlight_threshold,
+    )
     if not text:
         raise ValueError(f"{title} 的备注页分析未返回有效文本")
     if on_text_update is not None:
         on_text_update(text, True)
+    if expression_state is not None:
+        expression_state.remember(text)
     print(text, end="", flush=True)
     return text
 
@@ -991,12 +1144,22 @@ def write_notes_text(slide, text: str) -> None:
     text_frame.text = text
 
 
-def build_llm_failure_placeholder(title: str) -> str:
-    return (
-        f"总体判断：{title}的大模型分析暂未生成，需人工补充管理短评。\n"
-        f"亮点：对应数据表、图表和分项结果已生成，可直接作为人工补写依据。\n"
-        f"关注点：请优先结合满意度与重要性结果复核低分项，并补写最终备注。"
-    )
+def build_llm_failure_placeholder(
+    title: str,
+    *,
+    overall_satisfaction: float | None,
+    highlight_threshold: float,
+) -> str:
+    lines = [
+        f"总体判断：{title}的大模型分析暂未生成，需人工补充管理短评。",
+        "关注点：请优先结合满意度与重要性结果复核低分项，并补写最终备注。",
+    ]
+    if overall_satisfaction is not None and overall_satisfaction >= highlight_threshold:
+        lines.insert(
+            1,
+            "亮点：对应数据表、图表和分项结果已生成，可直接作为人工补写依据。",
+        )
+    return "\n".join(lines)
 
 
 def ensure_parent_dir(path: Path) -> None:
@@ -1389,11 +1552,13 @@ def generate_presentation(
     files = discover_input_files(config)
     presentation = Presentation(str(config.template_path))
     llm_runtime = None
+    expression_state = None
     partial_output_path = None
     llm_failure_log_path = build_llm_failure_log_path(config.output_ppt)
     llm_failures: list[LlmFailureRecord] = []
     if config.llm_notes.enabled and not dry_run:
         llm_runtime = prepare_llm_runtime(config.llm_notes, client_factory=llm_client_factory)
+        expression_state = NotesExpressionBatchState()
         partial_output_path = build_partial_output_path(config.output_ppt)
 
     if config.template_slide_index >= len(presentation.slides):
@@ -1428,6 +1593,7 @@ def generate_presentation(
                 presentation=presentation,
                 checkpoint_output_path=partial_output_path,
                 llm_runtime=llm_runtime,
+                expression_state=expression_state,
                 slide_index=index + 1,
                 total_slides=total_files,
             )
@@ -1486,6 +1652,7 @@ def render_workbook_slide(
     presentation: Presentation | None = None,
     checkpoint_output_path: Path | None = None,
     llm_runtime: LlmRuntimeConfig | None = None,
+    expression_state: NotesExpressionBatchState | None = None,
     slide_index: int | None = None,
     total_slides: int | None = None,
 ) -> RenderedWorkbookSlide:
@@ -1594,6 +1761,7 @@ def render_workbook_slide(
                 report_rows=[overall_row, *detail_rows],
                 role_definition=role_definition,
                 runtime=llm_runtime,
+                expression_state=expression_state,
                 on_text_update=handle_notes_update,
             )
             print("", flush=True)
@@ -1604,7 +1772,11 @@ def render_workbook_slide(
             )
         except Exception as error:
             print("", flush=True)
-            notes_text = build_llm_failure_placeholder(title)
+            notes_text = build_llm_failure_placeholder(
+                title,
+                overall_satisfaction=overall_row[1],
+                highlight_threshold=llm_runtime.highlight_threshold,
+            )
             handle_notes_update(notes_text, True)
             llm_failure = LlmFailureRecord(
                 workbook_name=workbook_path.name,
