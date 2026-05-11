@@ -16,6 +16,7 @@
 
 # uv-managed virtual environment
 /.venv/
+/.worktrees/
 
 # Python caches and test artifacts
 __pycache__/
