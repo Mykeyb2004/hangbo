@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from pipeline_config import load_pipeline_defaults
+from hangbo.pipeline.config import load_pipeline_defaults
 
 
 class PipelineConfigTest(unittest.TestCase):

@@ -11,8 +11,8 @@ from unittest import mock
 import pandas as pd
 from openpyxl import load_workbook
 
-from phase_column_preprocess import preprocess_phase_column_if_needed
-from survey_stats import (
+from hangbo.precheck.phase_column import preprocess_phase_column_if_needed
+from hangbo.survey.stats import (
     CATERING_BUFFET_ROLE_NAME,
     CATERING_BUFFET_TEMPLATE,
     CATERING_BANQUET_ROLE_NAME,
@@ -570,7 +570,7 @@ class SurveyStatsTest(unittest.TestCase):
             with pd.ExcelWriter(input_file, engine="openpyxl") as writer:
                 df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
 
-            from survey_customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
+            from hangbo.survey.customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
 
             report = generate_customer_category_report_bundle(
                 input_path=input_file,
@@ -655,7 +655,7 @@ class SurveyStatsTest(unittest.TestCase):
             with pd.ExcelWriter(input_file, engine="openpyxl") as writer:
                 df.to_excel(writer, sheet_name=DEFAULT_SHEET_NAME, index=False)
 
-            from survey_customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
+            from hangbo.survey.customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
 
             report = generate_customer_category_report_bundle(
                 input_path=input_file,
@@ -1304,8 +1304,8 @@ input_dir = "datas"
             input_dir.mkdir()
             output_dir.mkdir()
 
-            with mock.patch("survey_stats.discover_directory_jobs") as mock_discover, mock.patch(
-                "survey_stats.generate_customer_category_report_bundle"
+            with mock.patch("hangbo.survey.stats.discover_directory_jobs") as mock_discover, mock.patch(
+                "hangbo.survey.stats.generate_customer_category_report_bundle"
             ) as mock_generate:
                 mock_discover.return_value = DirectoryDiscoveryResult(
                     jobs=(),

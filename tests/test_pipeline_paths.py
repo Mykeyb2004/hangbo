@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from pipeline_models import BatchRef, PipelinePaths
-from pipeline_paths import (
+from hangbo.pipeline.models import BatchRef, PipelinePaths
+from hangbo.pipeline.paths import (
     STANDARD_SOURCE_FILE_NAMES,
     build_pipeline_paths,
     parse_single_month_batch,

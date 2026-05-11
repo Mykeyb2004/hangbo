@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from phase_column_preprocess import (
+from hangbo.precheck.phase_column import (
     STATUS_ALREADY_PROCESSED,
     STATUS_FILE_MISSING,
     STATUS_INSUFFICIENT_COLUMNS,
@@ -25,7 +25,7 @@ from phase_column_preprocess import (
     process_phase_column_workbook,
     sheet_has_phase_marker_in_third_column,
 )
-from survey_stats import EXHIBITOR_ROLE_NAME, excel_column_to_index
+from hangbo.survey.stats import EXHIBITOR_ROLE_NAME, excel_column_to_index
 
 
 def build_mock_dataframe(role_name: str, role_column: str = "E") -> pd.DataFrame:

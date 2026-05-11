@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ppt_chart_renderer import (
+from hangbo.ppt.chart_renderer import (
     ChartPoint,
     _radar_value_annotation_layout,
     choose_chart_type,

@@ -5,17 +5,17 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from pipeline_config import (
+from hangbo.pipeline.config import (
     PipelineCategoryIntroSlideDefaults,
     PipelineChartPageDefaults,
     PipelineDefaults,
     PipelineLlmNotesDefaults,
     PipelinePptDefaults,
 )
-from generate_ppt import PptBatchConfig
-from pipeline_models import PipelineIssue, PrecheckResult
-from pipeline_paths import build_pipeline_paths
-from pipeline_runtime import run_pipeline, wait_for_confirmation
+from hangbo.ppt.generator import PptBatchConfig
+from hangbo.pipeline.models import PipelineIssue, PrecheckResult
+from hangbo.pipeline.paths import build_pipeline_paths
+from hangbo.pipeline.runtime import run_pipeline, wait_for_confirmation
 
 
 def build_defaults() -> PipelineDefaults:
@@ -73,12 +73,12 @@ class PipelineRuntimeTest(unittest.TestCase):
 
         self.assertEqual(outputs, ["未识别的输入：不是"])
 
-    @mock.patch("pipeline_runtime.generate_presentation")
-    @mock.patch("pipeline_runtime.generate_sample_table_report")
-    @mock.patch("pipeline_runtime.generate_summary_report")
-    @mock.patch("pipeline_runtime.run_directory_batch")
-    @mock.patch("pipeline_runtime.apply_year_month_to_directory")
-    @mock.patch("pipeline_runtime.run_precheck")
+    @mock.patch("hangbo.pipeline.runtime.generate_presentation")
+    @mock.patch("hangbo.pipeline.runtime.generate_sample_table_report")
+    @mock.patch("hangbo.pipeline.runtime.generate_summary_report")
+    @mock.patch("hangbo.pipeline.runtime.run_directory_batch")
+    @mock.patch("hangbo.pipeline.runtime.apply_year_month_to_directory")
+    @mock.patch("hangbo.pipeline.runtime.run_precheck")
     def test_run_pipeline_rechecks_after_confirmation_before_running_engines(
         self,
         mock_run_precheck: mock.Mock,
@@ -206,7 +206,7 @@ class PipelineRuntimeTest(unittest.TestCase):
         mock_generate_sample.assert_called_once()
         mock_generate_presentation.assert_called_once()
 
-    @mock.patch("pipeline_runtime.run_precheck")
+    @mock.patch("hangbo.pipeline.runtime.run_precheck")
     def test_run_pipeline_keeps_waiting_when_recheck_still_blocks(
         self,
         mock_run_precheck: mock.Mock,
@@ -235,9 +235,9 @@ class PipelineRuntimeTest(unittest.TestCase):
                     output_func=lambda message: None,
                 )
 
-    @mock.patch("pipeline_runtime.generate_summary_report")
-    @mock.patch("pipeline_runtime.run_directory_batch")
-    @mock.patch("pipeline_runtime.run_precheck")
+    @mock.patch("hangbo.pipeline.runtime.generate_summary_report")
+    @mock.patch("hangbo.pipeline.runtime.run_directory_batch")
+    @mock.patch("hangbo.pipeline.runtime.run_precheck")
     def test_run_pipeline_stops_when_engine_step_fails(
         self,
         mock_run_precheck: mock.Mock,

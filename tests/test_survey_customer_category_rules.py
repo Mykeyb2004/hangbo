@@ -5,7 +5,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from survey_customer_category_rules import (
+from hangbo.survey.customer_category_rules import (
     CUSTOMER_CATEGORY_RULE_BY_NAME,
     DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES,
 )

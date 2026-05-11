@@ -8,7 +8,7 @@ from textwrap import dedent
 import pandas as pd
 from openpyxl import load_workbook
 
-from sample_table import (
+from hangbo.sample.table import (
     DEFAULT_SAMPLE_TABLE_TITLE,
     SAMPLE_TABLE_SHEET_NAME,
     build_sample_table_rows,
@@ -17,6 +17,8 @@ from sample_table import (
     load_sample_table_config,
     parse_sample_group_specs,
 )
+
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "sample_table.default.toml"
 
 
 def build_source_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
@@ -56,7 +58,7 @@ class SampleTableTest(unittest.TestCase):
         self.assertEqual(config.rows[0].display_name, "酒店散客")
 
     def test_load_sample_table_config_reads_default_targets(self) -> None:
-        config = load_sample_table_config()
+        config = load_sample_table_config(DEFAULT_CONFIG_PATH)
 
         self.assertEqual(config.title, DEFAULT_SAMPLE_TABLE_TITLE)
         self.assertEqual(config.sheet_name, SAMPLE_TABLE_SHEET_NAME)
@@ -83,7 +85,10 @@ class SampleTableTest(unittest.TestCase):
             input_dir = Path(temp_dir)
             self._write_raw_sources(input_dir)
 
-            result = build_sample_table_rows(input_dir=input_dir)
+            result = build_sample_table_rows(
+                input_dir=input_dir,
+                config=load_sample_table_config(DEFAULT_CONFIG_PATH),
+            )
             row_by_label = {
                 (row.category_label, row.display_name): row
                 for row in result.rows
@@ -138,6 +143,7 @@ class SampleTableTest(unittest.TestCase):
             )
             result = build_sample_table_rows(
                 input_dir=input_dir,
+                config=load_sample_table_config(DEFAULT_CONFIG_PATH),
                 sample_groups=group_specs,
             )
             row_by_label = {
@@ -169,6 +175,7 @@ class SampleTableTest(unittest.TestCase):
             output_path = generate_sample_table_report(
                 input_dir=input_dir,
                 output_dir=output_dir,
+                config_path=DEFAULT_CONFIG_PATH,
                 sample_groups=group_specs,
             )
 

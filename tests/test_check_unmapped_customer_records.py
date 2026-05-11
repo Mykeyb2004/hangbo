@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from check_unmapped_customer_records import (
+from hangbo.precheck.unmapped_customers import (
     DEFAULT_LOG_DIR,
     DEFAULT_SHEET_NAME,
     audit_source_file,

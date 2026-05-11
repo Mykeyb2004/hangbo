@@ -7,14 +7,14 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-import generate_ppt as generate_ppt_module
+import hangbo.ppt.generator as generate_ppt_module
 from openpyxl import Workbook
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx import Presentation
 from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
-from generate_ppt import (
+from hangbo.ppt.generator import (
     BODY_FILL_COLOR,
     BODY_TEXT_COLOR,
     BORDER_COLOR,
@@ -49,7 +49,7 @@ from generate_ppt import (
     resolve_section_definition,
     resolve_workbook_display_meta,
 )
-from survey_customer_category_rules import CustomerCategoryRule
+from hangbo.survey.customer_category_rules import CustomerCategoryRule
 
 
 def create_report_workbook(path: Path, rows: list[tuple[object, object, object]]) -> None:
@@ -330,7 +330,7 @@ class GeneratePptTest(unittest.TestCase):
         self.assertIn("指标:工作人员仪容仪表 | 10 | 10", prompt)
 
     def test_project_pipeline_defaults_use_balanced_ppt_llm_notes_settings(self) -> None:
-        from pipeline_config import load_pipeline_defaults
+        from hangbo.pipeline.config import load_pipeline_defaults
 
         repo_root = Path(__file__).resolve().parents[1]
         defaults = load_pipeline_defaults(repo_root / "pipeline.defaults.toml")

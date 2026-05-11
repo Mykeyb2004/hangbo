@@ -8,7 +8,7 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.rich_text import CellRichText
 
-from summary_table import (
+from hangbo.summary.table import (
     SUMMARY_CHINESE_FONT_NAME,
     SUMMARY_ROW_DEFINITIONS,
     DEFAULT_SUMMARY_TITLE,
@@ -24,8 +24,8 @@ from summary_table import (
     load_summary_column_widths,
     load_report_snapshots,
 )
-from survey_customer_category_rules import DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES
-from survey_stats import OVERALL_FILL, SECTION_FILL
+from hangbo.survey.customer_category_rules import DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES
+from hangbo.survey.stats import OVERALL_FILL, SECTION_FILL
 
 
 def write_role_report(

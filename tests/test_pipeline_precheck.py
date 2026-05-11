@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from openpyxl import Workbook, load_workbook
 
-from pipeline_paths import STANDARD_SOURCE_FILE_NAMES, build_pipeline_paths
-from pipeline_precheck import run_precheck
+from hangbo.pipeline.paths import STANDARD_SOURCE_FILE_NAMES, build_pipeline_paths
+from hangbo.precheck.checks import run_precheck
 
 
 def write_workbook(
@@ -85,7 +85,7 @@ class PipelinePrecheckTest(unittest.TestCase):
             )
 
             with patch(
-                "pipeline_precheck.run_unmapped_audit",
+                "hangbo.precheck.checks.run_unmapped_audit",
                 return_value=(0, paths.unmapped_log_path),
             ) as audit_mock:
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=None)
@@ -111,7 +111,7 @@ class PipelinePrecheckTest(unittest.TestCase):
             )
 
             with patch(
-                "pipeline_precheck.run_unmapped_audit",
+                "hangbo.precheck.checks.run_unmapped_audit",
                 return_value=(0, paths.unmapped_log_path),
             ) as audit_mock:
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=4)
@@ -143,7 +143,7 @@ class PipelinePrecheckTest(unittest.TestCase):
             write_standard_workbooks(paths.raw_dir, ["客户", "满意度"])
 
             with patch(
-                "pipeline_precheck.run_unmapped_audit",
+                "hangbo.precheck.checks.run_unmapped_audit",
                 return_value=(0, paths.unmapped_log_path),
             ):
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=3)
@@ -181,7 +181,7 @@ class PipelinePrecheckTest(unittest.TestCase):
             )
             write_standard_workbooks(paths.raw_dir, ["客户", "满意度"])
 
-            with patch("pipeline_precheck.run_unmapped_audit") as audit_mock:
+            with patch("hangbo.precheck.checks.run_unmapped_audit") as audit_mock:
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=None)
 
             self.assertTrue(result.blocking_issues)
@@ -222,7 +222,7 @@ class PipelinePrecheckTest(unittest.TestCase):
                 sheet_name="其他",
             )
 
-            with patch("pipeline_precheck.run_unmapped_audit") as audit_mock:
+            with patch("hangbo.precheck.checks.run_unmapped_audit") as audit_mock:
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=3)
 
             self.assertTrue(result.blocking_issues)
@@ -240,7 +240,7 @@ class PipelinePrecheckTest(unittest.TestCase):
             corrupt_path = paths.raw_dir / STANDARD_SOURCE_FILE_NAMES[0]
             corrupt_path.write_text("not an xlsx file", encoding="utf-8")
 
-            with patch("pipeline_precheck.run_unmapped_audit") as audit_mock:
+            with patch("hangbo.precheck.checks.run_unmapped_audit") as audit_mock:
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=3)
 
             self.assertEqual(len(result.blocking_issues), 1)
@@ -264,9 +264,9 @@ class PipelinePrecheckTest(unittest.TestCase):
             )
 
             with patch(
-                "pipeline_precheck.preprocess_phase_column_if_needed",
+                "hangbo.precheck.checks.preprocess_phase_column_if_needed",
                 side_effect=OSError("save failed"),
-            ), patch("pipeline_precheck.run_unmapped_audit") as audit_mock:
+            ), patch("hangbo.precheck.checks.run_unmapped_audit") as audit_mock:
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=4)
 
             self.assertEqual(len(result.blocking_issues), 1)
@@ -288,7 +288,7 @@ class PipelinePrecheckTest(unittest.TestCase):
             write_standard_workbooks(paths.raw_dir, ["年份", "月份", "客户"])
 
             with patch(
-                "pipeline_precheck.run_unmapped_audit",
+                "hangbo.precheck.checks.run_unmapped_audit",
                 return_value=(2, paths.unmapped_log_path),
             ):
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=3)
@@ -310,7 +310,7 @@ class PipelinePrecheckTest(unittest.TestCase):
             write_standard_workbooks(paths.raw_dir, ["年份", "月份", "客户"])
 
             with patch(
-                "pipeline_precheck.run_unmapped_audit",
+                "hangbo.precheck.checks.run_unmapped_audit",
                 side_effect=RuntimeError("boom"),
             ):
                 result = run_precheck(paths, sheet_name="问卷数据", single_month=3)

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from merge_questionnaire_workbooks import (
+from hangbo.merge.questionnaire_workbooks import (
     DEFAULT_SHEET_NAME,
     merge_workbooks_by_filename,
     format_merge_summary,

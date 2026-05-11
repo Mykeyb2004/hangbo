@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from survey_customer_category_rules import (
+from hangbo.survey.customer_category_rules import (
     CUSTOMER_CATEGORY_RULE_BY_NAME,
     CUSTOMER_CATEGORY_RULES,
     DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES,
     SOURCE_FILE_TO_CATEGORY_RULE_NAMES,
 )
-from survey_stats import TEMPLATE_DEFINITIONS
+from hangbo.survey.stats import TEMPLATE_DEFINITIONS
 
 
 class SurveyCustomerMappingsTest(unittest.TestCase):

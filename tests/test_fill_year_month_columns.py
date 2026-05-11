@@ -6,7 +6,7 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from fill_year_month_columns import (
+from hangbo.precheck.year_month import (
     DEFAULT_SHEET_NAME,
     apply_year_month_to_directory,
     apply_year_month_to_workbook,

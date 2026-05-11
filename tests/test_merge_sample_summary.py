@@ -8,9 +8,10 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from fill_year_month_columns import DirectoryUpdateSummary, FileUpdateResult
-from merge_questionnaire_workbooks import MergeResult, MergeSummary
-from merge_sample_summary import (
+from hangbo.precheck.year_month import DirectoryUpdateSummary, FileUpdateResult
+from hangbo.merge.questionnaire_workbooks import MergeResult, MergeSummary
+from merge_sample_summary import parse_args
+from hangbo.merge.sample_summary import (
     BatchNameError,
     MergeSampleRunConfig,
     MixedSourceYearMonthError,
@@ -20,7 +21,6 @@ from merge_sample_summary import (
     confirm_overwrite_if_needed,
     discover_source_directories,
     iter_source_excel_paths,
-    parse_args,
     parse_number_selection,
     prompt_batch_name,
     prepare_source_directories,
@@ -187,7 +187,7 @@ class MergeSampleSummaryPreparationTest(unittest.TestCase):
                 [["张三", "2026", "1"]],
             )
 
-            with patch("merge_sample_summary.apply_year_month_to_directory") as apply_year_month:
+            with patch("hangbo.merge.sample_summary.apply_year_month_to_directory") as apply_year_month:
                 apply_year_month.return_value = DirectoryUpdateSummary(
                     input_dir=month_dir,
                     file_results=(
@@ -244,7 +244,7 @@ class MergeSampleSummaryPreparationTest(unittest.TestCase):
                 ),
             )
 
-            with patch("merge_sample_summary.apply_year_month_to_directory") as apply_year_month:
+            with patch("hangbo.merge.sample_summary.apply_year_month_to_directory") as apply_year_month:
                 apply_year_month.return_value = summary
                 with self.assertRaises(SourcePreparationError) as error_context:
                     prepare_source_directories(
@@ -264,7 +264,7 @@ class MergeSampleSummaryPreparationTest(unittest.TestCase):
             month_dir.mkdir()
             summary = DirectoryUpdateSummary(input_dir=month_dir, file_results=())
 
-            with patch("merge_sample_summary.apply_year_month_to_directory") as apply_year_month:
+            with patch("hangbo.merge.sample_summary.apply_year_month_to_directory") as apply_year_month:
                 apply_year_month.return_value = summary
                 with self.assertRaisesRegex(SourcePreparationError, "没有可用的 Excel 文件"):
                     prepare_source_directories(
@@ -352,9 +352,9 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 return temp_sample_path
 
             with (
-                patch("merge_sample_summary.prepare_source_directories") as prepare_sources,
-                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
-                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+                patch("hangbo.merge.sample_summary.prepare_source_directories") as prepare_sources,
+                patch("hangbo.merge.sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("hangbo.merge.sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
                 merge_workbooks.side_effect = merge_side_effect
                 generate_sample_table.side_effect = generate_sample_side_effect
@@ -433,9 +433,9 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 )
 
             with (
-                patch("merge_sample_summary.prepare_source_directories") as prepare_sources,
-                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
-                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+                patch("hangbo.merge.sample_summary.prepare_source_directories") as prepare_sources,
+                patch("hangbo.merge.sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("hangbo.merge.sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
                 merge_workbooks.side_effect = merge_side_effect
 
@@ -489,9 +489,9 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 )
 
             with (
-                patch("merge_sample_summary.prepare_source_directories") as prepare_sources,
-                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
-                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+                patch("hangbo.merge.sample_summary.prepare_source_directories") as prepare_sources,
+                patch("hangbo.merge.sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("hangbo.merge.sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
                 merge_workbooks.side_effect = merge_side_effect
 
@@ -537,11 +537,11 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
 
             with (
                 patch(
-                    "merge_sample_summary.prepare_source_directories",
+                    "hangbo.merge.sample_summary.prepare_source_directories",
                     side_effect=SourcePreparationError("prep failed"),
                 ) as prepare_sources,
-                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
-                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+                patch("hangbo.merge.sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("hangbo.merge.sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
                 with self.assertRaisesRegex(SourcePreparationError, "prep failed"):
                     run_merge_sample_summary(
@@ -606,9 +606,9 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 )
 
             with (
-                patch("merge_sample_summary.prepare_source_directories"),
-                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
-                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+                patch("hangbo.merge.sample_summary.prepare_source_directories"),
+                patch("hangbo.merge.sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("hangbo.merge.sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
                 merge_workbooks.side_effect = merge_side_effect
 
@@ -679,9 +679,9 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 )
 
             with (
-                patch("merge_sample_summary.prepare_source_directories"),
-                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
-                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+                patch("hangbo.merge.sample_summary.prepare_source_directories"),
+                patch("hangbo.merge.sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("hangbo.merge.sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
                 merge_workbooks.side_effect = merge_side_effect
 
@@ -761,9 +761,9 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 raise RuntimeError("sample failed")
 
             with (
-                patch("merge_sample_summary.prepare_source_directories"),
-                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
-                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+                patch("hangbo.merge.sample_summary.prepare_source_directories"),
+                patch("hangbo.merge.sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("hangbo.merge.sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
                 merge_workbooks.side_effect = merge_side_effect
                 generate_sample_table.side_effect = generate_sample_side_effect
@@ -890,11 +890,11 @@ class MergeSampleSummaryInteractionTest(unittest.TestCase):
 
         with (
             patch(
-                "merge_sample_summary.select_directories_with_curses",
+                "hangbo.merge.sample_summary.select_directories_with_curses",
                 side_effect=curses.error("no terminal"),
             ),
             patch(
-                "merge_sample_summary.select_directories_by_number_prompt",
+                "hangbo.merge.sample_summary.select_directories_by_number_prompt",
                 return_value=(Path("3月"),),
             ) as numbered_prompt,
         ):
