@@ -4,8 +4,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fill_year_month_columns import apply_year_month_to_directory
+from merge_questionnaire_workbooks import (
+    MergeSummary,
+    format_merge_summary,
+    merge_workbooks_by_filename,
+)
 from pipeline_paths import parse_single_month_batch
 from pipeline_precheck import workbook_has_year_month_headers
+from sample_table import generate_sample_table_report
 
 
 class BatchNameError(ValueError):
@@ -28,6 +34,24 @@ class MergeSamplePaths:
     raw_year_dir: Path
     merged_raw_dir: Path
     sample_summary_dir: Path
+    sample_summary_path: Path
+
+
+@dataclass(frozen=True)
+class MergeSampleRunConfig:
+    year: str
+    batch_name: str
+    selected_dirs: tuple[Path, ...]
+    data_root: str | Path
+    sheet_name: str
+    sample_config_path: Path
+    overwrite: bool = False
+
+
+@dataclass(frozen=True)
+class MergeSampleRunResult:
+    paths: MergeSamplePaths
+    merge_summary: MergeSummary
     sample_summary_path: Path
 
 
@@ -178,6 +202,62 @@ def prepare_source_directories(
             continue
 
         check_mixed_source_year_month_headers(source_dir, sheet_name=sheet_name)
+
+
+def merge_summary_has_failures(summary: MergeSummary) -> bool:
+    return any(result.status != "merged" for result in summary.results)
+
+
+def clear_generated_outputs(paths: MergeSamplePaths) -> None:
+    if paths.merged_raw_dir.exists():
+        for workbook_path in paths.merged_raw_dir.glob("*.xlsx"):
+            if workbook_path.is_file():
+                workbook_path.unlink()
+
+    if paths.sample_summary_path.exists():
+        paths.sample_summary_path.unlink()
+
+
+def run_merge_sample_summary(config: MergeSampleRunConfig) -> MergeSampleRunResult:
+    paths = build_merge_sample_paths(
+        year=config.year,
+        batch_name=config.batch_name,
+        data_root=config.data_root,
+    )
+
+    if config.overwrite:
+        clear_generated_outputs(paths)
+
+    prepare_source_directories(
+        config.selected_dirs,
+        year=config.year,
+        sheet_name=config.sheet_name,
+    )
+    merge_summary = merge_workbooks_by_filename(
+        config.selected_dirs,
+        output_dir=paths.merged_raw_dir,
+        sheet_name=config.sheet_name,
+    )
+    if merge_summary_has_failures(merge_summary):
+        raise RuntimeError(
+            "合并阶段存在失败项，已停止生成样本统计表。\n"
+            f"{format_merge_summary(merge_summary, sheet_name=config.sheet_name)}"
+        )
+
+    sample_summary_path = generate_sample_table_report(
+        input_dir=paths.merged_raw_dir,
+        output_dir=paths.sample_summary_dir,
+        output_name=paths.sample_summary_path.name,
+        config_path=config.sample_config_path,
+        source_sheet_name=config.sheet_name,
+        default_year=config.year,
+    )
+
+    return MergeSampleRunResult(
+        paths=paths,
+        merge_summary=merge_summary,
+        sample_summary_path=sample_summary_path,
+    )
 
 
 def _parse_selection_number(raw_value: str) -> int:
