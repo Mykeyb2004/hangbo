@@ -16,6 +16,10 @@ class MixedSourceYearMonthError(ValueError):
     pass
 
 
+class SourcePreparationError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class MergeSamplePaths:
     year: str
@@ -136,7 +140,11 @@ def iter_source_excel_paths(source_dir: Path) -> tuple[Path, ...]:
 
 
 def check_mixed_source_year_month_headers(source_dir: Path, *, sheet_name: str) -> None:
-    for workbook_path in iter_source_excel_paths(source_dir):
+    workbook_paths = iter_source_excel_paths(source_dir)
+    if not workbook_paths:
+        raise MixedSourceYearMonthError(f"混合来源目录 {source_dir} 没有可用的 Excel 文件")
+
+    for workbook_path in workbook_paths:
         if not workbook_has_year_month_headers(workbook_path, sheet_name):
             raise MixedSourceYearMonthError(
                 f"混合来源目录 {source_dir} 中的文件 {workbook_path.name} 缺少“年份”/“月份”列"
@@ -152,12 +160,21 @@ def prepare_source_directories(
     for source_dir in selected_dirs:
         single_month = parse_single_month_batch(source_dir.name)
         if single_month is not None:
-            apply_year_month_to_directory(
+            summary = apply_year_month_to_directory(
                 source_dir,
                 year=str(year),
                 month=str(single_month),
                 sheet_name=sheet_name,
             )
+            skipped_results = tuple(
+                result for result in summary.file_results if result.status != "updated"
+            )
+            if skipped_results:
+                first_result = skipped_results[0]
+                raise SourcePreparationError(
+                    f"单月来源目录 {source_dir} 年月填充失败: "
+                    f"{first_result.path.name} status={first_result.status}"
+                )
             continue
 
         check_mixed_source_year_month_headers(source_dir, sheet_name=sheet_name)

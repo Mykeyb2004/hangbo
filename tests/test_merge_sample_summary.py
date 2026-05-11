@@ -7,9 +7,11 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from fill_year_month_columns import DirectoryUpdateSummary, FileUpdateResult
 from merge_sample_summary import (
     BatchNameError,
     MixedSourceYearMonthError,
+    SourcePreparationError,
     build_merge_sample_paths,
     discover_source_directories,
     iter_source_excel_paths,
@@ -176,6 +178,7 @@ class MergeSampleSummaryPreparationTest(unittest.TestCase):
             )
 
             with patch("merge_sample_summary.apply_year_month_to_directory") as apply_year_month:
+                apply_year_month.return_value = DirectoryUpdateSummary(input_dir=month_dir, file_results=())
                 prepare_source_directories(
                     (month_dir, mixed_dir),
                     year="2026",
@@ -200,6 +203,53 @@ class MergeSampleSummaryPreparationTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(MixedSourceYearMonthError, "缺少“年份”/“月份”列"):
+                prepare_source_directories(
+                    (mixed_dir,),
+                    year="2026",
+                    sheet_name="问卷数据",
+                )
+
+    def test_prepare_source_directories_blocks_single_month_autofill_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            month_dir = Path(temp_dir) / "3月"
+            month_dir.mkdir()
+            skipped_path = month_dir / "展览.xlsx"
+            summary = DirectoryUpdateSummary(
+                input_dir=month_dir,
+                file_results=(
+                    FileUpdateResult(
+                        path=skipped_path,
+                        status="missing_sheet",
+                        updated_rows=0,
+                    ),
+                ),
+            )
+
+            with patch("merge_sample_summary.apply_year_month_to_directory") as apply_year_month:
+                apply_year_month.return_value = summary
+                with self.assertRaises(SourcePreparationError) as error_context:
+                    prepare_source_directories(
+                        (month_dir,),
+                        year="2026",
+                        sheet_name="问卷数据",
+                    )
+
+        error_message = str(error_context.exception)
+        self.assertIn(str(month_dir), error_message)
+        self.assertIn("展览.xlsx", error_message)
+        self.assertIn("missing_sheet", error_message)
+
+    def test_prepare_source_directories_blocks_mixed_dir_without_usable_excel_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mixed_dir = Path(temp_dir) / "1-2月"
+            mixed_dir.mkdir()
+            write_questionnaire_workbook(
+                mixed_dir / "~$展览.xlsx",
+                ["姓名", "年份", "月份"],
+                [["张三", "2026", "1"]],
+            )
+
+            with self.assertRaisesRegex(MixedSourceYearMonthError, "没有可用的 Excel 文件"):
                 prepare_source_directories(
                     (mixed_dir,),
                     year="2026",
