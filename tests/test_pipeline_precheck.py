@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from pipeline_paths import STANDARD_SOURCE_FILE_NAMES, build_pipeline_paths
 from pipeline_precheck import run_precheck
@@ -15,12 +15,15 @@ def write_workbook(
     path: Path,
     headers: list[str],
     sheet_name: str = "问卷数据",
+    rows: list[list[object]] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = sheet_name
     worksheet.append(headers)
+    for row in rows or []:
+        worksheet.append(row)
     workbook.save(path)
 
 
@@ -91,6 +94,43 @@ class PipelinePrecheckTest(unittest.TestCase):
             self.assertFalse(result.warning_issues)
             self.assertFalse(result.should_autofill_year_month)
             audit_mock.assert_called_once()
+
+    def test_phase_column_preprocess_runs_before_unmapped_audit(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            paths = build_pipeline_paths(
+                "2026",
+                "4月",
+                data_root=Path(temp_dir) / "data",
+                logs_root=Path(temp_dir) / "logs",
+            )
+            workbook_path = paths.raw_dir / STANDARD_SOURCE_FILE_NAMES[0]
+            write_workbook(
+                workbook_path,
+                ["字段1", "字段2", "期次", "年份", "月份"],
+                rows=[["值1", "值2", "一期", "2026", "4"]],
+            )
+
+            with patch(
+                "pipeline_precheck.run_unmapped_audit",
+                return_value=(0, paths.unmapped_log_path),
+            ) as audit_mock:
+                result = run_precheck(paths, sheet_name="问卷数据", single_month=4)
+
+            self.assertFalse(result.blocking_issues)
+            self.assertEqual(len(result.warning_issues), 1)
+            self.assertEqual(result.warning_issues[0].code, "phase_column_preprocessed")
+            self.assertFalse(result.should_autofill_year_month)
+            audit_mock.assert_called_once()
+
+            loaded_workbook = load_workbook(workbook_path, read_only=True, data_only=True)
+            try:
+                worksheet = loaded_workbook["问卷数据"]
+                first_row = list(
+                    next(worksheet.iter_rows(min_row=1, max_row=1, values_only=True))
+                )
+                self.assertEqual(first_row[:5], ["字段1", "字段2", "年份", "月份", "期次"])
+            finally:
+                loaded_workbook.close()
 
     def test_single_month_missing_year_month_columns_warns_and_enables_autofill(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -207,6 +247,34 @@ class PipelinePrecheckTest(unittest.TestCase):
             self.assertEqual(result.blocking_issues[0].code, "precheck_error")
             self.assertIn("预查错过程失败", result.blocking_issues[0].message)
             self.assertIn(corrupt_path.name, result.blocking_issues[0].message)
+            audit_mock.assert_not_called()
+
+    def test_phase_column_preprocess_failure_returns_precheck_error(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            paths = build_pipeline_paths(
+                "2026",
+                "4月",
+                data_root=Path(temp_dir) / "data",
+                logs_root=Path(temp_dir) / "logs",
+            )
+            write_workbook(
+                paths.raw_dir / STANDARD_SOURCE_FILE_NAMES[0],
+                ["字段1", "字段2", "期次", "年份", "月份"],
+                rows=[["值1", "值2", "一期", "2026", "4"]],
+            )
+
+            with patch(
+                "pipeline_precheck.preprocess_phase_column_if_needed",
+                side_effect=OSError("save failed"),
+            ), patch("pipeline_precheck.run_unmapped_audit") as audit_mock:
+                result = run_precheck(paths, sheet_name="问卷数据", single_month=4)
+
+            self.assertEqual(len(result.blocking_issues), 1)
+            self.assertEqual(result.blocking_issues[0].code, "precheck_error")
+            self.assertIn("预查错过程失败", result.blocking_issues[0].message)
+            self.assertIn("save failed", result.blocking_issues[0].message)
+            self.assertFalse(result.warning_issues)
+            self.assertFalse(result.should_autofill_year_month)
             audit_mock.assert_not_called()
 
     def test_unmapped_records_audit_returns_blocking_issue(self) -> None:

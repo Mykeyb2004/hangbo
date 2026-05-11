@@ -9,8 +9,8 @@ from check_unmapped_customer_records import (
     run_directory_audit,
     write_audit_log,
 )
+from phase_column_preprocess import preprocess_phase_column_if_needed
 from pipeline_models import PipelineIssue, PipelinePaths, PrecheckResult
-from pipeline_paths import STANDARD_SOURCE_FILE_NAMES
 
 
 def workbook_has_year_month_headers(workbook_path: Path, sheet_name: str) -> bool:
@@ -40,6 +40,27 @@ def run_unmapped_audit(
     report_text = format_directory_audit_report(report, log_path=log_path)
     write_audit_log(report_text, log_path)
     return report.total_unmapped_records, log_path
+
+
+def preprocess_phase_columns(
+    source_paths: list[Path],
+    *,
+    sheet_name: str,
+) -> tuple[PipelineIssue, ...]:
+    warning_issues: list[PipelineIssue] = []
+    for source_path in source_paths:
+        notice = preprocess_phase_column_if_needed(source_path, sheet_name)
+        if notice is None:
+            continue
+        warning_issues.append(
+            PipelineIssue(
+                severity="warning",
+                code="phase_column_preprocessed",
+                message=notice,
+                path=source_path,
+            )
+        )
+    return tuple(warning_issues)
 
 
 def run_precheck(
@@ -83,6 +104,24 @@ def run_precheck(
         )
 
     if present_source_paths:
+        try:
+            warning_issues.extend(
+                preprocess_phase_columns(
+                    present_source_paths,
+                    sheet_name=sheet_name,
+                )
+            )
+        except Exception as exc:
+            blocking_issues.append(
+                PipelineIssue(
+                    severity="blocking",
+                    code="precheck_error",
+                    message=f"预查错过程失败：{exc}",
+                    path=paths.raw_dir,
+                )
+            )
+
+    if present_source_paths and not blocking_issues:
         missing_year_month_paths: list[Path] = []
         for source_path in present_source_paths:
             try:
