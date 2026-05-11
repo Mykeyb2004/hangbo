@@ -385,6 +385,54 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
         generate_sample_table.assert_not_called()
         self.assertIn("跳过/失败: 1", str(error_context.exception))
 
+    def test_run_merge_sample_summary_stops_when_merge_finds_no_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_root = Path(temp_dir) / "data"
+            source_dirs = (data_root / "raw" / "2026" / "1-2月",)
+            config_path = Path(temp_dir) / "sample_table_config.json"
+            expected_paths = build_merge_sample_paths(
+                year="2026",
+                batch_name="Q1",
+                data_root=data_root,
+            )
+            merge_summary = MergeSummary(
+                input_dirs=source_dirs,
+                output_dir=expected_paths.merged_raw_dir,
+                results=(),
+            )
+
+            with (
+                patch("merge_sample_summary.prepare_source_directories") as prepare_sources,
+                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+            ):
+                merge_workbooks.return_value = merge_summary
+
+                with self.assertRaisesRegex(RuntimeError, "合并阶段存在失败项") as error_context:
+                    run_merge_sample_summary(
+                        MergeSampleRunConfig(
+                            year="2026",
+                            batch_name="Q1",
+                            selected_dirs=source_dirs,
+                            data_root=data_root,
+                            sheet_name="问卷数据",
+                            sample_config_path=config_path,
+                        )
+                    )
+
+        prepare_sources.assert_called_once_with(
+            source_dirs,
+            year="2026",
+            sheet_name="问卷数据",
+        )
+        merge_workbooks.assert_called_once_with(
+            source_dirs,
+            output_dir=expected_paths.merged_raw_dir,
+            sheet_name="问卷数据",
+        )
+        generate_sample_table.assert_not_called()
+        self.assertIn("未找到可处理的 xlsx 文件", str(error_context.exception))
+
     def test_clear_generated_outputs_removes_only_generated_workbooks_and_sample_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = build_merge_sample_paths(

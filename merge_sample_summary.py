@@ -205,7 +205,7 @@ def prepare_source_directories(
 
 
 def merge_summary_has_failures(summary: MergeSummary) -> bool:
-    return any(result.status != "merged" for result in summary.results)
+    return not summary.results or any(result.status != "merged" for result in summary.results)
 
 
 def clear_generated_outputs(paths: MergeSamplePaths) -> None:
