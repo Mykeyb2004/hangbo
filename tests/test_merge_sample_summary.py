@@ -82,7 +82,7 @@ class MergeSampleSummaryHelpersTest(unittest.TestCase):
                 validate_batch_name(raw_name, selected_dirs)
 
     def test_validate_batch_name_rejects_dot_only_names(self) -> None:
-        for raw_name in (".", ".."):
+        for raw_name in (".", "..", "..."):
             with self.assertRaises(BatchNameError):
                 validate_batch_name(raw_name, ())
 
@@ -112,6 +112,16 @@ class MergeSampleSummaryHelpersTest(unittest.TestCase):
         self.assertEqual(paths.batch_name, "Q1")
         self.assertEqual(paths.raw_year_dir, Path("data/raw/2026"))
         self.assertEqual(paths.merged_raw_dir, Path("data/raw/2026/Q1"))
+
+    def test_build_merge_sample_paths_accepts_string_data_root(self) -> None:
+        paths = build_merge_sample_paths(
+            year="2026",
+            batch_name="Q1",
+            data_root="data",
+        )
+
+        self.assertEqual(paths.data_root, Path("data"))
+        self.assertEqual(paths.raw_year_dir, Path("data/raw/2026"))
 
 
 if __name__ == "__main__":

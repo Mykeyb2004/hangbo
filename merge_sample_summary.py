@@ -23,10 +23,11 @@ def build_merge_sample_paths(
     *,
     year: str,
     batch_name: str,
-    data_root: Path = Path("data"),
+    data_root: str | Path = Path("data"),
 ) -> MergeSamplePaths:
     year = year.strip()
     batch_name = batch_name.strip()
+    data_root = Path(data_root)
     raw_year_dir = data_root / "raw" / year
     merged_raw_dir = raw_year_dir / batch_name
     sample_summary_dir = data_root / "sample_summary" / year / batch_name
@@ -99,7 +100,7 @@ def validate_batch_name(raw_name: str, selected_dirs: tuple[Path, ...]) -> str:
     batch_name = raw_name.strip()
     if not batch_name:
         raise BatchNameError("批次名称不能为空")
-    if batch_name in {".", ".."}:
+    if set(batch_name) == {"."}:
         raise BatchNameError("批次名称不能为当前或上级目录")
     if "/" in batch_name or "\\" in batch_name:
         raise BatchNameError("批次名称不能包含路径分隔符")
