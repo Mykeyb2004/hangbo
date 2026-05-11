@@ -434,23 +434,23 @@ def run_merge_sample_summary(config: MergeSampleRunConfig) -> MergeSampleRunResu
                 "合并阶段存在失败项，已停止生成样本统计表。\n"
                 f"{format_merge_summary(merge_summary, sheet_name=config.sheet_name)}"
             )
-        publish_merged_raw_workbooks(
-            temp_raw_dir,
-            paths,
-            remove_stale=config.overwrite,
-        )
 
-    with tempfile.TemporaryDirectory(prefix="merge-sample-summary-") as temp_sample_dir_name:
-        temp_sample_dir = Path(temp_sample_dir_name)
-        temp_sample_path = generate_sample_table_report(
-            input_dir=paths.merged_raw_dir,
-            output_dir=temp_sample_dir,
-            output_name=paths.sample_summary_path.name,
-            config_path=config.sample_config_path,
-            source_sheet_name=config.sheet_name,
-            default_year=config.year,
-        )
-        publish_sample_summary(temp_sample_path, paths)
+        with tempfile.TemporaryDirectory(prefix="merge-sample-summary-") as temp_sample_dir_name:
+            temp_sample_dir = Path(temp_sample_dir_name)
+            temp_sample_path = generate_sample_table_report(
+                input_dir=temp_raw_dir,
+                output_dir=temp_sample_dir,
+                output_name=paths.sample_summary_path.name,
+                config_path=config.sample_config_path,
+                source_sheet_name=config.sheet_name,
+                default_year=config.year,
+            )
+            publish_merged_raw_workbooks(
+                temp_raw_dir,
+                paths,
+                remove_stale=config.overwrite,
+            )
+            publish_sample_summary(temp_sample_path, paths)
 
     return MergeSampleRunResult(
         paths=paths,

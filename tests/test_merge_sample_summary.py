@@ -341,7 +341,7 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 source_sheet_name: str,
                 default_year: str,
             ) -> Path:
-                self.assertEqual(input_dir, expected_paths.merged_raw_dir)
+                self.assertNotEqual(input_dir, expected_paths.merged_raw_dir)
                 self.assertEqual(config_path, sample_config_path)
                 self.assertEqual(source_sheet_name, "问卷数据")
                 self.assertEqual(default_year, "2026")
@@ -379,6 +379,7 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
             self.assertNotEqual(merge_output_dirs[0], expected_paths.merged_raw_dir)
             self.assertEqual(len(sample_output_dirs), 1)
             self.assertNotEqual(sample_output_dirs[0], expected_paths.sample_summary_dir)
+            self.assertEqual(generate_sample_table.call_args.kwargs["input_dir"], merge_output_dirs[0])
             self.assertEqual(
                 generate_sample_table.call_args.kwargs["output_name"],
                 expected_paths.sample_summary_path.name,
@@ -715,6 +716,11 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 batch_name="Q1",
                 data_root=data_root,
             )
+            paths.merged_raw_dir.mkdir(parents=True)
+            existing_workbook = paths.merged_raw_dir / "展览.xlsx"
+            stale_workbook = paths.merged_raw_dir / "会议.xlsx"
+            existing_workbook.write_text("old merged", encoding="utf-8")
+            stale_workbook.write_text("old stale", encoding="utf-8")
             paths.sample_summary_path.parent.mkdir(parents=True)
             paths.sample_summary_path.write_text("old sample", encoding="utf-8")
             sample_output_dirs: list[Path] = []
@@ -777,6 +783,10 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
 
             self.assertEqual(len(sample_output_dirs), 1)
             self.assertNotEqual(sample_output_dirs[0], paths.sample_summary_dir)
+            self.assertTrue(existing_workbook.exists())
+            self.assertEqual(existing_workbook.read_text(encoding="utf-8"), "old merged")
+            self.assertTrue(stale_workbook.exists())
+            self.assertEqual(stale_workbook.read_text(encoding="utf-8"), "old stale")
             self.assertTrue(paths.sample_summary_path.exists())
             self.assertEqual(paths.sample_summary_path.read_text(encoding="utf-8"), "old sample")
 
