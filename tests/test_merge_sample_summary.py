@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import curses
 from unittest.mock import patch
 from pathlib import Path
 
@@ -16,11 +17,16 @@ from merge_sample_summary import (
     SourcePreparationError,
     build_merge_sample_paths,
     clear_generated_outputs,
+    confirm_overwrite_if_needed,
     discover_source_directories,
     iter_source_excel_paths,
+    parse_args,
     parse_number_selection,
+    prompt_batch_name,
     prepare_source_directories,
     run_merge_sample_summary,
+    select_directories,
+    select_directories_by_number_prompt,
     validate_batch_name,
 )
 
@@ -453,6 +459,105 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
             self.assertFalse(generated_workbook.exists())
             self.assertTrue(keep_text.exists())
             self.assertFalse(paths.sample_summary_path.exists())
+
+
+class MergeSampleSummaryInteractionTest(unittest.TestCase):
+    def test_select_directories_by_number_prompt_reprompts_until_valid_selection(self) -> None:
+        source_dirs = (Path("1-2月"), Path("3月"), Path("4月"))
+        inputs = iter(("bad", "1,3"))
+        outputs: list[str] = []
+
+        result = select_directories_by_number_prompt(
+            source_dirs,
+            input_func=lambda _: next(inputs),
+            output_func=outputs.append,
+        )
+
+        self.assertEqual(result, (Path("1-2月"), Path("4月")))
+        self.assertTrue(any("选择无效" in line for line in outputs))
+
+    def test_confirm_overwrite_if_needed_returns_true_when_outputs_do_not_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = build_merge_sample_paths(
+                year="2026",
+                batch_name="Q1",
+                data_root=Path(temp_dir) / "data",
+            )
+
+            result = confirm_overwrite_if_needed(
+                paths,
+                input_func=lambda _: self.fail("should not prompt without existing outputs"),
+                output_func=lambda _: self.fail("should not print without existing outputs"),
+            )
+
+        self.assertTrue(result)
+
+    def test_confirm_overwrite_if_needed_respects_user_answer_when_outputs_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = build_merge_sample_paths(
+                year="2026",
+                batch_name="Q1",
+                data_root=Path(temp_dir) / "data",
+            )
+            paths.merged_raw_dir.mkdir(parents=True)
+            paths.sample_summary_path.parent.mkdir(parents=True)
+            paths.sample_summary_path.write_text("existing", encoding="utf-8")
+            outputs: list[str] = []
+
+            denied = confirm_overwrite_if_needed(
+                paths,
+                input_func=lambda _: "n",
+                output_func=outputs.append,
+            )
+            accepted = confirm_overwrite_if_needed(
+                paths,
+                input_func=lambda _: "yes",
+                output_func=outputs.append,
+            )
+
+        self.assertFalse(denied)
+        self.assertTrue(accepted)
+        self.assertTrue(any("已存在" in line for line in outputs))
+
+    def test_prompt_batch_name_reprompts_after_invalid_input(self) -> None:
+        selected_dirs = (Path("1-2月"), Path("3月"))
+        inputs = iter(("1-2月", " Q1 "))
+        outputs: list[str] = []
+
+        result = prompt_batch_name(
+            selected_dirs,
+            input_func=lambda _: next(inputs),
+            output_func=outputs.append,
+        )
+
+        self.assertEqual(result, "Q1")
+        self.assertTrue(any("批次名称无效" in line for line in outputs))
+
+    def test_select_directories_falls_back_to_numbered_prompt_on_curses_error(self) -> None:
+        source_dirs = (Path("1-2月"), Path("3月"))
+        outputs: list[str] = []
+
+        with (
+            patch(
+                "merge_sample_summary.select_directories_with_curses",
+                side_effect=curses.error("no terminal"),
+            ),
+            patch(
+                "merge_sample_summary.select_directories_by_number_prompt",
+                return_value=(Path("3月"),),
+            ) as numbered_prompt,
+        ):
+            result = select_directories(source_dirs, output_func=outputs.append)
+
+        self.assertEqual(result, (Path("3月"),))
+        numbered_prompt.assert_called_once_with(source_dirs, output_func=outputs.append)
+        self.assertTrue(any("降级为编号选择" in line for line in outputs))
+
+    def test_parse_args_accepts_required_year_and_default_config(self) -> None:
+        args = parse_args(["--year", "2026"])
+
+        self.assertEqual(args.year, "2026")
+        self.assertEqual(args.config, Path("pipeline.defaults.toml"))
 
 
 if __name__ == "__main__":
