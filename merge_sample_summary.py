@@ -25,6 +25,8 @@ def build_merge_sample_paths(
     batch_name: str,
     data_root: Path = Path("data"),
 ) -> MergeSamplePaths:
+    year = year.strip()
+    batch_name = batch_name.strip()
     raw_year_dir = data_root / "raw" / year
     merged_raw_dir = raw_year_dir / batch_name
     sample_summary_dir = data_root / "sample_summary" / year / batch_name
@@ -42,7 +44,7 @@ def build_merge_sample_paths(
 
 
 def discover_source_directories(raw_year_dir: Path) -> tuple[Path, ...]:
-    if not raw_year_dir.exists():
+    if not raw_year_dir.is_dir():
         raise FileNotFoundError(f"年份原始数据目录不存在: {raw_year_dir}")
 
     source_dirs = tuple(
@@ -63,10 +65,11 @@ def parse_number_selection(raw_value: str, *, item_count: int) -> tuple[int, ...
         raise ValueError("至少选择一个来源目录")
 
     selected: list[int] = []
+    seen: set[int] = set()
     for raw_part in value.split(","):
         part = raw_part.strip()
         if not part:
-            continue
+            raise ValueError("选择编号不能为空")
 
         if "-" in part:
             start_text, end_text = (item.strip() for item in part.split("-", maxsplit=1))
@@ -81,7 +84,10 @@ def parse_number_selection(raw_value: str, *, item_count: int) -> tuple[int, ...
         for number in numbers:
             if number < 1 or number > item_count:
                 raise ValueError(f"选择编号超出范围: {number}")
-            selected.append(number - 1)
+            index = number - 1
+            if index not in seen:
+                selected.append(index)
+                seen.add(index)
 
     if not selected:
         raise ValueError("至少选择一个来源目录")
@@ -93,6 +99,8 @@ def validate_batch_name(raw_name: str, selected_dirs: tuple[Path, ...]) -> str:
     batch_name = raw_name.strip()
     if not batch_name:
         raise BatchNameError("批次名称不能为空")
+    if batch_name in {".", ".."}:
+        raise BatchNameError("批次名称不能为当前或上级目录")
     if "/" in batch_name or "\\" in batch_name:
         raise BatchNameError("批次名称不能包含路径分隔符")
     if any(part == ".." for part in Path(batch_name).parts):
