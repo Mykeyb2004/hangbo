@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import curses
-from dataclasses import dataclass
+import shutil
+import tempfile
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fill_year_month_columns import apply_year_month_to_directory
@@ -339,6 +341,70 @@ def clear_generated_outputs(paths: MergeSamplePaths) -> None:
     clear_sample_summary_output(paths)
 
 
+def relocate_merge_summary_output(
+    summary: MergeSummary,
+    *,
+    output_dir: Path,
+) -> MergeSummary:
+    return replace(
+        summary,
+        output_dir=output_dir,
+        results=tuple(
+            replace(
+                result,
+                output_path=output_dir / result.file_name
+                if result.output_path is not None
+                else None,
+            )
+            for result in summary.results
+        ),
+    )
+
+
+def publish_merged_raw_workbooks(
+    temp_output_dir: Path,
+    paths: MergeSamplePaths,
+    *,
+    remove_stale: bool,
+) -> None:
+    temp_workbook_paths = tuple(
+        sorted(
+            (
+                workbook_path
+                for workbook_path in temp_output_dir.glob("*.xlsx")
+                if workbook_path.is_file()
+            ),
+            key=lambda workbook_path: workbook_path.name,
+        )
+    )
+    paths.merged_raw_dir.mkdir(parents=True, exist_ok=True)
+
+    staged_paths: list[tuple[Path, Path]] = []
+    for temp_workbook_path in temp_workbook_paths:
+        destination_path = paths.merged_raw_dir / temp_workbook_path.name
+        staging_path = destination_path.with_name(f".{destination_path.name}.tmp")
+        shutil.copy2(temp_workbook_path, staging_path)
+        staged_paths.append((staging_path, destination_path))
+
+    for staging_path, destination_path in staged_paths:
+        staging_path.replace(destination_path)
+
+    if remove_stale:
+        published_names = {workbook_path.name for workbook_path in temp_workbook_paths}
+        for workbook_path in paths.merged_raw_dir.glob("*.xlsx"):
+            if workbook_path.is_file() and workbook_path.name not in published_names:
+                workbook_path.unlink()
+
+
+def publish_sample_summary(temp_sample_path: Path, paths: MergeSamplePaths) -> None:
+    paths.sample_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    staging_path = paths.sample_summary_path.with_name(
+        f".{paths.sample_summary_path.name}.tmp"
+    )
+    shutil.copy2(temp_sample_path, staging_path)
+    staging_path.replace(paths.sample_summary_path)
+
+
 def run_merge_sample_summary(config: MergeSampleRunConfig) -> MergeSampleRunResult:
     paths = build_merge_sample_paths(
         year=config.year,
@@ -351,36 +417,45 @@ def run_merge_sample_summary(config: MergeSampleRunConfig) -> MergeSampleRunResu
         year=config.year,
         sheet_name=config.sheet_name,
     )
-    if config.overwrite:
-        clear_generated_raw_workbooks(paths)
 
-    merge_summary = merge_workbooks_by_filename(
-        config.selected_dirs,
-        output_dir=paths.merged_raw_dir,
-        sheet_name=config.sheet_name,
-    )
-    if merge_summary_has_failures(merge_summary):
-        raise RuntimeError(
-            "合并阶段存在失败项，已停止生成样本统计表。\n"
-            f"{format_merge_summary(merge_summary, sheet_name=config.sheet_name)}"
+    with tempfile.TemporaryDirectory(prefix="merge-sample-raw-") as temp_raw_dir_name:
+        temp_raw_dir = Path(temp_raw_dir_name)
+        temp_merge_summary = merge_workbooks_by_filename(
+            config.selected_dirs,
+            output_dir=temp_raw_dir,
+            sheet_name=config.sheet_name,
+        )
+        merge_summary = relocate_merge_summary_output(
+            temp_merge_summary,
+            output_dir=paths.merged_raw_dir,
+        )
+        if merge_summary_has_failures(merge_summary):
+            raise RuntimeError(
+                "合并阶段存在失败项，已停止生成样本统计表。\n"
+                f"{format_merge_summary(merge_summary, sheet_name=config.sheet_name)}"
+            )
+        publish_merged_raw_workbooks(
+            temp_raw_dir,
+            paths,
+            remove_stale=config.overwrite,
         )
 
-    if config.overwrite:
-        clear_sample_summary_output(paths)
-
-    sample_summary_path = generate_sample_table_report(
-        input_dir=paths.merged_raw_dir,
-        output_dir=paths.sample_summary_dir,
-        output_name=paths.sample_summary_path.name,
-        config_path=config.sample_config_path,
-        source_sheet_name=config.sheet_name,
-        default_year=config.year,
-    )
+    with tempfile.TemporaryDirectory(prefix="merge-sample-summary-") as temp_sample_dir_name:
+        temp_sample_dir = Path(temp_sample_dir_name)
+        temp_sample_path = generate_sample_table_report(
+            input_dir=paths.merged_raw_dir,
+            output_dir=temp_sample_dir,
+            output_name=paths.sample_summary_path.name,
+            config_path=config.sample_config_path,
+            source_sheet_name=config.sheet_name,
+            default_year=config.year,
+        )
+        publish_sample_summary(temp_sample_path, paths)
 
     return MergeSampleRunResult(
         paths=paths,
         merge_summary=merge_summary,
-        sample_summary_path=sample_summary_path,
+        sample_summary_path=paths.sample_summary_path,
     )
 
 

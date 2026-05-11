@@ -299,33 +299,65 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 data_root / "raw" / "2026" / "1-2月",
                 data_root / "raw" / "2026" / "3月",
             )
-            config_path = Path(temp_dir) / "sample_table_config.json"
+            sample_config_path = Path(temp_dir) / "sample_table_config.json"
             expected_paths = build_merge_sample_paths(
                 year="2026",
                 batch_name="Q1",
                 data_root=data_root,
             )
-            merge_summary = MergeSummary(
-                input_dirs=source_dirs,
-                output_dir=expected_paths.merged_raw_dir,
-                results=(
-                    MergeResult(
-                        file_name="展览.xlsx",
-                        source_paths=source_dirs,
-                        status="merged",
-                        merged_rows=3,
-                        output_path=expected_paths.merged_raw_dir / "展览.xlsx",
+            merge_output_dirs: list[Path] = []
+            sample_output_dirs: list[Path] = []
+
+            def merge_side_effect(
+                input_dirs: tuple[Path, ...],
+                *,
+                output_dir: Path,
+                sheet_name: str,
+            ) -> MergeSummary:
+                merge_output_dirs.append(output_dir)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                temp_output_path = output_dir / "展览.xlsx"
+                temp_output_path.write_text("new merged", encoding="utf-8")
+                return MergeSummary(
+                    input_dirs=input_dirs,
+                    output_dir=output_dir,
+                    results=(
+                        MergeResult(
+                            file_name="展览.xlsx",
+                            source_paths=source_dirs,
+                            status="merged",
+                            merged_rows=3,
+                            output_path=temp_output_path,
+                        ),
                     ),
-                ),
-            )
+                )
+
+            def generate_sample_side_effect(
+                *,
+                input_dir: Path,
+                output_dir: Path,
+                output_name: str,
+                config_path: Path,
+                source_sheet_name: str,
+                default_year: str,
+            ) -> Path:
+                self.assertEqual(input_dir, expected_paths.merged_raw_dir)
+                self.assertEqual(config_path, sample_config_path)
+                self.assertEqual(source_sheet_name, "问卷数据")
+                self.assertEqual(default_year, "2026")
+                sample_output_dirs.append(output_dir)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                temp_sample_path = output_dir / output_name
+                temp_sample_path.write_text("new sample", encoding="utf-8")
+                return temp_sample_path
 
             with (
                 patch("merge_sample_summary.prepare_source_directories") as prepare_sources,
                 patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
                 patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
-                merge_workbooks.return_value = merge_summary
-                generate_sample_table.return_value = expected_paths.sample_summary_path
+                merge_workbooks.side_effect = merge_side_effect
+                generate_sample_table.side_effect = generate_sample_side_effect
 
                 result = run_merge_sample_summary(
                     MergeSampleRunConfig(
@@ -334,31 +366,38 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                         selected_dirs=source_dirs,
                         data_root=data_root,
                         sheet_name="问卷数据",
-                        sample_config_path=config_path,
+                        sample_config_path=sample_config_path,
                     )
                 )
 
-        prepare_sources.assert_called_once_with(
-            source_dirs,
-            year="2026",
-            sheet_name="问卷数据",
-        )
-        merge_workbooks.assert_called_once_with(
-            source_dirs,
-            output_dir=expected_paths.merged_raw_dir,
-            sheet_name="问卷数据",
-        )
-        generate_sample_table.assert_called_once_with(
-            input_dir=expected_paths.merged_raw_dir,
-            output_dir=expected_paths.sample_summary_dir,
-            output_name=expected_paths.sample_summary_path.name,
-            config_path=config_path,
-            source_sheet_name="问卷数据",
-            default_year="2026",
-        )
-        self.assertEqual(result.paths, expected_paths)
-        self.assertEqual(result.merge_summary, merge_summary)
-        self.assertEqual(result.sample_summary_path, expected_paths.sample_summary_path)
+            prepare_sources.assert_called_once_with(
+                source_dirs,
+                year="2026",
+                sheet_name="问卷数据",
+            )
+            self.assertEqual(len(merge_output_dirs), 1)
+            self.assertNotEqual(merge_output_dirs[0], expected_paths.merged_raw_dir)
+            self.assertEqual(len(sample_output_dirs), 1)
+            self.assertNotEqual(sample_output_dirs[0], expected_paths.sample_summary_dir)
+            self.assertEqual(
+                generate_sample_table.call_args.kwargs["output_name"],
+                expected_paths.sample_summary_path.name,
+            )
+            self.assertEqual(result.paths, expected_paths)
+            self.assertEqual(result.merge_summary.output_dir, expected_paths.merged_raw_dir)
+            self.assertEqual(
+                result.merge_summary.results[0].output_path,
+                expected_paths.merged_raw_dir / "展览.xlsx",
+            )
+            self.assertEqual(result.sample_summary_path, expected_paths.sample_summary_path)
+            self.assertEqual(
+                (expected_paths.merged_raw_dir / "展览.xlsx").read_text(encoding="utf-8"),
+                "new merged",
+            )
+            self.assertEqual(
+                expected_paths.sample_summary_path.read_text(encoding="utf-8"),
+                "new sample",
+            )
 
     def test_run_merge_sample_summary_stops_when_any_merge_result_failed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -370,25 +409,34 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 batch_name="Q1",
                 data_root=data_root,
             )
-            merge_summary = MergeSummary(
-                input_dirs=source_dirs,
-                output_dir=expected_paths.merged_raw_dir,
-                results=(
-                    MergeResult(
-                        file_name="展览.xlsx",
-                        source_paths=source_dirs,
-                        status="missing_sheet",
-                        missing_sheet_paths=source_dirs,
+            merge_output_dirs: list[Path] = []
+
+            def merge_side_effect(
+                input_dirs: tuple[Path, ...],
+                *,
+                output_dir: Path,
+                sheet_name: str,
+            ) -> MergeSummary:
+                merge_output_dirs.append(output_dir)
+                return MergeSummary(
+                    input_dirs=input_dirs,
+                    output_dir=output_dir,
+                    results=(
+                        MergeResult(
+                            file_name="展览.xlsx",
+                            source_paths=source_dirs,
+                            status="missing_sheet",
+                            missing_sheet_paths=source_dirs,
+                        ),
                     ),
-                ),
-            )
+                )
 
             with (
                 patch("merge_sample_summary.prepare_source_directories") as prepare_sources,
                 patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
                 patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
-                merge_workbooks.return_value = merge_summary
+                merge_workbooks.side_effect = merge_side_effect
 
                 with self.assertRaisesRegex(RuntimeError, "合并阶段存在失败项") as error_context:
                     run_merge_sample_summary(
@@ -407,13 +455,12 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
             year="2026",
             sheet_name="问卷数据",
         )
-        merge_workbooks.assert_called_once_with(
-            source_dirs,
-            output_dir=expected_paths.merged_raw_dir,
-            sheet_name="问卷数据",
-        )
+        self.assertEqual(len(merge_output_dirs), 1)
+        self.assertNotEqual(merge_output_dirs[0], expected_paths.merged_raw_dir)
         generate_sample_table.assert_not_called()
         self.assertIn("跳过/失败: 1", str(error_context.exception))
+        self.assertIn(str(expected_paths.merged_raw_dir), str(error_context.exception))
+        self.assertNotIn(str(merge_output_dirs[0]), str(error_context.exception))
 
     def test_run_merge_sample_summary_stops_when_merge_finds_no_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -425,18 +472,27 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                 batch_name="Q1",
                 data_root=data_root,
             )
-            merge_summary = MergeSummary(
-                input_dirs=source_dirs,
-                output_dir=expected_paths.merged_raw_dir,
-                results=(),
-            )
+            merge_output_dirs: list[Path] = []
+
+            def merge_side_effect(
+                input_dirs: tuple[Path, ...],
+                *,
+                output_dir: Path,
+                sheet_name: str,
+            ) -> MergeSummary:
+                merge_output_dirs.append(output_dir)
+                return MergeSummary(
+                    input_dirs=input_dirs,
+                    output_dir=output_dir,
+                    results=(),
+                )
 
             with (
                 patch("merge_sample_summary.prepare_source_directories") as prepare_sources,
                 patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
                 patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
-                merge_workbooks.return_value = merge_summary
+                merge_workbooks.side_effect = merge_side_effect
 
                 with self.assertRaisesRegex(RuntimeError, "合并阶段存在失败项") as error_context:
                     run_merge_sample_summary(
@@ -455,13 +511,12 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
             year="2026",
             sheet_name="问卷数据",
         )
-        merge_workbooks.assert_called_once_with(
-            source_dirs,
-            output_dir=expected_paths.merged_raw_dir,
-            sheet_name="问卷数据",
-        )
+        self.assertEqual(len(merge_output_dirs), 1)
+        self.assertNotEqual(merge_output_dirs[0], expected_paths.merged_raw_dir)
         generate_sample_table.assert_not_called()
         self.assertIn("未找到可处理的 xlsx 文件", str(error_context.exception))
+        self.assertIn(str(expected_paths.merged_raw_dir), str(error_context.exception))
+        self.assertNotIn(str(merge_output_dirs[0]), str(error_context.exception))
 
     def test_run_merge_sample_summary_keeps_existing_outputs_when_source_prep_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -527,25 +582,34 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
             existing_workbook.write_text("old merged", encoding="utf-8")
             paths.sample_summary_path.parent.mkdir(parents=True)
             paths.sample_summary_path.write_text("old sample", encoding="utf-8")
-            merge_summary = MergeSummary(
-                input_dirs=source_dirs,
-                output_dir=paths.merged_raw_dir,
-                results=(
-                    MergeResult(
-                        file_name="展览.xlsx",
-                        source_paths=source_dirs,
-                        status="missing_sheet",
-                        missing_sheet_paths=source_dirs,
+            merge_output_dirs: list[Path] = []
+
+            def merge_side_effect(
+                input_dirs: tuple[Path, ...],
+                *,
+                output_dir: Path,
+                sheet_name: str,
+            ) -> MergeSummary:
+                merge_output_dirs.append(output_dir)
+                return MergeSummary(
+                    input_dirs=input_dirs,
+                    output_dir=output_dir,
+                    results=(
+                        MergeResult(
+                            file_name="展览.xlsx",
+                            source_paths=source_dirs,
+                            status="missing_sheet",
+                            missing_sheet_paths=source_dirs,
+                        ),
                     ),
-                ),
-            )
+                )
 
             with (
                 patch("merge_sample_summary.prepare_source_directories"),
                 patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
                 patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
             ):
-                merge_workbooks.return_value = merge_summary
+                merge_workbooks.side_effect = merge_side_effect
 
                 with self.assertRaisesRegex(RuntimeError, "合并阶段存在失败项"):
                     run_merge_sample_summary(
@@ -560,12 +624,159 @@ class MergeSampleSummaryRunTest(unittest.TestCase):
                         )
                     )
 
-            merge_workbooks.assert_called_once_with(
-                source_dirs,
-                output_dir=paths.merged_raw_dir,
-                sheet_name="问卷数据",
-            )
+            self.assertEqual(len(merge_output_dirs), 1)
+            self.assertNotEqual(merge_output_dirs[0], paths.merged_raw_dir)
             generate_sample_table.assert_not_called()
+            self.assertTrue(paths.sample_summary_path.exists())
+            self.assertEqual(paths.sample_summary_path.read_text(encoding="utf-8"), "old sample")
+
+    def test_run_merge_sample_summary_keeps_existing_raw_workbooks_when_merge_fails_after_partial_temp_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_root = Path(temp_dir) / "data"
+            source_dirs = (data_root / "raw" / "2026" / "1-2月",)
+            config_path = Path(temp_dir) / "sample_table_config.json"
+            paths = build_merge_sample_paths(
+                year="2026",
+                batch_name="Q1",
+                data_root=data_root,
+            )
+            paths.merged_raw_dir.mkdir(parents=True)
+            existing_merged = paths.merged_raw_dir / "展览.xlsx"
+            existing_other = paths.merged_raw_dir / "会议.xlsx"
+            existing_merged.write_text("old merged", encoding="utf-8")
+            existing_other.write_text("old other", encoding="utf-8")
+            merge_output_dirs: list[Path] = []
+
+            def merge_side_effect(
+                input_dirs: tuple[Path, ...],
+                *,
+                output_dir: Path,
+                sheet_name: str,
+            ) -> MergeSummary:
+                merge_output_dirs.append(output_dir)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                temp_output_path = output_dir / "展览.xlsx"
+                temp_output_path.write_text("temp merged", encoding="utf-8")
+                return MergeSummary(
+                    input_dirs=input_dirs,
+                    output_dir=output_dir,
+                    results=(
+                        MergeResult(
+                            file_name="展览.xlsx",
+                            source_paths=source_dirs,
+                            status="merged",
+                            merged_rows=3,
+                            output_path=temp_output_path,
+                        ),
+                        MergeResult(
+                            file_name="会议.xlsx",
+                            source_paths=source_dirs,
+                            status="missing_sheet",
+                            missing_sheet_paths=source_dirs,
+                        ),
+                    ),
+                )
+
+            with (
+                patch("merge_sample_summary.prepare_source_directories"),
+                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+            ):
+                merge_workbooks.side_effect = merge_side_effect
+
+                with self.assertRaisesRegex(RuntimeError, "合并阶段存在失败项"):
+                    run_merge_sample_summary(
+                        MergeSampleRunConfig(
+                            year="2026",
+                            batch_name="Q1",
+                            selected_dirs=source_dirs,
+                            data_root=data_root,
+                            sheet_name="问卷数据",
+                            sample_config_path=config_path,
+                            overwrite=True,
+                        )
+                    )
+
+            self.assertEqual(len(merge_output_dirs), 1)
+            self.assertNotEqual(merge_output_dirs[0], paths.merged_raw_dir)
+            generate_sample_table.assert_not_called()
+            self.assertTrue(existing_merged.exists())
+            self.assertEqual(existing_merged.read_text(encoding="utf-8"), "old merged")
+            self.assertTrue(existing_other.exists())
+            self.assertEqual(existing_other.read_text(encoding="utf-8"), "old other")
+
+    def test_run_merge_sample_summary_keeps_existing_sample_summary_when_sample_generation_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_root = Path(temp_dir) / "data"
+            source_dirs = (data_root / "raw" / "2026" / "1-2月",)
+            config_path = Path(temp_dir) / "sample_table_config.json"
+            paths = build_merge_sample_paths(
+                year="2026",
+                batch_name="Q1",
+                data_root=data_root,
+            )
+            paths.sample_summary_path.parent.mkdir(parents=True)
+            paths.sample_summary_path.write_text("old sample", encoding="utf-8")
+            sample_output_dirs: list[Path] = []
+
+            def merge_side_effect(
+                input_dirs: tuple[Path, ...],
+                *,
+                output_dir: Path,
+                sheet_name: str,
+            ) -> MergeSummary:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                temp_output_path = output_dir / "展览.xlsx"
+                temp_output_path.write_text("new merged", encoding="utf-8")
+                return MergeSummary(
+                    input_dirs=input_dirs,
+                    output_dir=output_dir,
+                    results=(
+                        MergeResult(
+                            file_name="展览.xlsx",
+                            source_paths=source_dirs,
+                            status="merged",
+                            merged_rows=3,
+                            output_path=temp_output_path,
+                        ),
+                    ),
+                )
+
+            def generate_sample_side_effect(
+                *,
+                input_dir: Path,
+                output_dir: Path,
+                output_name: str,
+                config_path: Path,
+                source_sheet_name: str,
+                default_year: str,
+            ) -> Path:
+                sample_output_dirs.append(output_dir)
+                raise RuntimeError("sample failed")
+
+            with (
+                patch("merge_sample_summary.prepare_source_directories"),
+                patch("merge_sample_summary.merge_workbooks_by_filename") as merge_workbooks,
+                patch("merge_sample_summary.generate_sample_table_report") as generate_sample_table,
+            ):
+                merge_workbooks.side_effect = merge_side_effect
+                generate_sample_table.side_effect = generate_sample_side_effect
+
+                with self.assertRaisesRegex(RuntimeError, "sample failed"):
+                    run_merge_sample_summary(
+                        MergeSampleRunConfig(
+                            year="2026",
+                            batch_name="Q1",
+                            selected_dirs=source_dirs,
+                            data_root=data_root,
+                            sheet_name="问卷数据",
+                            sample_config_path=config_path,
+                            overwrite=True,
+                        )
+                    )
+
+            self.assertEqual(len(sample_output_dirs), 1)
+            self.assertNotEqual(sample_output_dirs[0], paths.sample_summary_dir)
             self.assertTrue(paths.sample_summary_path.exists())
             self.assertEqual(paths.sample_summary_path.read_text(encoding="utf-8"), "old sample")
 
