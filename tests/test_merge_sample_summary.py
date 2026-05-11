@@ -2,15 +2,36 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
+
+from openpyxl import Workbook
 
 from merge_sample_summary import (
     BatchNameError,
+    MixedSourceYearMonthError,
     build_merge_sample_paths,
     discover_source_directories,
+    iter_source_excel_paths,
     parse_number_selection,
+    prepare_source_directories,
     validate_batch_name,
 )
+
+
+def write_questionnaire_workbook(
+    output_path: Path,
+    headers: list[str],
+    rows: list[list[str]],
+    sheet_name: str = "问卷数据",
+) -> None:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = sheet_name
+    worksheet.append(headers)
+    for row in rows:
+        worksheet.append(row)
+    workbook.save(output_path)
 
 
 class MergeSampleSummaryHelpersTest(unittest.TestCase):
@@ -122,6 +143,68 @@ class MergeSampleSummaryHelpersTest(unittest.TestCase):
 
         self.assertEqual(paths.data_root, Path("data"))
         self.assertEqual(paths.raw_year_dir, Path("data/raw/2026"))
+
+
+class MergeSampleSummaryPreparationTest(unittest.TestCase):
+    def test_iter_source_excel_paths_lists_only_direct_normal_xlsx_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_dir = Path(temp_dir) / "1-2月"
+            source_dir.mkdir()
+            normal_workbook = source_dir / "展览.xlsx"
+            write_questionnaire_workbook(normal_workbook, ["姓名", "年份", "月份"], [["张三", "2026", "1"]])
+            write_questionnaire_workbook(source_dir / "~$展览.xlsx", ["姓名"], [["张三"]])
+            write_questionnaire_workbook(source_dir / "._展览.xlsx", ["姓名"], [["张三"]])
+            nested_dir = source_dir / "nested"
+            nested_dir.mkdir()
+            write_questionnaire_workbook(nested_dir / "会议.xlsx", ["姓名"], [["张三"]])
+
+            result = iter_source_excel_paths(source_dir)
+
+        self.assertEqual(result, (normal_workbook,))
+
+    def test_prepare_source_directories_autofills_only_single_month_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            raw_year_dir = Path(temp_dir)
+            month_dir = raw_year_dir / "3月"
+            mixed_dir = raw_year_dir / "1-2月"
+            month_dir.mkdir()
+            mixed_dir.mkdir()
+            write_questionnaire_workbook(
+                mixed_dir / "展览.xlsx",
+                ["姓名", "年份", "月份"],
+                [["张三", "2026", "1"]],
+            )
+
+            with patch("merge_sample_summary.apply_year_month_to_directory") as apply_year_month:
+                prepare_source_directories(
+                    (month_dir, mixed_dir),
+                    year="2026",
+                    sheet_name="问卷数据",
+                )
+
+        apply_year_month.assert_called_once_with(
+            month_dir,
+            year="2026",
+            month="3",
+            sheet_name="问卷数据",
+        )
+
+    def test_prepare_source_directories_blocks_mixed_dir_missing_year_month_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mixed_dir = Path(temp_dir) / "1-2月"
+            mixed_dir.mkdir()
+            write_questionnaire_workbook(
+                mixed_dir / "展览.xlsx",
+                ["姓名", "月份"],
+                [["张三", "1"]],
+            )
+
+            with self.assertRaisesRegex(MixedSourceYearMonthError, "缺少“年份”/“月份”列"):
+                prepare_source_directories(
+                    (mixed_dir,),
+                    year="2026",
+                    sheet_name="问卷数据",
+                )
 
 
 if __name__ == "__main__":

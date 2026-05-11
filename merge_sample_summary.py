@@ -3,8 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from fill_year_month_columns import apply_year_month_to_directory
+from pipeline_paths import parse_single_month_batch
+from pipeline_precheck import workbook_has_year_month_headers
+
 
 class BatchNameError(ValueError):
+    pass
+
+
+class MixedSourceYearMonthError(ValueError):
     pass
 
 
@@ -110,6 +118,49 @@ def validate_batch_name(raw_name: str, selected_dirs: tuple[Path, ...]) -> str:
         raise BatchNameError("批次名称不能与来源目录名称相同")
 
     return batch_name
+
+
+def iter_source_excel_paths(source_dir: Path) -> tuple[Path, ...]:
+    return tuple(
+        sorted(
+            (
+                item
+                for item in source_dir.iterdir()
+                if item.is_file()
+                and item.suffix == ".xlsx"
+                and not item.name.startswith(("~$", "._"))
+            ),
+            key=lambda item: item.name,
+        )
+    )
+
+
+def check_mixed_source_year_month_headers(source_dir: Path, *, sheet_name: str) -> None:
+    for workbook_path in iter_source_excel_paths(source_dir):
+        if not workbook_has_year_month_headers(workbook_path, sheet_name):
+            raise MixedSourceYearMonthError(
+                f"混合来源目录 {source_dir} 中的文件 {workbook_path.name} 缺少“年份”/“月份”列"
+            )
+
+
+def prepare_source_directories(
+    selected_dirs: tuple[Path, ...],
+    *,
+    year: str,
+    sheet_name: str,
+) -> None:
+    for source_dir in selected_dirs:
+        single_month = parse_single_month_batch(source_dir.name)
+        if single_month is not None:
+            apply_year_month_to_directory(
+                source_dir,
+                year=str(year),
+                month=str(single_month),
+                sheet_name=sheet_name,
+            )
+            continue
+
+        check_mixed_source_year_month_headers(source_dir, sheet_name=sheet_name)
 
 
 def _parse_selection_number(raw_value: str) -> int:
