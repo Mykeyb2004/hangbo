@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from pipeline_config import load_pipeline_defaults
-from pipeline_paths import build_pipeline_paths, parse_single_month_batch
-from pipeline_runtime import run_pipeline
+from hangbo.pipeline.config import load_pipeline_defaults
+from hangbo.pipeline.paths import build_pipeline_paths, parse_single_month_batch
+from hangbo.pipeline.runtime import run_pipeline
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
