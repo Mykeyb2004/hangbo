@@ -1,6 +1,6 @@
 # PPT 生成说明
 
-本文档说明新流程中 PPT 如何生成、默认配置从哪里来，以及需要单独运行 `generate_ppt.py` 时如何传参。
+本文档说明新流程中 PPT 如何生成、默认配置从哪里来，以及需要单独运行 `hangbo.ppt.generator` 时如何传参。
 
 主流程推荐入口：
 
@@ -16,7 +16,7 @@ uv run python main_pipeline.py --year 2026 --batch 3月
 
 PPT 生成脚本：
 
-- `generate_ppt.py`
+- `hangbo.ppt.generator`
 
 主流程调用位置：
 
@@ -77,7 +77,7 @@ uv run python main_pipeline.py \
 
 ## 3. PPT 页面生成规则
 
-PPT 默认适配 `survey_stats.py` 产出的分项统计 Excel。
+PPT 默认适配 `hangbo.survey.stats` 产出的分项统计 Excel。
 
 输入 Excel 通常包含：
 
@@ -108,7 +108,7 @@ PPT 默认适配 `survey_stats.py` 产出的分项统计 Excel。
 
 ## 4. 二级标题识别口径
 
-`generate_ppt.py` 支持三种 `section_mode`：
+`hangbo.ppt.generator` 支持三种 `section_mode`：
 
 - `auto`
 - `template`
@@ -227,7 +227,7 @@ highlight_threshold = 9.6
 主流程之外，也可以单独执行：
 
 ```bash
-uv run python generate_ppt.py \
+uv run python -m hangbo.ppt.generator \
   --template-path templates/template.pptx \
   --input-dir data/satisfaction_detail/2026/3月 \
   --output-ppt data/ppt/2026/3月/3月满意度报告.pptx
@@ -236,7 +236,7 @@ uv run python generate_ppt.py \
 临时覆盖配置：
 
 ```bash
-uv run python generate_ppt.py \
+uv run python -m hangbo.ppt.generator \
   --template-path templates/template.pptx \
   --input-dir data/satisfaction_detail/2026/3月 \
   --output-ppt data/ppt/2026/3月/3月满意度报告.summary.pptx \
@@ -247,7 +247,7 @@ uv run python generate_ppt.py \
 只校验输入和布局，不写出 PPT：
 
 ```bash
-uv run python generate_ppt.py \
+uv run python -m hangbo.ppt.generator \
   --template-path templates/template.pptx \
   --input-dir data/satisfaction_detail/2026/3月 \
   --output-ppt data/ppt/2026/3月/3月满意度报告.dryrun.pptx \

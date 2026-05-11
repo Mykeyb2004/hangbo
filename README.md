@@ -211,7 +211,7 @@ uv run python merge_sample_summary.py --year 2026
 对于 `1月` 到 `12月` 这种单月批次：
 
 - 如果原始文件缺少 `年份` / `月份` 列
-- 主流程会自动调用 `fill_year_month_columns.py` 补齐
+- 主流程会自动调用 `hangbo.precheck.year_month` 补齐
 
 例如：
 
@@ -243,7 +243,7 @@ uv run python main_pipeline.py --year 2026 --batch 3月
 如果你要先对单月原始目录做增强，可以执行：
 
 ```bash
-uv run python fill_year_month_columns.py \
+uv run python -m hangbo.precheck.year_month \
   --input-dir 'data/raw/2026/3月' \
   --year '2026' \
   --month '3'
@@ -270,12 +270,12 @@ uv run python fill_year_month_columns.py \
 
 ### 合并脚本
 
-多月合并由 `merge_questionnaire_workbooks.py` 完成。
+多月合并由 `hangbo.merge.questionnaire_workbooks` 完成。
 
 示例：
 
 ```bash
-uv run python merge_questionnaire_workbooks.py \
+uv run python -m hangbo.merge.questionnaire_workbooks \
   --input-dir 'data/raw/2026/1月' \
   --input-dir 'data/raw/2026/2月' \
   --input-dir 'data/raw/2026/3月' \
@@ -395,19 +395,19 @@ uv run python main_pipeline.py --year 2026 --batch Q1
 
 - `main_pipeline.py`
   - 新主流程入口
-- `pipeline_precheck.py`
+- `hangbo.precheck.checks`
   - 主流程预查错
-- `fill_year_month_columns.py`
+- `hangbo.precheck.year_month`
   - 单月目录补写 `年份` / `月份`
-- `merge_questionnaire_workbooks.py`
+- `hangbo.merge.questionnaire_workbooks`
   - 多月问卷合并
-- `survey_stats.py`
+- `hangbo.survey.stats`
   - 满意度分项统计引擎
-- `summary_table.py`
+- `hangbo.summary.table`
   - 满意度汇总表
-- `sample_table.py`
+- `hangbo.sample.table`
   - 样本统计表
-- `generate_ppt.py`
+- `hangbo.ppt.generator`
   - PPT 生成
 
 ---
@@ -428,11 +428,11 @@ uv run python main_pipeline.py --year 2026 --batch 3月
 ### 模板 B：先合并季度，再跑季度
 
 ```bash
-uv run python fill_year_month_columns.py --input-dir 'data/raw/2026/1月' --year '2026' --month '1'
-uv run python fill_year_month_columns.py --input-dir 'data/raw/2026/2月' --year '2026' --month '2'
-uv run python fill_year_month_columns.py --input-dir 'data/raw/2026/3月' --year '2026' --month '3'
+uv run python -m hangbo.precheck.year_month --input-dir 'data/raw/2026/1月' --year '2026' --month '1'
+uv run python -m hangbo.precheck.year_month --input-dir 'data/raw/2026/2月' --year '2026' --month '2'
+uv run python -m hangbo.precheck.year_month --input-dir 'data/raw/2026/3月' --year '2026' --month '3'
 
-uv run python merge_questionnaire_workbooks.py \
+uv run python -m hangbo.merge.questionnaire_workbooks \
   --input-dir 'data/raw/2026/1月' \
   --input-dir 'data/raw/2026/2月' \
   --input-dir 'data/raw/2026/3月' \
