@@ -22,19 +22,19 @@ from pptx.oxml.ns import qn
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
-from survey_stats import (
+from hangbo.survey.stats import (
     RoleDefinition,
     TEMPLATE_DEFINITIONS,
     format_value,
     get_effective_role_definition,
 )
-from survey_customer_category_rules import (
+from hangbo.survey.customer_category_rules import (
     ALL_CUSTOMER_CATEGORY_RULES,
     CUSTOMER_CATEGORY_RULE_BY_NAME,
     DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES,
 )
-from ppt_chart_renderer import ChartPoint, ChartRenderConfig, render_chart_image
-from summary_table import normalize_text
+from hangbo.ppt.chart_renderer import ChartPoint, ChartRenderConfig, render_chart_image
+from hangbo.summary.table import normalize_text
 
 VALID_SECTION_MODES = ("auto", "template", "summary")
 DEFAULT_FILE_PATTERN = "*.xlsx"

@@ -6,15 +6,15 @@ import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from fill_year_month_columns import apply_year_month_to_directory
-from merge_questionnaire_workbooks import (
+from hangbo.precheck.year_month import apply_year_month_to_directory
+from hangbo.merge.questionnaire_workbooks import (
     MergeSummary,
     format_merge_summary,
     merge_workbooks_by_filename,
 )
-from pipeline_paths import parse_single_month_batch
-from pipeline_precheck import workbook_has_year_month_headers
-from sample_table import generate_sample_table_report
+from hangbo.pipeline.paths import parse_single_month_batch
+from hangbo.precheck.checks import workbook_has_year_month_headers
+from hangbo.sample.table import generate_sample_table_report
 
 
 class BatchNameError(ValueError):

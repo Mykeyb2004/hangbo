@@ -12,7 +12,7 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from survey_customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME, CustomerCategoryRule
+from hangbo.survey.customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME, CustomerCategoryRule
 
 DEFAULT_SAMPLE_TABLE_TITLE = "杭博客户类型样本统计表"
 DEFAULT_SAMPLE_TABLE_OUTPUT_NAME = "客户类型样本统计表.xlsx"

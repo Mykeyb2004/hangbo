@@ -4,13 +4,13 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from check_unmapped_customer_records import (
+from hangbo.precheck.unmapped_customers import (
     format_directory_audit_report,
     run_directory_audit,
     write_audit_log,
 )
-from phase_column_preprocess import preprocess_phase_column_if_needed
-from pipeline_models import PipelineIssue, PipelinePaths, PrecheckResult
+from hangbo.precheck.phase_column import preprocess_phase_column_if_needed
+from hangbo.pipeline.models import PipelineIssue, PipelinePaths, PrecheckResult
 
 
 def workbook_has_year_month_headers(workbook_path: Path, sheet_name: str) -> bool:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fill_year_month_columns import apply_year_month_to_directory
-from generate_ppt import (
+from hangbo.precheck.year_month import apply_year_month_to_directory
+from hangbo.ppt.generator import (
     CategoryIntroSlideConfig,
     ChartPageConfig,
     LlmNotesConfig,
@@ -11,10 +11,10 @@ from generate_ppt import (
     PptLayoutConfig,
     generate_presentation,
 )
-from pipeline_precheck import run_precheck
-from sample_table import generate_sample_table_report
-from summary_table import generate_summary_report
-from survey_stats import run_directory_batch
+from hangbo.precheck.checks import run_precheck
+from hangbo.sample.table import generate_sample_table_report
+from hangbo.summary.table import generate_summary_report
+from hangbo.survey.stats import run_directory_batch
 
 
 def append_log_line(log_path: Path, message: str) -> None:

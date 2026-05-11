@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from survey_customer_category_rules import CUSTOMER_CATEGORY_RULES
+from hangbo.survey.customer_category_rules import CUSTOMER_CATEGORY_RULES
 
 DEFAULT_SHEET_NAME = "问卷数据"
 DEFAULT_LOG_DIR = "logs"

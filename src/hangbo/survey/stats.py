@@ -9,8 +9,8 @@ from pathlib import Path
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from phase_column_preprocess import preprocess_phase_column_if_needed
-from survey_customer_category_rules import (
+from hangbo.precheck.phase_column import preprocess_phase_column_if_needed
+from hangbo.survey.customer_category_rules import (
     CUSTOMER_CATEGORY_RULE_BY_NAME,
     CUSTOMER_CATEGORY_RULES,
     CustomerCategoryRule,

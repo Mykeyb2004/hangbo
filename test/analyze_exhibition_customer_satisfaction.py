@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sample_table import find_column, normalize_month_value, normalize_year_value
-from survey_customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
-from survey_stats import (
+from hangbo.sample.table import find_column, normalize_month_value, normalize_year_value
+from hangbo.survey.customer_category_rules import CUSTOMER_CATEGORY_RULE_BY_NAME
+from hangbo.survey.stats import (
     TEMPLATE_DEFINITIONS,
     build_role_mask,
     compute_metric_average,

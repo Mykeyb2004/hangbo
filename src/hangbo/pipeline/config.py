@@ -4,8 +4,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from generate_ppt import normalize_section_mode
-from survey_stats import normalize_calculation_mode
+from hangbo.ppt.generator import normalize_section_mode
+from hangbo.survey.stats import normalize_calculation_mode
 
 DEFAULT_SHEET_NAME = "问卷数据"
 DEFAULT_CALCULATION_MODE = "template"

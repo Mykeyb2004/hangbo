@@ -12,8 +12,8 @@ from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from survey_customer_category_rules import DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES, CustomerCategoryRule
-from survey_stats import OVERALL_FILL, SECTION_FILL, excel_round, mean_ignore_empty, normalize_output_dir
+from hangbo.survey.customer_category_rules import DISPLAY_ORDERED_CUSTOMER_CATEGORY_RULES, CustomerCategoryRule
+from hangbo.survey.stats import OVERALL_FILL, SECTION_FILL, excel_round, mean_ignore_empty, normalize_output_dir
 
 DEFAULT_SUMMARY_TITLE = "杭博客户类型满意度情况表"
 DEFAULT_OUTPUT_NAME = "客户类型满意度汇总表.xlsx"

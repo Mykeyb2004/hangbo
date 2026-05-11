@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from pipeline_models import BatchRef, PipelinePaths
+from hangbo.pipeline.models import BatchRef, PipelinePaths
 
 STANDARD_SOURCE_FILE_NAMES: tuple[str, ...] = (
     "展览.xlsx",
