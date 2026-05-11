@@ -130,6 +130,25 @@ uv run python main_pipeline.py --year 2026 --batch Q1
 
 ---
 
+## 只生成合并后的分月样本统计表
+
+如果只需要把多个 `data/raw/{year}` 下的来源目录合并，并生成客户类型样本统计汇总表，可以使用独立工具：
+
+```bash
+uv run python merge_sample_summary.py --year 2026
+```
+
+运行后，终端会列出 `data/raw/2026` 下的所有直接子文件夹。使用方向键移动、空格选择、Enter 确认，然后输入输出批次名，例如 `Q1`。
+
+该工具只会生成：
+
+- 合并原始数据：`data/raw/{year}/{batch}`
+- 样本统计表：`data/sample_summary/{year}/{batch}/{batch}客户类型样本统计表.xlsx`
+
+它不会生成满意度分项统计、满意度汇总表或 PPT。
+
+---
+
 ## 预查错会检查什么
 
 主流程的第一步是预查错。
