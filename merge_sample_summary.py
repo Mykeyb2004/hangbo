@@ -300,6 +300,10 @@ def prepare_source_directories(
                 month=str(single_month),
                 sheet_name=sheet_name,
             )
+            if not summary.file_results:
+                raise SourcePreparationError(
+                    f"单月来源目录 {source_dir} 没有可用的 Excel 文件"
+                )
             skipped_results = tuple(
                 result for result in summary.file_results if result.status != "updated"
             )
@@ -318,14 +322,21 @@ def merge_summary_has_failures(summary: MergeSummary) -> bool:
     return not summary.results or any(result.status != "merged" for result in summary.results)
 
 
-def clear_generated_outputs(paths: MergeSamplePaths) -> None:
+def clear_generated_raw_workbooks(paths: MergeSamplePaths) -> None:
     if paths.merged_raw_dir.exists():
         for workbook_path in paths.merged_raw_dir.glob("*.xlsx"):
             if workbook_path.is_file():
                 workbook_path.unlink()
 
+
+def clear_sample_summary_output(paths: MergeSamplePaths) -> None:
     if paths.sample_summary_path.exists():
         paths.sample_summary_path.unlink()
+
+
+def clear_generated_outputs(paths: MergeSamplePaths) -> None:
+    clear_generated_raw_workbooks(paths)
+    clear_sample_summary_output(paths)
 
 
 def run_merge_sample_summary(config: MergeSampleRunConfig) -> MergeSampleRunResult:
@@ -335,14 +346,14 @@ def run_merge_sample_summary(config: MergeSampleRunConfig) -> MergeSampleRunResu
         data_root=config.data_root,
     )
 
-    if config.overwrite:
-        clear_generated_outputs(paths)
-
     prepare_source_directories(
         config.selected_dirs,
         year=config.year,
         sheet_name=config.sheet_name,
     )
+    if config.overwrite:
+        clear_generated_raw_workbooks(paths)
+
     merge_summary = merge_workbooks_by_filename(
         config.selected_dirs,
         output_dir=paths.merged_raw_dir,
@@ -353,6 +364,9 @@ def run_merge_sample_summary(config: MergeSampleRunConfig) -> MergeSampleRunResu
             "合并阶段存在失败项，已停止生成样本统计表。\n"
             f"{format_merge_summary(merge_summary, sheet_name=config.sheet_name)}"
         )
+
+    if config.overwrite:
+        clear_sample_summary_output(paths)
 
     sample_summary_path = generate_sample_table_report(
         input_dir=paths.merged_raw_dir,
