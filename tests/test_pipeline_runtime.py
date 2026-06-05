@@ -206,6 +206,43 @@ class PipelineRuntimeTest(unittest.TestCase):
         mock_generate_sample.assert_called_once()
         mock_generate_presentation.assert_called_once()
 
+    @mock.patch("hangbo.pipeline.runtime.generate_presentation")
+    @mock.patch("hangbo.pipeline.runtime.generate_sample_table_report")
+    @mock.patch("hangbo.pipeline.runtime.generate_summary_report")
+    @mock.patch("hangbo.pipeline.runtime.run_directory_batch")
+    @mock.patch("hangbo.pipeline.runtime.run_precheck")
+    def test_run_pipeline_allows_user_to_stop_before_generating_ppt(
+        self,
+        mock_run_precheck: mock.Mock,
+        mock_run_directory_batch: mock.Mock,
+        mock_generate_summary: mock.Mock,
+        mock_generate_sample: mock.Mock,
+        mock_generate_presentation: mock.Mock,
+    ) -> None:
+        mock_run_precheck.return_value = PrecheckResult((), (), False)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = build_pipeline_paths(
+                "2026",
+                "5月",
+                data_root=Path(tmp_dir) / "data",
+                logs_root=Path(tmp_dir) / "logs/pipeline",
+            )
+
+            with self.assertRaisesRegex(SystemExit, "用户取消主流程。"):
+                run_pipeline(
+                    paths=paths,
+                    defaults=build_defaults(),
+                    single_month=5,
+                    input_func=lambda prompt: "stop",
+                    output_func=lambda message: None,
+                )
+
+        mock_run_directory_batch.assert_called_once()
+        mock_generate_summary.assert_called_once()
+        mock_generate_sample.assert_called_once()
+        mock_generate_presentation.assert_not_called()
+
     @mock.patch("hangbo.pipeline.runtime.run_precheck")
     def test_run_pipeline_keeps_waiting_when_recheck_still_blocks(
         self,

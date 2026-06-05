@@ -42,9 +42,14 @@ def write_precheck_log(paths, precheck) -> None:
     paths.precheck_log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def wait_for_confirmation(*, input_func=input, output_func=print) -> None:
+def wait_for_confirmation(
+    *,
+    input_func=input,
+    output_func=print,
+    prompt: str = "修改完成后输入 y / yes / 继续；输入 stop 终止：",
+) -> None:
     while True:
-        answer = input_func("修改完成后输入 y / yes / 继续；输入 stop 终止：").strip().lower()
+        answer = input_func(prompt).strip().lower()
         if answer in {"y", "yes", "继续"}:
             return
         if answer in {"stop", "quit", "exit"}:
@@ -167,6 +172,12 @@ def run_pipeline(
         config_path=defaults.sample_config_path,
         source_sheet_name=defaults.sheet_name,
         default_year=paths.batch_ref.year,
+    )
+    emit(paths, output_func, "[PIPELINE] PPT 生成前确认：输入 y / yes / 继续；输入 stop 终止。")
+    wait_for_confirmation(
+        input_func=input_func,
+        output_func=output_func,
+        prompt="是否继续生成 PPT？输入 y / yes / 继续；输入 stop 终止：",
     )
     emit(paths, output_func, "[PIPELINE] 开始生成 PPT...")
     generate_presentation(build_ppt_batch_config(paths, defaults))
