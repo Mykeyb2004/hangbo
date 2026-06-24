@@ -73,6 +73,15 @@ class PipelineRuntimeTest(unittest.TestCase):
 
         self.assertEqual(outputs, ["未识别的输入：不是"])
 
+    def test_wait_for_confirmation_treats_ctrl_c_as_user_cancel(self) -> None:
+        def interrupt_input(prompt: str) -> str:
+            raise KeyboardInterrupt()
+
+        with self.assertRaisesRegex(SystemExit, "用户取消主流程。") as context:
+            wait_for_confirmation(input_func=interrupt_input)
+
+        self.assertTrue(context.exception.__suppress_context__)
+
     @mock.patch("hangbo.pipeline.runtime.generate_presentation")
     @mock.patch("hangbo.pipeline.runtime.generate_sample_table_report")
     @mock.patch("hangbo.pipeline.runtime.generate_summary_report")

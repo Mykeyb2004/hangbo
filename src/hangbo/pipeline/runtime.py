@@ -49,7 +49,10 @@ def wait_for_confirmation(
     prompt: str = "修改完成后输入 y / yes / 继续；输入 stop 终止：",
 ) -> None:
     while True:
-        answer = input_func(prompt).strip().lower()
+        try:
+            answer = input_func(prompt).strip().lower()
+        except KeyboardInterrupt:
+            raise SystemExit("用户取消主流程。") from None
         if answer in {"y", "yes", "继续"}:
             return
         if answer in {"stop", "quit", "exit"}:
