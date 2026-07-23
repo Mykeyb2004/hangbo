@@ -717,7 +717,7 @@ CATERING_FOOD_HALL_TEMPLATE = RoleDefinition(
             "餐饮服务",
             (
                 MetricDefinition("菜肴品质", "Y", "Z"),
-                MetricDefinition("菜品口味口相", "AA", "AB"),
+                MetricDefinition("菜品口味品相", "AA", "AB"),
                 MetricDefinition("菜品地方特色", "U", "V"),
                 MetricDefinition("菜肴份量", "AI", "AJ"),
                 MetricDefinition("工作人员服务品质", "AM", "AN"),
@@ -834,7 +834,7 @@ CATERING_BUFFET_TEMPLATE = RoleDefinition(
             (
                 MetricDefinition("菜肴品种", "AG", "AH"),
                 MetricDefinition("菜品供应速度", "AC", "AD"),
-                MetricDefinition("菜品口味口相", "AA", "AB"),
+                MetricDefinition("菜品口味品相", "AA", "AB"),
                 MetricDefinition("菜品地方特色", "U", "V"),
                 MetricDefinition("接待指引", "S", "T"),
                 MetricDefinition("工作人员服务品质", "AM", "AN"),
@@ -881,7 +881,7 @@ CATERING_HOTEL_BUFFET_TEMPLATE = RoleDefinition(
             (
                 MetricDefinition("菜肴品种", "AG", "AH"),
                 MetricDefinition("菜品供应速度", "AC", "AD"),
-                MetricDefinition("菜品口味口相", "AA", "AB"),
+                MetricDefinition("菜品口味品相", "AA", "AB"),
                 MetricDefinition("菜品地方特色", "U", "V"),
                 MetricDefinition("接待指引", "S", "T"),
                 MetricDefinition("工作人员服务品质", "AM", "AN"),

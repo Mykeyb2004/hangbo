@@ -647,6 +647,12 @@ class SurveyStatsTest(unittest.TestCase):
         df.iloc[4, excel_column_to_index("J")] = 6
         df.iloc[6, excel_column_to_index("I")] = 4
         df.iloc[6, excel_column_to_index("J")] = 2
+        df.iloc[0, excel_column_to_index("AA")] = 10
+        df.iloc[0, excel_column_to_index("AB")] = 1
+        df.iloc[2, excel_column_to_index("AA")] = 4
+        df.iloc[2, excel_column_to_index("AB")] = 2
+        df.iloc[6, excel_column_to_index("AA")] = 6
+        df.iloc[6, excel_column_to_index("AB")] = 3
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -666,10 +672,17 @@ class SurveyStatsTest(unittest.TestCase):
             )
 
         parking_row = report.result_df[report.result_df["指标"] == "园区停车方便"].iloc[0]
+        flavor_rows = report.result_df[
+            report.result_df["指标"].str.contains("菜品口味", na=False)
+        ]
+        flavor_row = flavor_rows.iloc[0]
         self.assertEqual(report.stats.role_name, "酒店餐饮客户")
         self.assertEqual(report.stats.matched_row_count, 4)
         self.assertEqual(parking_row["满意度"], 7.0)
         self.assertEqual(parking_row["重要性"], 5.0)
+        self.assertEqual(flavor_rows["指标"].tolist(), ["菜品口味品相"])
+        self.assertEqual(flavor_row["满意度"], 6.67)
+        self.assertEqual(flavor_row["重要性"], 2.0)
 
     def test_hotel_guest_templates_use_role_column_c_and_fixed_importance_columns(self) -> None:
         for role_name, template in (
