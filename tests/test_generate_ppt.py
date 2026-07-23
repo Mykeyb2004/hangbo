@@ -775,8 +775,8 @@ class GeneratePptTest(unittest.TestCase):
             self.assertEqual(slide_tables[buffet_title][0], 2)
             self.assertTrue(any("会展服务" in text for text in slide_tables[professional_audience_title][1]))
             self.assertTrue(any("智慧场馆" in text for text in slide_tables[professional_audience_title][1]))
-            self.assertTrue(any("补菜及时性" in text for text in slide_tables[buffet_title][1]))
-            self.assertTrue(
+            self.assertFalse(any("补菜及时性" in text for text in slide_tables[buffet_title][1]))
+            self.assertFalse(
                 any("\n\n" in text or text.endswith("\n") for text in slide_tables[professional_audience_title][1])
             )
 
@@ -1195,6 +1195,60 @@ class GeneratePptTest(unittest.TestCase):
             self.assertNotIn("智慧场馆", detail_text)
             self.assertNotIn("杭州国博APP", detail_text)
             self.assertNotIn("室内导航系统", detail_text)
+
+    def test_generate_presentation_skips_metric_rows_when_scores_are_empty(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        template_path = repo_root / "templates" / "template.pptx"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "input"
+            input_dir.mkdir()
+            output_path = temp_path / "report.pptx"
+
+            create_report_workbook(
+                input_dir / "专业观众.xlsx",
+                [
+                    ("指标", "满意度", "重要性"),
+                    ("专业观众", 9.93, 10.0),
+                    ("会展服务", 10.0, 10.0),
+                    ("工作人员仪容仪表", 10.0, 10.0),
+                    ("工作人员服务态度", None, None),
+                    ("工作人员业务技能", None, 10.0),
+                    ("硬件设施", 9.8, 10.0),
+                    ("园区停车方便", 9.8, 10.0),
+                ],
+            )
+
+            config = PptBatchConfig(
+                template_path=template_path,
+                input_dir=input_dir,
+                output_ppt=output_path,
+                blank_display="",
+                max_single_table_rows=10,
+                max_split_table_rows=19,
+                layout=PptLayoutConfig(),
+            )
+
+            generate_presentation(config)
+
+            presentation = Presentation(output_path)
+            detail_tables = [
+                shape.table
+                for shape in presentation.slides[0].shapes
+                if getattr(shape, "has_table", False)
+            ][1:]
+            detail_text = "\n".join(
+                cell.text
+                for table in detail_tables
+                for row in table.rows
+                for cell in row.cells
+            )
+
+            self.assertIn("会展服务", detail_text)
+            self.assertIn("工作人员仪容仪表", detail_text)
+            self.assertNotIn("工作人员服务态度", detail_text)
+            self.assertIn("工作人员业务技能", detail_text)
 
     def test_generate_presentation_writes_llm_notes_from_env_and_system_role(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

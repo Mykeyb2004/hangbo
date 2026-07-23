@@ -751,7 +751,17 @@ def filter_empty_satisfaction_sections(
         metric_rows = block.rows[1:]
         if metric_rows and all(satisfaction is None for _, satisfaction, _ in metric_rows):
             continue
-        filtered_blocks.append(block)
+        filtered_metric_rows = [
+            row for row in metric_rows if row[1] is not None or row[2] is not None
+        ]
+        if not filtered_metric_rows:
+            continue
+        filtered_blocks.append(
+            SectionBlock(
+                heading=block.heading,
+                rows=(block.rows[0], *filtered_metric_rows),
+            )
+        )
     return flatten_blocks(filtered_blocks)
 
 
