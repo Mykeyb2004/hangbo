@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "8db9888787ddd27f3d0f5d71e588fe5314647955",
+    "indexed_at": "2026-07-20T01:23:05Z",
+    "project": "hangbo_source",
+    "nodes": 1400,
+    "edges": 5937,
+    "original_size": 4653056,
+    "compressed_size": 967064,
+    "compression_level": 9
+}
