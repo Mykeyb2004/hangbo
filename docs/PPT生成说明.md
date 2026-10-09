@@ -179,8 +179,13 @@ section_mode = "auto"
 - `target_chars`
 - `temperature`
 - `max_tokens`
+- `reasoning_effort`
 - `checkpoint_chars`
 - `highlight_threshold`
+
+当前主流程默认使用 `max_tokens = 300` 和 `reasoning_effort = "none"`。这会关闭
+Qwen3.8-27B-Splash 的思考输出，让输出额度用于生成 PPT 正文。旧的 PPT 配置可以
+继续省略 `reasoning_effort`，此时不会向接口增加该参数。
 
 启用前需要准备：
 
@@ -218,6 +223,14 @@ enabled = false
 ```toml
 [ppt.llm_notes]
 highlight_threshold = 9.6
+```
+
+如果使用支持思考模式的模型，可显式调整：
+
+```toml
+[ppt.llm_notes]
+reasoning_effort = "none"
+max_tokens = 300
 ```
 
 ---

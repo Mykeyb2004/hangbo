@@ -40,9 +40,13 @@ from hangbo.ppt.generator import (
     build_section_blocks,
     choose_detail_layout,
     discover_input_files,
+    extract_completion_text,
+    extract_stream_chunk_text,
     format_report_value,
     generate_presentation,
+    generate_notes_text,
     load_batch_config,
+    LlmRuntimeConfig,
     render_table,
     render_chart_textbox,
     resolve_chart_textbox_style,
@@ -81,33 +85,46 @@ def collect_slide_texts(slide) -> list[str]:
 
 
 class FakeMessage:
-    def __init__(self, content: str) -> None:
+    def __init__(self, content: object) -> None:
         self.content = content
 
 
 class FakeChoice:
-    def __init__(self, content: str) -> None:
+    def __init__(self, content: object) -> None:
         self.message = FakeMessage(content)
 
 
 class FakeCompletionResponse:
-    def __init__(self, content: str) -> None:
+    def __init__(self, content: object) -> None:
         self.choices = [FakeChoice(content)]
 
 
 class FakeDelta:
-    def __init__(self, content: str | None) -> None:
+    def __init__(
+        self,
+        content: str | None,
+        reasoning_content: str | None = None,
+    ) -> None:
         self.content = content
+        self.reasoning_content = reasoning_content
 
 
 class FakeStreamChoice:
-    def __init__(self, content: str | None) -> None:
-        self.delta = FakeDelta(content)
+    def __init__(
+        self,
+        content: str | None,
+        reasoning_content: str | None = None,
+    ) -> None:
+        self.delta = FakeDelta(content, reasoning_content)
 
 
 class FakeStreamChunk:
-    def __init__(self, content: str | None) -> None:
-        self.choices = [FakeStreamChoice(content)]
+    def __init__(
+        self,
+        content: str | None,
+        reasoning_content: str | None = None,
+    ) -> None:
+        self.choices = [FakeStreamChoice(content, reasoning_content)]
 
 
 class FakeChatCompletions:
@@ -271,6 +288,76 @@ class GeneratePptTest(unittest.TestCase):
         FakeFlakyOpenAI.instances.clear()
         FakeAlwaysFailOpenAI.instances.clear()
 
+    def test_extract_completion_text_returns_empty_for_none_content(self) -> None:
+        self.assertEqual(extract_completion_text(FakeCompletionResponse(None)), "")
+
+    def test_extract_stream_chunk_text_ignores_reasoning_only_delta(self) -> None:
+        chunk = FakeStreamChunk(None, reasoning_content="思考过程")
+
+        self.assertEqual(extract_stream_chunk_text(chunk), "")
+
+    def test_old_llm_notes_config_keeps_reasoning_effort_unset(self) -> None:
+        self.assertIsNone(LlmNotesConfig().reasoning_effort)
+
+    def test_old_positional_llm_notes_config_arguments_keep_their_order(self) -> None:
+        config = LlmNotesConfig(
+            True,
+            Path(".env"),
+            Path("system_role.md"),
+            120,
+            0.4,
+            200,
+            80,
+            9.6,
+        )
+
+        self.assertEqual(config.checkpoint_chars, 80)
+        self.assertEqual(config.highlight_threshold, 9.6)
+        self.assertIsNone(config.reasoning_effort)
+
+    def test_generate_notes_text_passes_reasoning_effort_to_stream_and_fallback(self) -> None:
+        class FallbackCompletions:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def create(self, **kwargs):
+                self.calls.append(kwargs)
+                if kwargs.get("stream"):
+                    return [FakeStreamChunk(None, reasoning_content="思考过程")]
+                return FakeCompletionResponse(
+                    "总体判断：体验稳定。\n关注点：继续关注低分指标。"
+                )
+
+        class FallbackClient:
+            def __init__(self, completions) -> None:
+                self.chat = type("Chat", (), {"completions": completions})()
+
+        completions = FallbackCompletions()
+        runtime = LlmRuntimeConfig(
+            client=FallbackClient(completions),
+            model="fake-model",
+            system_role="你是测试助手。",
+            target_chars=120,
+            temperature=0.4,
+            max_tokens=300,
+            reasoning_effort="none",
+            checkpoint_chars=80,
+            highlight_threshold=9.6,
+        )
+
+        text = generate_notes_text(
+            title="专业观众",
+            report_rows=[("专业观众", 9.5, 9.6)],
+            role_definition=None,
+            runtime=runtime,
+        )
+
+        self.assertIn("总体判断：", text)
+        self.assertEqual(
+            [call["reasoning_effort"] for call in completions.calls],
+            ["none", "none"],
+        )
+
     def test_system_role_file_no_longer_requires_markdown_hierarchy(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         system_role_text = (repo_root / "system_role.md").read_text(encoding="utf-8")
@@ -337,7 +424,8 @@ class GeneratePptTest(unittest.TestCase):
 
         self.assertEqual(defaults.ppt.llm_notes.target_chars, 120)
         self.assertEqual(defaults.ppt.llm_notes.temperature, 0.4)
-        self.assertEqual(defaults.ppt.llm_notes.max_tokens, 200)
+        self.assertEqual(defaults.ppt.llm_notes.max_tokens, 300)
+        self.assertEqual(defaults.ppt.llm_notes.reasoning_effort, "none")
         self.assertEqual(defaults.ppt.llm_notes.highlight_threshold, 9.6)
 
     def test_finalize_generated_notes_text_replaces_forbidden_terms_and_removes_low_score_highlight(self) -> None:
@@ -1113,6 +1201,7 @@ class GeneratePptTest(unittest.TestCase):
                     target_chars=300,
                     temperature=0.2,
                     max_tokens=400,
+                    reasoning_effort="none",
                 ),
             )
 
@@ -1296,6 +1385,7 @@ class GeneratePptTest(unittest.TestCase):
                     target_chars=300,
                     temperature=0.2,
                     max_tokens=400,
+                    reasoning_effort="none",
                 ),
             )
 
@@ -1311,6 +1401,7 @@ class GeneratePptTest(unittest.TestCase):
             self.assertTrue(fake_client.create_calls[0]["stream"])
             self.assertEqual(fake_client.create_calls[0]["temperature"], 0.75)
             self.assertEqual(fake_client.create_calls[0]["max_tokens"], 400)
+            self.assertEqual(fake_client.create_calls[0]["reasoning_effort"], "none")
             self.assertEqual(
                 fake_client.create_calls[0]["messages"][0]["content"],
                 "你是测试用分析助手。",

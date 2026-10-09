@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 
 from hangbo.precheck.year_month import apply_year_month_to_directory
 from hangbo.ppt.generator import (
@@ -15,6 +17,9 @@ from hangbo.precheck.checks import run_precheck
 from hangbo.sample.table import generate_sample_table_report
 from hangbo.summary.table import generate_summary_report
 from hangbo.survey.stats import run_directory_batch
+
+
+PptConfirmationMode = Literal["with_llm_notes", "without_llm_notes"]
 
 
 def append_log_line(log_path: Path, message: str) -> None:
@@ -60,6 +65,46 @@ def wait_for_confirmation(
         output_func(f"未识别的输入：{answer}")
 
 
+def wait_for_ppt_confirmation(
+    *,
+    input_func=input,
+    output_func=print,
+) -> PptConfirmationMode:
+    prompt = (
+        "是否继续生成 PPT？输入 y / yes / 继续生成完整 PPT；"
+        "输入 ppt / 只生成PPT 仅生成 PPT、不加入大模型写的分析文本；"
+        "输入 stop 终止："
+    )
+    while True:
+        try:
+            raw_answer = input_func(prompt).strip()
+        except KeyboardInterrupt:
+            raise SystemExit("用户取消主流程。") from None
+        answer = raw_answer.lower()
+        normalized_answer = answer.replace(" ", "").replace("　", "")
+        if normalized_answer in {"y", "yes", "继续"}:
+            return "with_llm_notes"
+        if normalized_answer in {
+            "ppt",
+            "只生成ppt",
+            "只生成ppt，不加入大模型写的分析文本",
+            "只生成ppt,不加入大模型写的分析文本",
+            "只生成ppt不加入大模型写的分析文本",
+            "仅生成ppt",
+            "no-llm",
+            "no_llm",
+            "nollm",
+            "跳过分析",
+            "不加入分析",
+            "不写分析",
+            "无分析",
+        }:
+            return "without_llm_notes"
+        if normalized_answer in {"stop", "quit", "exit"}:
+            raise SystemExit("用户取消主流程。")
+        output_func(f"未识别的输入：{raw_answer}")
+
+
 def ensure_output_directories(paths, output_func=print) -> None:
     output_dirs = (
         paths.satisfaction_detail_dir,
@@ -94,6 +139,7 @@ def build_ppt_batch_config(paths, defaults) -> PptBatchConfig:
             target_chars=defaults.ppt.llm_notes.target_chars,
             temperature=defaults.ppt.llm_notes.temperature,
             max_tokens=defaults.ppt.llm_notes.max_tokens,
+            reasoning_effort=defaults.ppt.llm_notes.reasoning_effort,
             checkpoint_chars=defaults.ppt.llm_notes.checkpoint_chars,
             highlight_threshold=defaults.ppt.llm_notes.highlight_threshold,
         ),
@@ -176,12 +222,22 @@ def run_pipeline(
         source_sheet_name=defaults.sheet_name,
         default_year=paths.batch_ref.year,
     )
-    emit(paths, output_func, "[PIPELINE] PPT 生成前确认：输入 y / yes / 继续；输入 stop 终止。")
-    wait_for_confirmation(
+    emit(
+        paths,
+        output_func,
+        "[PIPELINE] PPT 生成前确认：输入 y / yes / 继续生成完整 PPT；输入 ppt / 只生成PPT 仅生成 PPT、不加入大模型写的分析文本；输入 stop 终止。",
+    )
+    ppt_confirmation = wait_for_ppt_confirmation(
         input_func=input_func,
         output_func=output_func,
-        prompt="是否继续生成 PPT？输入 y / yes / 继续；输入 stop 终止：",
     )
+    ppt_config = build_ppt_batch_config(paths, defaults)
+    if ppt_confirmation == "without_llm_notes":
+        emit(paths, output_func, "[PIPELINE] 已选择只生成 PPT，不加入大模型写的分析文本。")
+        ppt_config = replace(
+            ppt_config,
+            llm_notes=replace(ppt_config.llm_notes, enabled=False),
+        )
     emit(paths, output_func, "[PIPELINE] 开始生成 PPT...")
-    generate_presentation(build_ppt_batch_config(paths, defaults))
+    generate_presentation(ppt_config)
     emit(paths, output_func, f"[PIPELINE] PPT 已生成：{paths.ppt_path}")

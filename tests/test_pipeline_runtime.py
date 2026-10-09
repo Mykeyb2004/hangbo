@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -15,7 +16,11 @@ from hangbo.pipeline.config import (
 from hangbo.ppt.generator import PptBatchConfig
 from hangbo.pipeline.models import PipelineIssue, PrecheckResult
 from hangbo.pipeline.paths import build_pipeline_paths
-from hangbo.pipeline.runtime import run_pipeline, wait_for_confirmation
+from hangbo.pipeline.runtime import (
+    run_pipeline,
+    wait_for_confirmation,
+    wait_for_ppt_confirmation,
+)
 
 
 def build_defaults() -> PipelineDefaults:
@@ -81,6 +86,23 @@ class PipelineRuntimeTest(unittest.TestCase):
             wait_for_confirmation(input_func=interrupt_input)
 
         self.assertTrue(context.exception.__suppress_context__)
+
+    def test_wait_for_ppt_confirmation_returns_with_llm_notes_for_continue(self) -> None:
+        mode = wait_for_ppt_confirmation(input_func=lambda prompt: "继续")
+
+        self.assertEqual(mode, "with_llm_notes")
+
+    def test_wait_for_ppt_confirmation_returns_without_llm_notes_for_ppt_only(self) -> None:
+        mode = wait_for_ppt_confirmation(input_func=lambda prompt: "只生成PPT")
+
+        self.assertEqual(mode, "without_llm_notes")
+
+    def test_wait_for_ppt_confirmation_accepts_full_ppt_only_phrase(self) -> None:
+        mode = wait_for_ppt_confirmation(
+            input_func=lambda prompt: "只生成PPT，不加入大模型写的分析文本",
+        )
+
+        self.assertEqual(mode, "without_llm_notes")
 
     @mock.patch("hangbo.pipeline.runtime.generate_presentation")
     @mock.patch("hangbo.pipeline.runtime.generate_sample_table_report")
@@ -200,6 +222,10 @@ class PipelineRuntimeTest(unittest.TestCase):
                 defaults.ppt.llm_notes.max_tokens,
             )
             self.assertEqual(
+                ppt_config.llm_notes.reasoning_effort,
+                defaults.ppt.llm_notes.reasoning_effort,
+            )
+            self.assertEqual(
                 ppt_config.llm_notes.checkpoint_chars,
                 defaults.ppt.llm_notes.checkpoint_chars,
             )
@@ -251,6 +277,59 @@ class PipelineRuntimeTest(unittest.TestCase):
         mock_generate_summary.assert_called_once()
         mock_generate_sample.assert_called_once()
         mock_generate_presentation.assert_not_called()
+
+    @mock.patch("hangbo.pipeline.runtime.generate_presentation")
+    @mock.patch("hangbo.pipeline.runtime.generate_sample_table_report")
+    @mock.patch("hangbo.pipeline.runtime.generate_summary_report")
+    @mock.patch("hangbo.pipeline.runtime.run_directory_batch")
+    @mock.patch("hangbo.pipeline.runtime.run_precheck")
+    def test_run_pipeline_can_generate_ppt_without_llm_notes(
+        self,
+        mock_run_precheck: mock.Mock,
+        mock_run_directory_batch: mock.Mock,
+        mock_generate_summary: mock.Mock,
+        mock_generate_sample: mock.Mock,
+        mock_generate_presentation: mock.Mock,
+    ) -> None:
+        mock_run_precheck.return_value = PrecheckResult((), (), False)
+        defaults = build_defaults()
+        defaults = replace(
+            defaults,
+            ppt=replace(
+                defaults.ppt,
+                llm_notes=replace(defaults.ppt.llm_notes, enabled=True),
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = build_pipeline_paths(
+                "2026",
+                "5月",
+                data_root=Path(tmp_dir) / "data",
+                logs_root=Path(tmp_dir) / "logs/pipeline",
+            )
+            outputs: list[str] = []
+            prompts: list[str] = []
+
+            run_pipeline(
+                paths=paths,
+                defaults=defaults,
+                single_month=5,
+                input_func=lambda prompt: prompts.append(prompt) or "只生成PPT",
+                output_func=outputs.append,
+            )
+
+        ppt_config = mock_generate_presentation.call_args.args[0]
+        self.assertIsInstance(ppt_config, PptBatchConfig)
+        self.assertFalse(ppt_config.llm_notes.enabled)
+        self.assertEqual(ppt_config.llm_notes.env_path, defaults.ppt.llm_notes.env_path)
+        self.assertEqual(
+            ppt_config.llm_notes.system_role_path,
+            defaults.ppt.llm_notes.system_role_path,
+        )
+        self.assertTrue(any("只生成PPT" in prompt for prompt in prompts))
+        self.assertTrue(any("不加入大模型写的分析文本" in prompt for prompt in prompts))
+        mock_generate_presentation.assert_called_once()
 
     @mock.patch("hangbo.pipeline.runtime.run_precheck")
     def test_run_pipeline_keeps_waiting_when_recheck_still_blocks(

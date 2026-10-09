@@ -55,6 +55,7 @@ TABLE_VERTICAL_MARGIN_PT = 1
 DEFAULT_NOTES_TARGET_CHARS = 120
 DEFAULT_NOTES_TEMPERATURE = 0.4
 DEFAULT_NOTES_MAX_TOKENS = 200
+DEFAULT_NOTES_REASONING_EFFORT = None
 DEFAULT_NOTES_CHECKPOINT_CHARS = 80
 DEFAULT_NOTES_HIGHLIGHT_THRESHOLD = 9.6
 DEFAULT_LLM_STREAM_RETRY_DELAYS_SECONDS = (1.0, 3.0, 5.0, 8.0, 13.0, 21.0)
@@ -169,6 +170,7 @@ class LlmNotesConfig:
     max_tokens: int = DEFAULT_NOTES_MAX_TOKENS
     checkpoint_chars: int = DEFAULT_NOTES_CHECKPOINT_CHARS
     highlight_threshold: float = DEFAULT_NOTES_HIGHLIGHT_THRESHOLD
+    reasoning_effort: str | None = DEFAULT_NOTES_REASONING_EFFORT
 
 
 @dataclass(frozen=True)
@@ -181,6 +183,7 @@ class LlmRuntimeConfig:
     max_tokens: int
     checkpoint_chars: int
     highlight_threshold: float
+    reasoning_effort: str | None
 
 
 @dataclass
@@ -373,11 +376,21 @@ def load_llm_notes_config(config_dir: Path, raw: object) -> LlmNotesConfig:
         target_chars=int(raw.get("target_chars", DEFAULT_NOTES_TARGET_CHARS)),
         temperature=float(raw.get("temperature", DEFAULT_NOTES_TEMPERATURE)),
         max_tokens=int(raw.get("max_tokens", DEFAULT_NOTES_MAX_TOKENS)),
+        reasoning_effort=normalize_reasoning_effort(
+            raw.get("reasoning_effort", DEFAULT_NOTES_REASONING_EFFORT)
+        ),
         checkpoint_chars=int(raw.get("checkpoint_chars", DEFAULT_NOTES_CHECKPOINT_CHARS)),
         highlight_threshold=float(
             raw.get("highlight_threshold", DEFAULT_NOTES_HIGHLIGHT_THRESHOLD)
         ),
     )
+
+
+def normalize_reasoning_effort(raw: object) -> str | None:
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    return value or None
 
 
 def load_category_intro_slides_config(
@@ -874,6 +887,7 @@ def prepare_llm_runtime(
         target_chars=config.target_chars,
         temperature=temperature,
         max_tokens=config.max_tokens,
+        reasoning_effort=config.reasoning_effort,
         checkpoint_chars=config.checkpoint_chars,
         highlight_threshold=config.highlight_threshold,
     )
@@ -1017,7 +1031,7 @@ def extract_completion_text(response) -> str:
             if text:
                 parts.append(text)
         return "".join(parts).strip()
-    return str(content).strip()
+    return ""
 
 
 def extract_stream_chunk_text(chunk) -> str:
@@ -1073,13 +1087,16 @@ def generate_notes_text(
     attempt_index = 0
     while True:
         try:
-            stream = runtime.client.chat.completions.create(
-                model=runtime.model,
-                messages=messages,
-                temperature=runtime.temperature,
-                max_tokens=runtime.max_tokens,
-                stream=True,
-            )
+            stream_kwargs = {
+                "model": runtime.model,
+                "messages": messages,
+                "temperature": runtime.temperature,
+                "max_tokens": runtime.max_tokens,
+                "stream": True,
+            }
+            if runtime.reasoning_effort:
+                stream_kwargs["reasoning_effort"] = runtime.reasoning_effort
+            stream = runtime.client.chat.completions.create(**stream_kwargs)
 
             fragments: list[str] = []
             last_normalized_text = ""
@@ -1124,12 +1141,15 @@ def generate_notes_text(
             time.sleep(retry_delay)
             attempt_index += 1
 
-    response = runtime.client.chat.completions.create(
-        model=runtime.model,
-        messages=messages,
-        temperature=runtime.temperature,
-        max_tokens=runtime.max_tokens,
-    )
+    completion_kwargs = {
+        "model": runtime.model,
+        "messages": messages,
+        "temperature": runtime.temperature,
+        "max_tokens": runtime.max_tokens,
+    }
+    if runtime.reasoning_effort:
+        completion_kwargs["reasoning_effort"] = runtime.reasoning_effort
+    response = runtime.client.chat.completions.create(**completion_kwargs)
     text = finalize_generated_notes_text(
         extract_completion_text(response),
         customer_name=customer_name,

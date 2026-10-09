@@ -23,7 +23,8 @@ class PipelineConfigTest(unittest.TestCase):
 
         self.assertEqual(defaults.ppt.llm_notes.target_chars, 120)
         self.assertEqual(defaults.ppt.llm_notes.temperature, 0.4)
-        self.assertEqual(defaults.ppt.llm_notes.max_tokens, 200)
+        self.assertEqual(defaults.ppt.llm_notes.max_tokens, 300)
+        self.assertEqual(defaults.ppt.llm_notes.reasoning_effort, "none")
         self.assertEqual(defaults.ppt.llm_notes.highlight_threshold, 9.6)
 
     def test_project_pipeline_defaults_restore_category_intro_slides(self) -> None:
@@ -131,6 +132,7 @@ class PipelineConfigTest(unittest.TestCase):
                 3,
             )
             self.assertEqual(defaults.ppt.llm_notes.highlight_threshold, 9.75)
+            self.assertIsNone(defaults.ppt.llm_notes.reasoning_effort)
 
     def test_load_pipeline_defaults_rejects_invalid_calculation_mode(self) -> None:
         with TemporaryDirectory() as temp_dir:

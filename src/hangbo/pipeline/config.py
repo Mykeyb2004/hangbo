@@ -32,7 +32,8 @@ DEFAULT_LLM_NOTES_ENV_PATH = ".env"
 DEFAULT_LLM_NOTES_SYSTEM_ROLE_PATH = "system_role.md"
 DEFAULT_LLM_NOTES_TARGET_CHARS = 120
 DEFAULT_LLM_NOTES_TEMPERATURE = 0.6
-DEFAULT_LLM_NOTES_MAX_TOKENS = 200
+DEFAULT_LLM_NOTES_MAX_TOKENS = 300
+DEFAULT_LLM_NOTES_REASONING_EFFORT = None
 DEFAULT_LLM_NOTES_CHECKPOINT_CHARS = 80
 DEFAULT_LLM_NOTES_HIGHLIGHT_THRESHOLD = 9.6
 
@@ -53,6 +54,7 @@ class PipelineLlmNotesDefaults:
     max_tokens: int
     checkpoint_chars: int
     highlight_threshold: float
+    reasoning_effort: str | None = DEFAULT_LLM_NOTES_REASONING_EFFORT
 
 
 @dataclass(frozen=True)
@@ -228,6 +230,15 @@ def load_pipeline_defaults(
                 ),
                 max_tokens=int(
                     llm_notes_raw.get("max_tokens", DEFAULT_LLM_NOTES_MAX_TOKENS)
+                ),
+                reasoning_effort=(
+                    str(
+                        llm_notes_raw.get(
+                            "reasoning_effort",
+                            DEFAULT_LLM_NOTES_REASONING_EFFORT,
+                        )
+                    ).strip()
+                    or None
                 ),
                 checkpoint_chars=int(
                     llm_notes_raw.get(
