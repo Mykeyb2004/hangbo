@@ -9,6 +9,7 @@ from hangbo.survey.stats import normalize_calculation_mode
 
 DEFAULT_SHEET_NAME = "问卷数据"
 DEFAULT_CALCULATION_MODE = "template"
+DEFAULT_JANUARY_FEBRUARY_MODE = "auto"
 DEFAULT_SAMPLE_CONFIG_PATH = "sample_table.default.toml"
 DEFAULT_PPT_TEMPLATE_PATH = "templates/template.pptx"
 DEFAULT_PPT_SHEET_NAME_MODE = "first"
@@ -89,6 +90,7 @@ class PipelineDefaults:
     calculation_mode: str
     sample_config_path: Path
     ppt: PipelinePptDefaults
+    january_february_mode: str = DEFAULT_JANUARY_FEBRUARY_MODE
 
 
 def resolve_config_path(config_dir: Path, raw_path: str | Path) -> Path:
@@ -149,6 +151,9 @@ def load_pipeline_defaults(
     return PipelineDefaults(
         sheet_name=str(raw.get("sheet_name", DEFAULT_SHEET_NAME)),
         calculation_mode=calculation_mode,
+        january_february_mode=str(
+            raw.get("january_february_mode", DEFAULT_JANUARY_FEBRUARY_MODE)
+        ).strip().lower(),
         sample_config_path=resolve_config_path(
             config_dir,
             raw.get("sample_config_path", DEFAULT_SAMPLE_CONFIG_PATH),

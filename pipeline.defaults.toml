@@ -1,5 +1,6 @@
 sheet_name = "问卷数据"
 calculation_mode = "template"
+january_february_mode = "auto"
 sample_config_path = "sample_table.default.toml"
 
 [ppt]

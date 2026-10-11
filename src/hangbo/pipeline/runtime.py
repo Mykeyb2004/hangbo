@@ -14,6 +14,7 @@ from hangbo.ppt.generator import (
     generate_presentation,
 )
 from hangbo.precheck.checks import run_precheck
+from hangbo.pipeline.cumulative import is_cumulative_batch, run_cumulative_batch
 from hangbo.sample.table import generate_sample_table_report
 from hangbo.summary.table import generate_summary_report
 from hangbo.survey.stats import run_directory_batch
@@ -199,20 +200,43 @@ def run_pipeline(
             sheet_name=defaults.sheet_name,
         )
 
-    emit(paths, output_func, "[PIPELINE] 开始生成满意度分项统计...")
-    run_directory_batch(
-        input_dir=paths.raw_dir,
-        output_dir=paths.satisfaction_detail_dir,
-        sheet_name=defaults.sheet_name,
-        output_format="xlsx",
-        calculation_mode=defaults.calculation_mode,
-    )
-    emit(paths, output_func, "[PIPELINE] 开始生成满意度汇总表...")
-    generate_summary_report(
-        input_dir=paths.satisfaction_detail_dir,
-        output_dir=paths.satisfaction_summary_dir,
-        output_name=paths.summary_workbook_path.name,
-    )
+    if is_cumulative_batch(paths.batch_ref.batch):
+        emit(paths, output_func, "[PIPELINE] 检测为累计批次，按独立周期重算满意度...")
+        cumulative_result = run_cumulative_batch(
+            year=paths.batch_ref.year,
+            batch=paths.batch_ref.batch,
+            data_root=paths.data_root,
+            detail_output_dir=paths.satisfaction_detail_dir,
+            summary_output_path=paths.summary_workbook_path,
+            sheet_name=defaults.sheet_name,
+            calculation_mode=defaults.calculation_mode,
+            january_february_mode=defaults.january_february_mode,
+            log_path=paths.logs_dir / "cumulative.json",
+        )
+        for period in cumulative_result.periods:
+            emit(paths, output_func, f"[PIPELINE] {period.label} 独立周期计算完成。")
+            for notice in period.notices:
+                emit(paths, output_func, f"[WARN] {period.label}：{notice}")
+        emit(
+            paths,
+            output_func,
+            f"[PIPELINE] 累计总满意度：{cumulative_result.total_values['总分']:.2f}",
+        )
+    else:
+        emit(paths, output_func, "[PIPELINE] 开始生成满意度分项统计...")
+        run_directory_batch(
+            input_dir=paths.raw_dir,
+            output_dir=paths.satisfaction_detail_dir,
+            sheet_name=defaults.sheet_name,
+            output_format="xlsx",
+            calculation_mode=defaults.calculation_mode,
+        )
+        emit(paths, output_func, "[PIPELINE] 开始生成满意度汇总表...")
+        generate_summary_report(
+            input_dir=paths.satisfaction_detail_dir,
+            output_dir=paths.satisfaction_summary_dir,
+            output_name=paths.summary_workbook_path.name,
+        )
     emit(paths, output_func, "[PIPELINE] 开始生成样本统计表...")
     generate_sample_table_report(
         input_dir=paths.raw_dir,
