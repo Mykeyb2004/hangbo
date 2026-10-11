@@ -1,5 +1,18 @@
 # Findings & Decisions
 
+## TOML 写入 Excel：2026-10-09
+
+- 用户已批准前一轮方案，包括独立脚本、TOML、openpyxl、测试与文档。
+- 公开测试边界为 `uv run python insert_excel_values.py --config <path>`，验证输出文件及中文错误、退出码。
+- 配置相对路径以 TOML 所在目录为基准，避免随运行目录漂移。
+- 仅更新目标 cell.value；日期赋值后恢复原 number_format，保留字体、边框、填充、对齐和布局。
+- 合并区域只写左上角；所有配置及工作表目标验证通过后才保存。
+- openpyxl 并非无损保留所有 Excel 高级对象的工具，文档需明确受支持的常规格式和复杂对象限制。
+- 现有工作区大量业务 Excel、图谱改动先于本任务存在，不能恢复或覆盖。
+- 全量回归 229 项：225 通过、1 跳过、3 失败。失败为缺少 `check_start_time_month`、旧路径 `datas/customer_mapping.xlsx` 不存在、已有 `reasoning_effort` 返回字符串 `'None'` 与测试预期不一致。
+- 上述三项仅运行原测试即可复现，不依赖新增模块；相关源码及测试没有本次改动。日志为 `logs/excel_insert_regression.log` 及 `logs/excel_insert_existing_*_check.log`。
+- GitNexus detect_changes 评估已跟踪改动为 low，无受影响执行流程；未索引的新脚本由定向测试和人工差异检查覆盖。
+
 ## Requirements
 - 根据 `templates/template.pptx` 作为 PPT 模板生成最终 PPT。
 - 数据来源是 `输出结果/9月/` 目录下的 Excel 文件。

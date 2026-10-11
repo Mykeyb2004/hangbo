@@ -44,6 +44,6 @@ system_role_path = "system_role.md"
 target_chars = 120
 temperature = 0.4
 max_tokens = 300
-reasoning_effort = "none"
+reasoning_effort = "high"
 checkpoint_chars = 80
 highlight_threshold = 9.6

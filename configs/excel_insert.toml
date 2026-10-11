@@ -1,0 +1,32 @@
+# 将 input 改为实际模板路径，并填写实际工作表名、单元格和值。
+# 相对路径以本 TOML 所在目录（configs/）为基准。
+[workbook]
+input = "../templates/待填写模板.xlsx"
+output = "../output/填写结果.xlsx"
+overwrite = false
+keep_vba = false
+# .xlsm 输入和输出均须使用 .xlsm 扩展名，keep_vba 改为 true。
+
+[[writes]]
+sheet = "Sheet1"
+cell = "B2"
+value = "示例文本"
+
+[[writes]]
+sheet = "Sheet1"
+cell = "C5"
+value = 123
+
+[[writes]]
+sheet = "Sheet1"
+cell = "D5"
+value = 0.95
+# 若 D5 原有百分比格式，将按原格式显示为 95%。
+
+# 多个 [[writes]] 可分别指定不同工作表。
+# 日期示例（不加引号）：value = 2026-10-09
+# 时间示例（不加引号）：value = 08:30:00
+# 本地日期时间示例：value = 2026-10-09T08:30:00
+# 布尔值示例：value = true
+# 公式示例：value = "=SUM(C5:D5)"
+# 清空显示内容：value = ""

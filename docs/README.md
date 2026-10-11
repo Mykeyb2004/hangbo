@@ -1,6 +1,6 @@
 # 文档目录
 
-当前 `/docs` 目录只保留与**新数据分析流程**直接相关、长期有效的文档。
+当前 `/docs` 目录保留**新数据分析流程**及独立工具的长期有效文档。
 
 默认运行方式：
 
@@ -24,6 +24,10 @@ uv run python main_pipeline.py --year 2026 --batch 3月
 ## PPT
 
 - [PPT生成说明.md](PPT生成说明.md)：PPT 生成输入输出、默认配置、图表页、备注页分析和单独运行方式。
+
+## 独立工具
+
+- [excel_cell_inserter.md](excel_cell_inserter.md)：读取 TOML，在 Excel 指定单元格写入数值并保留常规排版。
 
 ## 推荐阅读顺序
 

@@ -1,0 +1,32 @@
+[workbook]
+input = "/Users/zhangqijin/PycharmProjects/hangbo/data/sample_summary/2026/1-9月/1-9月客户类型样本统计表.xlsx"
+output = "/Users/zhangqijin/PycharmProjects/hangbo/data/sample_summary/2026/1-9月/1-9月客户类型样本统计表.xlsx"
+overwrite = true
+keep_vba = false
+
+# 专项调研的数据
+[[writes]]
+sheet = "样本统计"
+cell = "K20"
+value = 51
+
+[[writes]]
+sheet = "样本统计"
+cell = "M20"
+value = 69
+
+# 酒店暗访的数据
+[[writes]]
+sheet = "样本统计"
+cell = "G27"
+value = 1
+
+[[writes]]
+sheet = "样本统计"
+cell = "J27"
+value = 1
+
+[[writes]]
+sheet = "样本统计"
+cell = "M27"
+value = 1

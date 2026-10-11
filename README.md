@@ -149,6 +149,18 @@ uv run python merge_sample_summary.py --year 2026
 
 ---
 
+## 按配置填写 Excel 单元格
+
+独立工具 `insert_excel_values.py` 读取 TOML 中指定的 Excel 文件、工作表、单元格和值，保留常规排版并另存。先修改 `configs/excel_insert.toml` 的模板路径和填写内容，再运行：
+
+```bash
+uv run python insert_excel_values.py --config configs/excel_insert.toml
+```
+
+详细配置及格式保留范围见 [Excel 单元格填写说明](/Users/zhangqijin/PycharmProjects/hangbo/docs/excel_cell_inserter.md)。
+
+---
+
 ## 预查错会检查什么
 
 主流程的第一步是预查错。
@@ -467,6 +479,7 @@ uv run python main_pipeline.py --year 2026 --batch Q1
 - [docs/数据准备与预查错.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/数据准备与预查错.md)
 - [docs/统计口径与结果说明.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/统计口径与结果说明.md)
 - [docs/PPT生成说明.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/PPT生成说明.md)
+- [docs/excel_cell_inserter.md](/Users/zhangqijin/PycharmProjects/hangbo/docs/excel_cell_inserter.md)
 
 如果只记一句话，请记这句：
 
