@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "7335105e8b9ef10d0fbe35387b6ec551dda5b472",
-    "indexed_at": "2026-10-27T07:39:24Z",
+    "commit": "d51452cc2a6feba9ca7d83594aef7eacec5f5c2e",
+    "indexed_at": "2026-10-27T08:02:04Z",
     "project": "Users-zhangqijin-PycharmProjects-hangbo",
-    "nodes": 2156,
-    "edges": 8731,
+    "nodes": 2182,
+    "edges": 8817,
     "original_size": 9895936,
-    "compressed_size": 1613443,
+    "compressed_size": 1622114,
     "compression_level": 3
 }
