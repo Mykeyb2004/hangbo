@@ -6,7 +6,7 @@ import math
 import re
 import shutil
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -19,6 +19,7 @@ from hangbo.summary.table import (
     SummaryRowResult,
     build_summary_rows,
     build_total_values,
+    load_report_snapshots,
     load_summary_column_widths,
     style_summary_worksheet,
 )
@@ -472,7 +473,8 @@ def write_cumulative_summary_workbook(
     summary.cell(
         note_row,
         1,
-        "累计总分按独立周期等权平均；指标和客户类型按周期实际贡献加权，详见周期计算与权重核对。",
+        "各客户类型总分及指标取自分表，沿用单月两位小数取数规则；"
+        "表底整体值仍按独立周期等权平均。周期计算与权重核对为原累计口径参考。",
     )
     summary.cell(note_row, 1).alignment = Alignment(wrap_text=True, vertical="center")
     summary.cell(note_row, 1).font = Font(name="Arial", size=10, italic=True)
@@ -491,7 +493,7 @@ def write_cumulative_summary_workbook(
     cycle.append(["各期均值", *(result.total_values[column] for column in SUMMARY_COLUMNS), 1.0, result.total_values["总分"]])
 
     weights = workbook.create_sheet("权重核对")
-    weights.append(["周期", "样本类型", "指标", "单期值", "累计权重", "贡献"])
+    weights.append(["周期", "样本类型", "指标", "单期值", "原累计参考权重", "原累计参考贡献"])
     for period in result.periods:
         for row in period.rows:
             if not row.display_name:
@@ -503,7 +505,7 @@ def write_cumulative_summary_workbook(
                 value = row.values[column]
                 weights.append([period.label, row.display_name, column, value, weight, value * weight])
     weights.append([])
-    weights.append(["核对项", "差额"])
+    weights.append(["原累计口径核对项（非总表取数依据）", "差额"])
     for column, difference in result.rounding_differences.items():
         weights.append([f"{column}舍入差额", difference])
     for name, difference in result.checks.items():
@@ -558,6 +560,11 @@ def run_cumulative_batch(
     )
     result = build_cumulative_result(periods)
     write_cumulative_detail_reports(result, detail_output_dir)
+    # Keep detail calculations intact; publish the same mapped scores as a monthly summary.
+    result = replace(
+        result,
+        rows=build_summary_rows(load_report_snapshots(detail_output_dir)),
+    )
     write_cumulative_summary_workbook(
         result,
         summary_output_path,
@@ -574,6 +581,9 @@ def run_cumulative_batch(
                 "period_mode": january_february_mode,
                 "calculation_mode": calculation_mode,
                 "source": "independent_periods_recalculated",
+                "summary_source": "generated_detail_reports",
+                "summary_precision": 2,
+                "checks_scope": "period_contributions_before_detail_summary",
                 "total": result.total_values["总分"],
                 "period_totals": result.period_totals,
                 "rounding_differences": result.rounding_differences,
