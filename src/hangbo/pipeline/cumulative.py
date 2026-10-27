@@ -32,6 +32,7 @@ from hangbo.survey.stats import (
     SectionResult,
     SurveyStatistics,
     build_result_dataframe,
+    excel_round,
     generate_customer_category_report_bundle,
     mean_ignore_empty,
     save_results,
@@ -421,7 +422,12 @@ def _aggregate_stats_for_rule(
     )
     stats = SurveyStatistics(
         role_name=rule_name,
-        satisfaction=row.values["总分"],
+        # Use the scores actually published in the detail workbook. Averaging
+        # unrounded sections can disagree with their displayed mean by 0.01.
+        satisfaction=mean_ignore_empty([
+            excel_round(section.satisfaction)
+            for section in sections
+        ]),
         importance=overall_importance,
         sections=tuple(sections),
         matched_row_count=sum(stats.matched_row_count for stats, _ in weighted_stats),
@@ -473,8 +479,9 @@ def write_cumulative_summary_workbook(
     summary.cell(
         note_row,
         1,
-        "各客户类型总分及指标取自分表，沿用单月两位小数取数规则；"
-        "表底整体值仍按独立周期等权平均。周期计算与权重核对为原累计口径参考。",
+        "客群总分为分表有效一级指标的等权均值，总表各项与分表一致；"
+        "表底各项为有效客群对应值的等权均值，均保留两位小数。"
+        "各期均值与原累计权重另列参考。",
     )
     summary.cell(note_row, 1).alignment = Alignment(wrap_text=True, vertical="center")
     summary.cell(note_row, 1).font = Font(name="Arial", size=10, italic=True)
@@ -490,7 +497,12 @@ def write_cumulative_summary_workbook(
             period_weight,
             (totals["总分"] or 0) * period_weight,
         ])
-    cycle.append(["各期均值", *(result.total_values[column] for column in SUMMARY_COLUMNS), 1.0, result.total_values["总分"]])
+    cycle.append(["客群等权汇总", *(result.total_values[column] for column in SUMMARY_COLUMNS), None, None])
+    period_means = {
+        column: _mean_defined(result.period_totals[period.label][column] for period in result.periods)
+        for column in SUMMARY_COLUMNS
+    }
+    cycle.append(["各期均值（参考）", *(period_means[column] for column in SUMMARY_COLUMNS), 1.0, period_means["总分"]])
 
     weights = workbook.create_sheet("权重核对")
     weights.append(["周期", "样本类型", "指标", "单期值", "原累计参考权重", "原累计参考贡献"])
@@ -560,10 +572,12 @@ def run_cumulative_batch(
     )
     result = build_cumulative_result(periods)
     write_cumulative_detail_reports(result, detail_output_dir)
-    # Keep detail calculations intact; publish the same mapped scores as a monthly summary.
+    # Publish the same mapped scores and customer means as a monthly summary.
+    rows = build_summary_rows(load_report_snapshots(detail_output_dir))
     result = replace(
         result,
-        rows=build_summary_rows(load_report_snapshots(detail_output_dir)),
+        rows=rows,
+        total_values=build_total_values(rows),
     )
     write_cumulative_summary_workbook(
         result,
@@ -583,6 +597,8 @@ def run_cumulative_batch(
                 "source": "independent_periods_recalculated",
                 "summary_source": "generated_detail_reports",
                 "summary_precision": 2,
+                "customer_total_source": "equal_mean_of_published_first_level_sections",
+                "summary_rollup": "equal_mean_of_defined_customer_scores",
                 "checks_scope": "period_contributions_before_detail_summary",
                 "total": result.total_values["总分"],
                 "period_totals": result.period_totals,
