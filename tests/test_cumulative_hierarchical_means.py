@@ -62,8 +62,8 @@ class CumulativeHierarchicalMeansTest(unittest.TestCase):
             reports = load_report_snapshots(output / "details")
             exhibition = next(report for report in reports if report.source_path.stem == "展览主承办")
             # Catering is nested under support service, not a fifth top-level dimension.
-            self.assertEqual(sorted(exhibition.sections.values()), [9.55, 9.7, 9.77, 10.0])
-            self.assertEqual(exhibition.total, 9.76)
+            self.assertEqual(sorted(exhibition.sections.values()), [9.55, 9.75, 9.78, 10.0])
+            self.assertEqual(exhibition.total, 9.77)
             for report in reports:
                 with self.subTest(customer=report.role_name):
                     self.assertEqual(report.total, rounded_mean(report.sections.values()))
@@ -71,7 +71,7 @@ class CumulativeHierarchicalMeansTest(unittest.TestCase):
             workbook = load_workbook(output / "summary.xlsx", data_only=True)
             try:
                 summary = workbook["汇总表"]
-                self.assertEqual(summary["C3"].value, 9.76)
+                self.assertEqual(summary["C3"].value, 9.77)
                 self.assertEqual(summary["C22"].value, 9.73)
                 for col_index, indicator in enumerate(SUMMARY_COLUMNS, 3):
                     with self.subTest(indicator=indicator):

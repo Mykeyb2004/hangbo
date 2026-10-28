@@ -15,7 +15,7 @@ from tempfile import TemporaryDirectory
 from openpyxl import load_workbook
 
 from hangbo.pipeline.cumulative import run_cumulative_batch
-from hangbo.summary.table import SUMMARY_COLUMNS, build_summary_rows, generate_summary_report, load_report_snapshots
+from hangbo.summary.table import SUMMARY_COLUMNS, build_summary_rows, generate_summary_report, load_report_snapshots, row_kind
 from hangbo.survey.stats import run_directory_batch
 from verify_summary_algorithm_regression import (
     BASELINE, CONFIG, LABELS, ROOT, detail_snapshots, digest, saved_month, snapshot,
@@ -66,16 +66,44 @@ def main():
                     calculation_mode=CONFIG["calculation_mode"], january_february_mode=CONFIG["january_february_mode"],
                     log_path=work / "cumulative" / label / "cumulative.json",
                 )
-            # Customer satisfaction (B2) is the sole permitted detail-cell change.
+            # Only cumulative satisfaction scores may change. Labels, importance,
+            # workbook structure and every monthly value remain protected.
             current_details = detail_snapshots(detail)
             previous_details = baseline["cumulative"][label]["details"]
             assert current_details.keys() == previous_details.keys(), (label, "detail file set changed")
             for filename, sheets in current_details.items():
                 assert sheets.keys() == previous_details[filename].keys(), (label, filename, "sheet set changed")
                 for sheet, cells in sheets.items():
-                    assert {cell: value for cell, value in cells.items() if cell != "B2"} == {
-                        cell: value for cell, value in previous_details[filename][sheet].items() if cell != "B2"
-                    }, (label, filename, "non-total detail values changed")
+                    assert {cell: value for cell, value in cells.items() if not (cell.startswith("B") and cell != "B1")} == {
+                        cell: value for cell, value in previous_details[filename][sheet].items() if not (cell.startswith("B") and cell != "B1")
+                    }, (label, filename, "labels or importance values changed")
+
+            section_count = metric_count = 0
+            for path in sorted(detail.glob("*.xlsx")):
+                workbook = load_workbook(path, data_only=True)
+                try:
+                    sheet = workbook.active
+                    sections = []
+                    for index in range(3, sheet.max_row + 1):
+                        kind = row_kind(sheet, index, 1)
+                        score = sheet.cell(index, 2).value
+                        if score is not None:
+                            assert score == float(Decimal(str(score)).quantize(Decimal("0.01"))), (label, path.name, index, "stored precision")
+                            assert score == float(f"{score:.2f}"), (label, path.name, index, "PPT display rounding")
+                        if kind == "section":
+                            sections.append((score, []))
+                        elif kind == "metric":
+                            sections[-1][1].append(score)
+                            old = previous_details[path.name][sheet.title].get(f"B{index}")
+                            assert (score is None) == (old is None), (label, path.name, index, "missingness changed")
+                            if score is not None:
+                                assert abs(score - old) <= 0.0050000001, (label, path.name, index, "leaf changed beyond rounding")
+                            metric_count += 1
+                    for score, children in sections:
+                        assert score == mean(children), (label, path.name, "child mean mismatch")
+                        section_count += 1
+                finally:
+                    workbook.close()
 
             reports = load_report_snapshots(detail)
             for report in reports:
@@ -102,7 +130,9 @@ def main():
                 "customer_totals_equal_dimension_means": len(reports),
                 "cross_table_cells_checked": comparisons,
                 "bottom_customer_means_checked": len(SUMMARY_COLUMNS),
-                "non_total_detail_cells_unchanged": True,
+                "section_child_means_checked": section_count,
+                "leaf_rounding_checked": metric_count,
+                "labels_and_importance_unchanged": True,
                 "overall_satisfaction": result.total_values["总分"],
                 "monthly_overall_mean_reference": mean(t["总分"] for t in result.period_totals.values()),
             }
@@ -115,7 +145,7 @@ def main():
         "monthly_values_match_pre_change_baseline": True,
         "cumulative": cumulative_checks, "protected_excel_files_unchanged": len(protected),
     }
-    output = ROOT / "logs/verification/hierarchical-summary-regression.json"
+    output = ROOT / "logs/verification/bottom-up-summary-regression.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(report, ensure_ascii=False, indent=2))

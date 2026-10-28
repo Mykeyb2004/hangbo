@@ -7,6 +7,8 @@ import re
 import shutil
 import tempfile
 from dataclasses import dataclass, field, replace
+from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Iterable
 
@@ -329,6 +331,20 @@ def _weighted_average(
     return math.fsum(value * weight for value, weight in defined) / denominator
 
 
+def _rounded_weighted_satisfaction(
+    values: Iterable[tuple[float | None, float]],
+) -> float | None:
+    # Keep decimal half-way values exact until the published-score rounding.
+    # Binary products at weights such as 1/6 can turn 9.675 into 9.674999999999999.
+    defined = [(Fraction(str(value)), Fraction(str(weight)))
+               for value, weight in values if value is not None]
+    denominator = sum(weight for _, weight in defined)
+    if not defined or denominator == 0:
+        return None
+    average = sum(value * weight for value, weight in defined) / denominator
+    return excel_round(Decimal(average.numerator) / Decimal(average.denominator))
+
+
 def _aggregate_stats_for_rule(
     result: CumulativeResult,
     rule_name: str,
@@ -368,12 +384,6 @@ def _aggregate_stats_for_rule(
     sections: list[SectionResult] = []
     definitions: list[SectionDefinition] = []
     for section_name in section_names:
-        section_values = [
-            (section.satisfaction, weight)
-            for stats, weight in weighted_stats
-            for section in stats.sections
-            if section.name == section_name
-        ]
         importance_values = [
             (section.importance, weight)
             for stats, weight in weighted_stats
@@ -402,7 +412,7 @@ def _aggregate_stats_for_rule(
             metrics.append(
                 MetricResult(
                     metric_name,
-                    _weighted_average(metric_values),
+                    _rounded_weighted_satisfaction(metric_values),
                     _weighted_average(metric_importance),
                 )
             )
@@ -410,7 +420,7 @@ def _aggregate_stats_for_rule(
         sections.append(
             SectionResult(
                 section_name,
-                _weighted_average(section_values),
+                mean_ignore_empty([metric.satisfaction for metric in metrics]),
                 _weighted_average(importance_values),
                 tuple(metrics),
             )
@@ -422,12 +432,9 @@ def _aggregate_stats_for_rule(
     )
     stats = SurveyStatistics(
         role_name=rule_name,
-        # Use the scores actually published in the detail workbook. Averaging
-        # unrounded sections can disagree with their displayed mean by 0.01.
-        satisfaction=mean_ignore_empty([
-            excel_round(section.satisfaction)
-            for section in sections
-        ]),
+        # Every cumulative satisfaction level uses the published two-decimal
+        # values below it, including sections with partially missing metrics.
+        satisfaction=mean_ignore_empty([section.satisfaction for section in sections]),
         importance=overall_importance,
         sections=tuple(sections),
         matched_row_count=sum(stats.matched_row_count for stats, _ in weighted_stats),
@@ -479,12 +486,14 @@ def write_cumulative_summary_workbook(
     summary.cell(
         note_row,
         1,
-        "客群总分为分表有效一级指标的等权均值，总表各项与分表一致；"
+        "累计子项保留两位小数，一级指标为有效子项的等权均值；"
+        "客群总分为有效一级指标的等权均值，总表各项与分表一致；"
         "表底各项为有效客群对应值的等权均值，均保留两位小数。"
         "各期均值与原累计权重另列参考。",
     )
     summary.cell(note_row, 1).alignment = Alignment(wrap_text=True, vertical="center")
     summary.cell(note_row, 1).font = Font(name="Arial", size=10, italic=True)
+    summary.row_dimensions[note_row].height = 32
 
     cycle = workbook.create_sheet("周期计算")
     cycle.append(["周期", *SUMMARY_COLUMNS, "周期权重", "总分贡献"])
@@ -597,6 +606,8 @@ def run_cumulative_batch(
                 "source": "independent_periods_recalculated",
                 "summary_source": "generated_detail_reports",
                 "summary_precision": 2,
+                "section_source": "equal_mean_of_published_child_metrics",
+                "metric_rounding": "decimal_half_up_2_places_after_weighted_average",
                 "customer_total_source": "equal_mean_of_published_first_level_sections",
                 "summary_rollup": "equal_mean_of_defined_customer_scores",
                 "checks_scope": "period_contributions_before_detail_summary",
