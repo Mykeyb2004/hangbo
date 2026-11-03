@@ -1,6 +1,6 @@
 [workbook]
-input = "/Users/zhangqijin/PycharmProjects/hangbo/data/sample_summary/2026/1-9月/1-9月客户类型样本统计表.xlsx"
-output = "/Users/zhangqijin/PycharmProjects/hangbo/data/sample_summary/2026/1-9月/1-9月客户类型样本统计表.xlsx"
+input = "/Users/zhangqijin/PycharmProjects/hangbo/data/sample_summary/2026/1-10月/1-10月客户类型样本统计表.xlsx"
+output = "/Users/zhangqijin/PycharmProjects/hangbo/data/sample_summary/2026/1-10月/1-10月客户类型样本统计表.xlsx"
 overwrite = true
 keep_vba = false
 
