@@ -153,6 +153,46 @@ class SampleTableTest(unittest.TestCase):
             guest_row = row_by_label[("五、酒店客户", "酒店散客")]
             self.assertEqual(guest_row.group_counts, {"1-2月": 1, "3月": 1})
 
+    def test_generate_sample_table_report_sorts_auto_month_columns_naturally(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_dir = temp_path / "inputs"
+            input_dir.mkdir()
+            write_source_workbook(
+                input_dir / "酒店.xlsx",
+                [
+                    {"C": "散客", "月份": month}
+                    for month, count in [
+                        ("12月", 12), ("03", 3), ("10", 10), ("01-02", 2),
+                        ("09", 9), ("11", 11), ("04", 4), ("08", 8),
+                        ("06", 6), ("05", 5), ("07", 7),
+                    ]
+                    for _ in range(count)
+                ],
+            )
+
+            output_path = generate_sample_table_report(
+                input_dir=input_dir,
+                output_dir=temp_path / "outputs",
+                default_year="2026",
+            )
+            workbook = load_workbook(output_path)
+            worksheet = workbook.active
+            month_columns = tuple(
+                (worksheet.cell(2, column).value, worksheet.cell(21, column).value)
+                for column in range(6, worksheet.max_column + 1)
+            )
+            workbook.close()
+
+        self.assertEqual(
+            month_columns,
+            (
+                ("1-2月", 2), ("3月", 3), ("4月", 4), ("5月", 5),
+                ("6月", 6), ("7月", 7), ("8月", 8), ("9月", 9),
+                ("10月", 10), ("11月", 11), ("12月", 12),
+            ),
+        )
+
     def test_generate_sample_table_report_creates_standalone_workbook_with_formulas(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

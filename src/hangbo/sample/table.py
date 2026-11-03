@@ -247,7 +247,15 @@ def build_auto_sample_groups(
         )
         for year_text, month_text in year_month_values
     ]
-    return tuple(sorted(groups, key=lambda item: item.label))
+    return tuple(
+        sorted(
+            groups,
+            key=lambda item: tuple(
+                int(part) if part.isdigit() else part
+                for part in re.split(r"(\d+)", item.label)
+            ),
+        )
+    )
 
 
 def parse_sample_group_specs(
